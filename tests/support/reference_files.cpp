@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Thomas Fanning
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #include "reference_files.hpp"
 
 #include <catch2/catch_test_macros.hpp>
@@ -31,7 +33,10 @@ Manifest Manifest::parse(const std::string& text) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
         const auto eq = line.find('=');
         if (eq == std::string::npos) continue;
-        m.kv_.emplace(line.substr(0, eq), line.substr(eq + 1));
+        const std::string key = line.substr(0, eq);
+        if (!m.kv_.emplace(key, line.substr(eq + 1)).second) {
+            throw std::runtime_error("manifest repeats key " + key);
+        }
     }
     return m;
 }
@@ -133,7 +138,16 @@ fs::path reference_dir_or_skip() {
 
 Index load_index(const fs::path& dir) {
     Index idx;
-    const Manifest header = Manifest::load(dir / "index.txt");
+    // index.txt repeats case=, so the header is parsed from the other lines.
+    std::string header_text;
+    {
+        std::istringstream all(read_file(dir / "index.txt"));
+        std::string l;
+        while (std::getline(all, l)) {
+            if (l.rfind("case=", 0) != 0) header_text += l + "\n";
+        }
+    }
+    const Manifest header = Manifest::parse(header_text);
     idx.format_version = static_cast<int>(header.integer("format_version"));
     idx.package_version = header.str("package_version");
     idx.git_commit = header.str("git_commit");

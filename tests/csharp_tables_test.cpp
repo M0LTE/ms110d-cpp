@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Thomas Fanning
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Compares every C++ table with the C# values it was ported from. The expected values are in
 // tests/data/csharp-tables-0.2.0.txt, dumped from the M0LTE.Ms110d 0.2.0 package itself (the
 // dump header names the commit), so this is a check against the C# code, not against the
@@ -116,6 +118,8 @@ TEST_CASE("PN, Walsh, di-bit and transcoding tables equal the C#", "[csharp]") {
     check_bytes(tables::wid_pn, "wid_pn");
     for (std::size_t i = 0; i < 4; ++i) check_bytes(tables::walsh[i], "walsh" + std::to_string(i));
     check_bytes(tables::fixed_dibits, "fixed_dibits");
+    check_bytes(tables::transcode_bpsk, "transcode_bpsk");
+    check_bytes(tables::transcode_qpsk, "transcode_qpsk");
     check_bytes(tables::transcode_8psk, "transcode_8psk");
 }
 

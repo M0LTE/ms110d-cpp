@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Thomas Fanning
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #pragma once
 
 // Internal tables of MIL-STD-188-110D Appendix D (3 kHz serial tone). Not part of the public
@@ -180,7 +182,8 @@ constexpr const ProbeSpec* find_probe_spec(int k) noexcept {
 }
 
 // Symbol i of a k-symbol probe, shifted for the interleaver boundary or not. i may run past k
-// (the EOT marker extends the last probe cyclically by 32 symbols).
+// (the EOT marker extends the last probe cyclically by 32 symbols). Requires i >= 0 and a
+// spec from probe_specs (a negative i would index before the base sequence).
 constexpr Complex32 probe_symbol(const ProbeSpec& spec, int i, bool boundary) noexcept {
     const int offset = boundary ? spec.shift : 0;
     return spec.base[static_cast<std::size_t>((i + offset) % static_cast<int>(spec.base.size()))];

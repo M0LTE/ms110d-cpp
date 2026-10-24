@@ -66,7 +66,7 @@ Two ways of running them:
 - **Side by side.** A .NET test project loads the C++ through its C interface and compares the two in-process on thousands of random seeds. A mismatch names the first stage that differs.
 - **Stand-alone.** The C++ has its own tests against reference files made by the C#, plus the standard's own worked examples and performance masks (D-LXIV and D-LXV). So it proves itself without .NET, including on the microcontroller.
 
-One trap to guard against: a port copies the original's misreadings of the standard. So each stage is checked against the standard as it is ported, not just against the C#. Any disagreement is raised, not copied.
+One trap to guard against: a port copies the original's misreadings of the standard. The standard's tables are not re-checked: they were transcribed twice and verified for the C#. But the logic of each stage (bit order, probe placement, scrambler stepping and so on) is read against the standard as it is ported, and any disagreement is raised, not copied.
 
 ## Live side by side on a mailcast receiver
 
@@ -125,3 +125,4 @@ Each stage ends with a merged, reviewed PR and its tests passing. Stages 6 and 7
 ## Amendment log
 
 - 2026-10-24: plan agreed.
+- 2026-10-24: the standard's tables are not re-checked during the port, since they were transcribed twice and verified for the C#; the C++ tables are checked against the C# only (Tom).

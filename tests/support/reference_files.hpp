@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Thomas Fanning
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #pragma once
 
 // Reader for the C# reference files (format_version 2; see docs/dev/reference-files.md and
@@ -17,7 +19,7 @@
 
 namespace ms110d_test {
 
-// key=value text, one pair per line. A repeated key keeps the first value.
+// key=value text, one pair per line. A repeated key is an error (std::runtime_error).
 class Manifest {
 public:
     static Manifest parse(const std::string& text);

@@ -10,6 +10,7 @@ add_executable(ms110d_tests
   support/alloc_guard.cpp
   version_test.cpp
   alloc_guard_test.cpp
+  scrambler_interleaver_test.cpp
   deviation_test.cpp
   support/reference_files.cpp
   csharp_tables_test.cpp
@@ -31,6 +32,11 @@ ms110d_apply_options(ms110d_tests)
 
 include(Catch)
 catch_discover_tests(ms110d_tests PROPERTIES ENVIRONMENT "MS110D_REFERENCE_DIR=${MS110D_REFERENCE_DIR}")
+
+# Every C, C++ and C# source carries the copyright and licence header.
+add_test(NAME copyright_headers
+  COMMAND ${CMAKE_COMMAND} "-DSOURCE_DIR=${PROJECT_SOURCE_DIR}"
+    -P "${PROJECT_SOURCE_DIR}/cmake/CopyrightHeaders.cmake")
 
 # Public API lock: see docs/dev/api-lock.md.
 set(MS110D_API_SNAPSHOT "${CMAKE_CURRENT_SOURCE_DIR}/api/public-api.txt")

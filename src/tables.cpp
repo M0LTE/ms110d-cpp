@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Thomas Fanning
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Compiles the internal tables into the library so every target, including the Cortex-M7
 // cross build, proves they are valid constexpr data. Nothing is emitted here.
 

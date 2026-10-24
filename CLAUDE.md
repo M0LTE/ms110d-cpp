@@ -14,7 +14,14 @@ All work is tracked as GitHub issues: one epic per stage of [docs/plan.md](docs/
 
 ## Compatibility
 
-The C# package [M0LTE.Ms110d](https://github.com/M0LTE/M0LTE.Ms110d) is the reference and MIL-STD-188-110D is the yardstick. Check each ported stage against the standard, not just the C#. Every accepted difference is a named test with an issue number; none exist only in prose.
+The C# package [M0LTE.Ms110d](https://github.com/M0LTE/M0LTE.Ms110d) is the reference and MIL-STD-188-110D is the yardstick. Don't re-check the standard's tables (already verified for the C#); do read each stage's logic against the standard and raise disagreements. Every accepted difference is a named test with an issue number; none exist only in prose.
+
+## Copyright
+
+Every C, C++ and C# source file starts with these two lines (the `copyright_headers` test enforces it):
+
+    // Copyright (C) 2026 Thomas Fanning
+    // SPDX-License-Identifier: AGPL-3.0-or-later
 
 ## Public repo
 

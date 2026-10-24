@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Thomas Fanning
+// SPDX-License-Identifier: AGPL-3.0-or-later
 // Links the C++ tables to the C# reference files (docs/dev/reference-files.md): every case's
 // manifest must agree with the tables, and the table-driven stages (transcoding, probes,
 // the preamble's Fixed section, the EOM) must reproduce the files bit for bit. Skipped when
