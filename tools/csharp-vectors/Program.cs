@@ -13,6 +13,13 @@ using System.Text;
 using M0LTE.Ms110d;
 using M0LTE.Ms110d.Fec;
 
+// "corpus" modes: the C# receiver over real audio, see CorpusDecode.cs and docs/dev/corpus.md.
+if (args.Length > 2 && args[0] == "corpus")
+{
+    Console.Out.Write(CorpusDecode.Report(args[1], args[2]));
+    return;
+}
+
 // "tables" mode: the mode/table dump for tests/data/csharp-tables-0.2.1.txt (see TablesDump.cs).
 if (args.Length > 0 && args[0] == "tables")
 {
