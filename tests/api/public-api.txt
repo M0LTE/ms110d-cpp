@@ -1,0 +1,31 @@
+==== m0lte/ms110d/config.hpp
+#pragma once
+namespace m0lte::ms110d {
+#ifdef MS110D_SINGLE_PRECISION
+inline namespace v_single {
+using real = float;
+}
+#else
+inline namespace v_double {
+using real = double;
+}
+#endif
+}
+==== m0lte/ms110d/version.hpp
+#pragma once
+#include <m0lte/ms110d/config.hpp>
+namespace m0lte::ms110d {
+struct Version {
+    int major;
+    int minor;
+    int patch;
+};
+inline constexpr Version library_version{N};
+#ifdef MS110D_SINGLE_PRECISION
+inline namespace v_single {
+#else
+inline namespace v_double {
+#endif
+Version version() noexcept;
+}
+}

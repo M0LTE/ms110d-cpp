@@ -1,0 +1,25 @@
+#pragma once
+
+#include <m0lte/ms110d/config.hpp>
+
+namespace m0lte::ms110d {
+
+struct Version {
+    int major;
+    int minor;
+    int patch;
+};
+
+inline constexpr Version library_version{@PROJECT_VERSION_MAJOR@, @PROJECT_VERSION_MINOR@, @PROJECT_VERSION_PATCH@};
+
+// The version this library was built as. Lives in the precision inline
+// namespace (see config.hpp) so that mixing precisions fails to link.
+#ifdef MS110D_SINGLE_PRECISION
+inline namespace v_single {
+#else
+inline namespace v_double {
+#endif
+Version version() noexcept;
+}
+
+}  // namespace m0lte::ms110d
