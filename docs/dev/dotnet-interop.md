@@ -1,6 +1,6 @@
 # .NET interop tests
 
-`tests/interop` (`Ms110dInterop.Tests`, xunit v3, net10.0) loads the C# reference from NuGet and the C++ shared library through the C interface in one process. It is the harness later stages extend to compare the two stage by stage. Today it has smoke tests: the ABI version and library version match, the precision is reported, and a C# `Ms110dModulator` loads and modulates a few bits.
+`tests/interop` (`Ms110dInterop.Tests`, xunit v3, net10.0) loads the C# reference from NuGet and the C++ shared library through the C interface in one process. It is the harness later stages extend to compare the two stage by stage; layer 1 (random frames through every bit stage) is in [layer1.md](layer1.md). It also has smoke tests: the ABI version and library version match, the precision is reported, and a C# `Ms110dModulator` loads and modulates a few bits.
 
 ## Running
 
@@ -17,6 +17,8 @@ The test `dotnet_interop` runs `dotnet run` on the project, with `MS110D_NATIVE_
 The tests are an xunit v3 executable, run with `dotnet run` rather than `dotnet test`: on the .NET 10 SDK `dotnet test` drives xunit v3 through Microsoft.Testing.Platform, which needs extra SDK configuration and silently ignores a VSTest-style `--filter`. `dotnet run` just runs the exe, which exits non-zero on failure, and takes xunit's own switches after `--`.
 
 To run it by hand, set `MS110D_NATIVE_LIB`, `MS110D_EXPECTED_VERSION` and `MS110D_PIN_FILE` (ctest sets all three; the pin file is `reference/pin.txt`) and run `dotnet run --project tests/interop -c Release`. One class: `dotnet run --project tests/interop -c Release -- -class Ms110dInterop.Tests.SmokeTests`; one method: `-- -method Ms110dInterop.Tests.SmokeTests.PrecisionIsReported`. The build directory can be anywhere; nothing is located relative to the source tree.
+
+The C++ stages that are not in the public C interface are reached through `ms110d_testhooks`, a test-only shared library (`tests/testhooks`, path in `MS110D_TESTHOOKS_LIB`), declared in `Native.cs` next to the C interface.
 
 ## The reference version
 

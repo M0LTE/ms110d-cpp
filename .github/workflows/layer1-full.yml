@@ -1,0 +1,41 @@
+name: layer 1 full
+
+# The plan's gate for stage 2: 100,000 random frames per combination, side by side with the C#
+# reference. Too slow for every PR, so it runs weekly and on demand. See docs/dev/layer1.md.
+on:
+  schedule:
+    - cron: "17 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      frames:
+        description: "Frames per combination (blank: 100000)"
+        required: false
+        default: ""
+
+jobs:
+  layer1:
+    name: layer 1, waveform ${{ matrix.wn }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        wn: [0, 1, 2, 3, 4, 5, 6, 7, 8, 13]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMS110D_DOTNET_TESTS=ON -DMS110D_DOTNET_TIMEOUT=10000
+      - name: Build
+        run: cmake --build build -j4
+      - name: Layer 1, full count
+        env:
+          MS110D_L1_FULL: "1"
+          MS110D_L1_FRAMES: ${{ github.event.inputs.frames }}
+          MS110D_L1_WN: ${{ matrix.wn }}
+        run: |
+          start=$(date +%s)
+          ctest --test-dir build -R '^dotnet_interop$' --output-on-failure
+          echo "layer 1 wn ${{ matrix.wn }}: $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
