@@ -59,12 +59,8 @@ The audio is the same as the C# `Ms110dModulator.Modulate` makes, to within 1e-6
 
 The two implementations must agree exactly on the bits on the wire, closely on the transmitted audio, and within 0.5 dB on receive performance, on simulated HF channels and on real off-air recordings. Any difference we keep on purpose is written down as a named test. See [docs/plan.md](docs/plan.md#how-we-prove-compatibility).
 
-## Commercial licensing
-
-The code is public under AGPL-3.0-or-later. If the AGPL does not suit your use, commercial licences are available from the copyright holder, Thomas Fanning. To ask, open a GitHub issue titled "Commercial licence enquiry".
-
 ## Licence
 
 Copyright (C) 2026 Thomas Fanning.
 
-AGPL-3.0-or-later; see [LICENSE](LICENSE). Commercial licences are available from the copyright holder for use where the AGPL does not suit. See [PROVENANCE.md](PROVENANCE.md) for where the code comes from.
+The code is public under AGPL-3.0-or-later; see [LICENSE](LICENSE). If the AGPL does not suit your use, commercial licences are available from the copyright holder, Thomas Fanning. To ask, open a GitHub issue titled "Commercial licence enquiry". Because of that, outside contributions can only be accepted with a contributor licence agreement; please open an issue before writing code. See [PROVENANCE.md](PROVENANCE.md) for where the code comes from.

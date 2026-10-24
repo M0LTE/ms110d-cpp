@@ -30,11 +30,10 @@ The API is still settling, and SemVer allows anything to change. In practice we 
 
 ## Releasing
 
-A release is a `vX.Y.Z` tag on green `main`. In one commit:
+A release is a `vX.Y.Z` tag on a commit that is on green `main`; the workflow refuses any other. In one commit:
 
 1. Bump the version in `CMakeLists.txt` per the table above, and the ABI version if needed.
-2. Update the API snapshot if the headers changed.
-3. In `CHANGELOG.md`, rename the Unreleased section to the new version and date, and start a fresh Unreleased section.
+2. In `CHANGELOG.md`, rename the Unreleased section to the new version and date, and start a fresh Unreleased section.
 
 Then tag that commit and push the tag:
 
@@ -42,3 +41,5 @@ Then tag that commit and push the tag:
     git push origin vX.Y.Z
 
 The [release](../.github/workflows/release.yml) workflow checks that the tag matches the CMake version, runs the full CI, builds a source archive (`m0lte-ms110d-X.Y.Z.tar.gz`) with a SHA-256 file, and creates a GitHub release with generated notes and the archive attached. Nothing is published to a package registry.
+
+The archive is source only. Building with tests on (the default) fetches Catch2 from the network; pass `-DMS110D_BUILD_TESTS=OFF` to build the library without it.
