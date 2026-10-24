@@ -49,6 +49,6 @@ CI runs the script on every PR and caches `build/_reference` keyed on `reference
 
     dotnet run -c Release --project tools/csharp-vectors -- dfe build/_reference/ref > tests/data/csharp-dfe-0.2.0.txt
 
-`scripts/check-dumps.sh [reference-dir]` regenerates all five committed dumps (tables, framing, dfe, `tests/csharp_vectors.hpp`, `tests/fec_vectors.inc`) and fails if any differs from the committed file; the CI reference job runs it.
+`scripts/check-dumps.sh [reference-dir]` regenerates all six committed dumps (tables, framing, dfe, soft, `tests/csharp_vectors.hpp`, `tests/fec_vectors.inc`) and fails if any differs from the committed file; the CI reference job runs it.
 
 The tool (`tools/csharp-vectors`) is pinned to the NuGet package `M0LTE.Ms110d` 0.2.0, so bump the version in its project file together with `reference/pin.txt`. The BPSK, QPSK and 8PSK transcode lines come from the C# modulator's private `Transcode`, evaluated for every input through reflection. Without arguments the same tool prints the scrambler and interleaver vectors for `tests/csharp_vectors.hpp` (see `tools/csharp-vectors/make_header.py`).

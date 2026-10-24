@@ -20,12 +20,9 @@ add_executable(ms110d_tests
   modulator_test.cpp
   framing_test.cpp
   transmitter_test.cpp
-<<<<<<< HEAD
+  layer1_reference_test.cpp
   support/eq_scenario.cpp
   equaliser_test.cpp)
-=======
-  layer1_reference_test.cpp)
->>>>>>> origin/main
 target_link_libraries(ms110d_tests PRIVATE m0lte::ms110d Catch2::Catch2WithMain)
 # The tests also see the library's internal headers (src/tables.hpp); they are not installed.
 target_include_directories(ms110d_tests PRIVATE support "${PROJECT_SOURCE_DIR}/src")
