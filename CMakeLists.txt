@@ -40,23 +40,10 @@ configure_file(
   "${CMAKE_CURRENT_BINARY_DIR}/generated/m0lte/ms110d/version.hpp"
   @ONLY)
 
-# The FEC primitives: a module of their own with no MS110D dependency, so they can
-# become a separate library later.
-add_library(m0lte_fec STATIC src/fec/tail_biting_encoder.cpp)
-add_library(m0lte::fec ALIAS m0lte_fec)
-target_compile_features(m0lte_fec PUBLIC cxx_std_20)
-target_include_directories(m0lte_fec PUBLIC
-  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
-  "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
-ms110d_apply_options(m0lte_fec)
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  target_compile_options(m0lte_fec PRIVATE -fno-exceptions -fno-rtti)
-endif()
-
-add_library(ms110d src/version.cpp src/puncture.cpp)
+add_library(ms110d src/version.cpp src/mode.cpp src/tables.cpp src/trinomial_scrambler.cpp src/scrambler_interleaver_check.cpp
+  src/puncture.cpp src/fec/tail_biting_encoder.cpp)
 add_library(m0lte::ms110d ALIAS ms110d)
 
-target_link_libraries(ms110d PUBLIC m0lte_fec)
 target_compile_features(ms110d PUBLIC cxx_std_20)
 target_include_directories(ms110d PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
@@ -80,7 +67,7 @@ if(MS110D_BUILD_C_SHARED)
   endif()
   # Only the functions marked MS110D_API are exported; everything else is hidden.
   # The static C++ library is linked into the shared one, so it needs PIC.
-  set_target_properties(ms110d m0lte_fec PROPERTIES
+  set_target_properties(ms110d PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON)
@@ -111,7 +98,7 @@ endif()
 if(MS110D_INSTALL)
   include(CMakePackageConfigHelpers)
 
-  set(_ms110d_install_targets m0lte_fec ms110d)
+  set(_ms110d_install_targets ms110d)
   if(MS110D_BUILD_C_SHARED)
     list(APPEND _ms110d_install_targets ms110d_c)
   endif()

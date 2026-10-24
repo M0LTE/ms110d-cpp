@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Thomas Fanning
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// Generated from the C# reference (see the comment in fec_test.cpp). Do not edit by hand.
-// Format for each table is given in fec_test.cpp.
+
+// Generated from the C# reference by tools/csharp-vectors (fec mode) and make_fec_inc.py. Do not edit by hand.
 
 struct EncodeVec { int k; std::uint32_t seed; std::size_t n; std::uint64_t fnv; };
 constexpr EncodeVec encode_vectors[] = {

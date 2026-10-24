@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Thomas Fanning
 // SPDX-License-Identifier: AGPL-3.0-or-later
-#include <m0lte/fec/convolutional.hpp>
+#include "convolutional.hpp"
 
 #include <bit>
 

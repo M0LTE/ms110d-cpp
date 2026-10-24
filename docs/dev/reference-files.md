@@ -32,3 +32,13 @@ CI runs the script on every PR and caches `build/_reference` keyed on `reference
 3. Run `scripts/generate-reference.sh --force` and note the new tree hash.
 4. Rerun every layer: the C++ unit tests against the new reference files, the interop tests against the new package, and the cross-decoding and real audio layers from docs/plan.md. A difference is either a C++ bug, a C# bug (fix the C# per the plan's deviation rules) or a named accepted deviation.
 5. Put the new tree hash and what changed in the PR.
+
+## Reading them from the tests
+
+`tests/support/reference_files.hpp` is a small reader for format_version 2: the manifest (`key=value`), `index.txt`, and each stage's bits, symbols, `cf32` and `f32` files, with the file size checked against the manifest count. The directory comes from the environment variable `MS110D_REFERENCE_DIR`, which CMake sets for ctest from the cache variable of the same name (default `build/_reference/ref`, where the script puts them). Tests that need the files skip with a message when they are absent. Setting `MS110D_REQUIRE_REFERENCE=1` turns a missing directory into a failure instead; CI sets it in the `reference files` job, which generates the files and runs the tests whose names start with `reference `.
+
+`tests/reference_tables_test.cpp` ties the C++ tables to the files: every case's manifest must agree with the mode and interleaver tables, and the table-driven stages (transcoding, mini-probes with the boundary rule, the EOM bits, the TLC and Fixed preamble sections) must reproduce the files exactly. The tables are also compared value by value with a dump of the C# package's own tables (`tests/data/csharp-tables-0.2.0.txt`, `tests/csharp_tables_test.cpp`); regenerate the dump when the pin moves, from the repo root:
+
+    dotnet run -c Release --project tools/csharp-vectors -- tables > tests/data/csharp-tables-0.2.0.txt
+
+The tool (`tools/csharp-vectors`) is pinned to the NuGet package `M0LTE.Ms110d` 0.2.0, so bump the version in its project file together with `reference/pin.txt`. The BPSK, QPSK and 8PSK transcode lines come from the C# modulator's private `Transcode`, evaluated for every input through reflection. Without arguments the same tool prints the scrambler and interleaver vectors for `tests/csharp_vectors.hpp` (see `tools/csharp-vectors/make_header.py`).

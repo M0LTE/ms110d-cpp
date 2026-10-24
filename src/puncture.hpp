@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #pragma once
 
-#include <m0lte/fec/convolutional.hpp>
+#include "fec/convolutional.hpp"
 
 #include <cstddef>
 #include <cstdint>

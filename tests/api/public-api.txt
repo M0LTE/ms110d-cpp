@@ -1,22 +1,3 @@
-==== m0lte/fec/convolutional.hpp
-#pragma once
-#include <cstddef>
-#include <cstdint>
-#include <span>
-namespace m0lte::fec {
-struct ConvolutionalCode {
-    int k;
-    std::uint32_t poly_t1;
-    std::uint32_t poly_t2;
-    constexpr std::uint32_t states() const noexcept { return std::uint32_t{1} << (k - 1); }
-    friend constexpr bool operator==(const ConvolutionalCode&, const ConvolutionalCode&) = default;
-};
-inline constexpr ConvolutionalCode k7_133_171{7, 0b1011011u, 0b1111001u};
-inline constexpr ConvolutionalCode k9_561_753{9, 0b101110001u, 0b111101011u};
-bool encode_tail_biting(const ConvolutionalCode& code,
-                        std::span<const std::uint8_t> info,
-                        std::span<std::uint8_t> coded) noexcept;
-}
 ==== m0lte/ms110d/config.hpp
 #pragma once
 namespace m0lte::ms110d {
@@ -29,6 +10,49 @@ inline namespace v_double {
 using real = double;
 }
 #endif
+}
+==== m0lte/ms110d/mode.hpp
+#pragma once
+#include <optional>
+#include <span>
+namespace m0lte::ms110d {
+enum class Modulation {
+    Walsh,
+    Bpsk,
+    Qpsk,
+    Psk8,
+    Qam16,
+};
+enum class InterleaverKind {
+    UltraShort,
+    Short,
+    Medium,
+    Long,
+};
+struct CodeRate {
+    int numerator;
+    int denominator;
+    bool operator==(const CodeRate&) const = default;
+};
+struct Mode {
+    int wn;
+    Modulation modulation;
+    int bits_per_symbol;
+    int u;
+    int k;
+    CodeRate code_rate;
+    int bps;
+};
+struct InterleaverParams {
+    int frames;
+    int size_bits;
+    int input_bits;
+    int increment;
+};
+std::span<const Mode> modes_3k() noexcept;
+std::optional<Mode> mode_3k(int wn) noexcept;
+bool has_interleaver_3k(int wn, InterleaverKind kind) noexcept;
+std::optional<InterleaverParams> interleaver_3k(int wn, InterleaverKind kind) noexcept;
 }
 ==== m0lte/ms110d/ms110d.h
 #ifndef M0LTE_MS110D_MS110D_H
@@ -72,30 +96,6 @@ MS110D_API const char* ms110d_status_string(ms110d_status status);
 }
 #endif
 #endif
-==== m0lte/ms110d/puncture.hpp
-#pragma once
-#include <m0lte/fec/convolutional.hpp>
-#include <cstddef>
-#include <cstdint>
-#include <optional>
-#include <span>
-namespace m0lte::ms110d {
-struct PunctureSpec {
-    std::uint8_t rate_num;
-    std::uint8_t rate_den;
-    std::uint8_t columns;
-    std::uint8_t repeat;
-    std::uint16_t keep_t1;
-    std::uint16_t keep_t2;
-};
-const PunctureSpec* find_puncture(const fec::ConvolutionalCode& code,
-                                  unsigned rate_num,
-                                  unsigned rate_den) noexcept;
-std::optional<std::size_t> punctured_length(const PunctureSpec& spec, std::size_t info_bits) noexcept;
-std::optional<std::size_t> apply_puncture(const PunctureSpec& spec,
-                                          std::span<const std::uint8_t> coded,
-                                          std::span<std::uint8_t> punctured) noexcept;
-}
 ==== m0lte/ms110d/version.hpp
 #pragma once
 #include <m0lte/ms110d/config.hpp>

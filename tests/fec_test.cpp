@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Thomas Fanning
 // SPDX-License-Identifier: AGPL-3.0-or-later
-#include <m0lte/fec/convolutional.hpp>
-#include <m0lte/ms110d/puncture.hpp>
+#include "fec/convolutional.hpp"
+#include "puncture.hpp"
 
 #include "alloc_guard.hpp"
 
@@ -13,14 +13,14 @@
 
 using namespace m0lte;
 
-// Exact vectors from the C# reference. They were made by a throwaway C# console
-// program outside this repo that references NuGet M0LTE.Ms110d 0.2.0 (which pulls
-// in M0LTE.Fec), calling TailBitingEncoder.Encode, Ms110dPuncture.Get and
-// Ms110dPuncture.Apply. Payload bits come from xorshift32 seeded with the seed in
-// the table: for each bit, x ^= x << 13; x ^= x >> 17; x ^= x << 5; bit = (x >> 16) & 1.
-// Checksums are FNV-1a 64 over the output as one 0/1 byte per bit. The full vectors
-// are the bits packed four per hex digit, first bit in the top of the first digit,
-// the last digit zero padded.
+// Exact vectors from the C# reference, M0LTE.Ms110d 0.2.0 (which pulls in M0LTE.Fec), made
+// with: dotnet run -c Release --project tools/csharp-vectors -- fec > fec.txt, then
+// python3 tools/csharp-vectors/make_fec_inc.py fec.txt > tests/fec_vectors.inc. The program
+// calls TailBitingEncoder.Encode, Ms110dPuncture.Get and Ms110dPuncture.Apply. Payload bits
+// come from xorshift32 seeded with the seed in the table: for each bit, x ^= x << 13;
+// x ^= x >> 17; x ^= x << 5; bit = (x >> 16) & 1. Checksums are FNV-1a 64 over the output
+// as one 0/1 byte per bit. The full vectors are the bits packed four per hex digit, first
+// bit in the top of the first digit, the last digit zero padded.
 #include "fec_vectors.inc"
 
 namespace {
