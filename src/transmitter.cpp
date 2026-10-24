@@ -283,9 +283,10 @@ Status Transmitter::modulate(std::span<const std::uint8_t> bits, std::span<float
     Status st = audio_samples(bits.size(), total);
     if (st != Status::Ok) return st;
     written = total;
+    // Check the buffer before begin(), so a size query leaves a burst being streamed alone.
+    if (audio.size() < total) return Status::BufferTooSmall;
     st = begin();
     if (st != Status::Ok) return st;
-    if (audio.size() < total) return Status::BufferTooSmall;
     st = push_bits(bits);
     if (st == Status::Ok) st = end_payload();
     std::size_t done_samples = 0;

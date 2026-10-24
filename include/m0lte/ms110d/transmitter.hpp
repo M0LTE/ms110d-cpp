@@ -67,8 +67,10 @@ public:
     // old one unconfigured.
     Transmitter(Transmitter&& other) noexcept : impl_(other.impl_) { other.impl_ = nullptr; }
     Transmitter& operator=(Transmitter&& other) noexcept {
-        impl_ = other.impl_;
-        other.impl_ = nullptr;
+        if (this != &other) {
+            impl_ = other.impl_;
+            other.impl_ = nullptr;
+        }
         return *this;
     }
 

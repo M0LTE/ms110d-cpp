@@ -446,6 +446,14 @@ TEST_CASE("modulate asks for the length with an empty buffer, and refuses too lo
     const std::vector<std::uint8_t> too_many(21, 1);
     CHECK(rig.tx.modulate(too_many, std::span<float>{}, written) == Status::BufferTooSmall);
     CHECK(written == 0);
+    // A size query does not disturb a burst being streamed.
+    std::vector<float> part(10), rest(need);
+    REQUIRE(rig.tx.begin() == Status::Ok);
+    REQUIRE(rig.tx.push_bits(bits) == Status::Ok);
+    REQUIRE(rig.tx.end_payload() == Status::Ok);
+    REQUIRE(rig.tx.read(part, written) == Status::Ok);
+    CHECK(rig.tx.modulate(bits, std::span<float>{}, written) == Status::BufferTooSmall);
+    CHECK(rig.tx.remaining() == need - 10);
     // A failed call leaves the transmitter usable.
     std::vector<float> audio(need);
     CHECK(rig.tx.modulate(bits, audio, written) == Status::Ok);
@@ -466,6 +474,9 @@ TEST_CASE("a transmitter can be moved, and the old one is left unconfigured", "[
     Transmitter assigned;
     assigned = std::move(moved);
     CHECK_FALSE(moved.configured());
+    Transmitter& alias = assigned;
+    assigned = std::move(alias);
+    CHECK(assigned.configured());
     CHECK(transmit(assigned, bits, 100) == before);
 }
 
