@@ -26,4 +26,6 @@ The two implementations must agree exactly on the bits on the wire, closely on t
 
 ## Licence
 
+Copyright (C) 2026 Thomas Fanning.
+
 AGPL-3.0-or-later; see [LICENSE](LICENSE). Commercial licences are available from the copyright holder for use where the AGPL does not suit. See [PROVENANCE.md](PROVENANCE.md) for where the code comes from.

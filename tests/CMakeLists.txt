@@ -20,6 +20,11 @@ ms110d_apply_options(ms110d_tests)
 include(Catch)
 catch_discover_tests(ms110d_tests)
 
+# Every C, C++ and C# source carries the copyright and licence header.
+add_test(NAME copyright_headers
+  COMMAND ${CMAKE_COMMAND} "-DSOURCE_DIR=${PROJECT_SOURCE_DIR}"
+    -P "${PROJECT_SOURCE_DIR}/cmake/CopyrightHeaders.cmake")
+
 # Public API lock: see docs/dev/api-lock.md.
 set(MS110D_API_SNAPSHOT "${CMAKE_CURRENT_SOURCE_DIR}/api/public-api.txt")
 add_test(NAME api_lock
