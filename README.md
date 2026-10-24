@@ -18,7 +18,7 @@ A C++ implementation of the **MIL-STD-188-110D Appendix D** 3 kHz serial-tone HF
     cmake --build build -j4
     ctest --test-dir build
 
-Options: `-DMS110D_PRECISION=single` for single precision (double is the default), `-DMS110D_BUILD_TESTS=OFF` for the library alone. For a Cortex-M7 compile check use `-DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/cortex-m7.cmake`. Use it from another project with `find_package(m0lte-ms110d CONFIG)` or `FetchContent`, then link `m0lte::ms110d`. See [docs/dev](docs/dev) for the API lock and the allocation guard.
+Options: `-DMS110D_PRECISION=single` for single precision (double is the default), `-DMS110D_BUILD_TESTS=OFF` for the library alone. For a Cortex-M7 compile check use `-DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/cortex-m7.cmake`. Use it from another project with `find_package(m0lte-ms110d CONFIG)` or `FetchContent`, then link `m0lte::ms110d`. The C interface (`include/m0lte/ms110d/ms110d.h`, shared library target `ms110d_c`, option `MS110D_BUILD_C_SHARED`) is for other languages. The .NET interop tests run under ctest when a .NET 10 SDK is installed. See [docs/dev](docs/dev) for the C interface conventions, the API lock, the allocation guard, the interop tests and the C# reference files.
 
 ## Compatibility, proven by tests
 

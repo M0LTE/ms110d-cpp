@@ -11,6 +11,48 @@ using real = double;
 }
 #endif
 }
+==== m0lte/ms110d/ms110d.h
+#ifndef M0LTE_MS110D_MS110D_H
+#define M0LTE_MS110D_MS110D_H
+#include <stdint.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
+#if defined(_WIN32) && !defined(MS110D_C_STATIC)
+#if defined(MS110D_C_BUILDING)
+#define MS110D_API __declspec(dllexport)
+#else
+#define MS110D_API __declspec(dllimport)
+#endif
+#elif defined(__GNUC__)
+#define MS110D_API __attribute__((visibility("default")))
+#else
+#define MS110D_API
+#endif
+#define MS110D_ABI_VERSION 1u
+typedef int32_t ms110d_status;
+enum {
+    MS110D_OK = 0,
+    MS110D_ERR_INVALID_ARGUMENT = 1,
+    MS110D_ERR_BUFFER_TOO_SMALL = 2,
+    MS110D_ERR_UNSUPPORTED = 3,
+    MS110D_ERR_STATE = 4,
+    MS110D_ERR_INTERNAL = 5,
+    MS110D_ERR_OUT_OF_MEMORY = 6,
+    MS110D_ERR_BAD_MEMORY = 7
+};
+enum {
+    MS110D_PRECISION_SINGLE = 32,
+    MS110D_PRECISION_DOUBLE = 64
+};
+MS110D_API uint32_t ms110d_abi_version(void);
+MS110D_API ms110d_status ms110d_version(int32_t* major, int32_t* minor, int32_t* patch);
+MS110D_API ms110d_status ms110d_precision_bits(int32_t* precision);
+MS110D_API const char* ms110d_status_string(ms110d_status status);
+#ifdef __cplusplus
+}
+#endif
+#endif
 ==== m0lte/ms110d/version.hpp
 #pragma once
 #include <m0lte/ms110d/config.hpp>

@@ -16,6 +16,15 @@ endif()
 option(MS110D_BUILD_TESTS "Build the unit tests" ${_ms110d_tests_default})
 option(MS110D_INSTALL "Generate install rules" ${PROJECT_IS_TOP_LEVEL})
 
+# The C interface as a shared library, for callers that are not C++ (.NET, Python).
+# Not built for cross builds: a microcontroller links the static library directly.
+if(CMAKE_CROSSCOMPILING)
+  set(_ms110d_c_shared_default OFF)
+else()
+  set(_ms110d_c_shared_default ${PROJECT_IS_TOP_LEVEL})
+endif()
+option(MS110D_BUILD_C_SHARED "Build the C interface as a shared library (ms110d_c)" ${_ms110d_c_shared_default})
+
 set(MS110D_PRECISION "double" CACHE STRING "Floating point precision of the modem: double or single")
 set_property(CACHE MS110D_PRECISION PROPERTY STRINGS double single)
 if(NOT MS110D_PRECISION STREQUAL "double" AND NOT MS110D_PRECISION STREQUAL "single")
@@ -48,6 +57,38 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(ms110d PRIVATE -fno-exceptions -fno-rtti)
 endif()
 
+if(MS110D_BUILD_C_SHARED)
+  # The shared library's SOVERSION is the C ABI version in the header, not the library version.
+  file(STRINGS include/m0lte/ms110d/ms110d.h _abi_line REGEX "^#define MS110D_ABI_VERSION [0-9]+u")
+  string(REGEX REPLACE ".* ([0-9]+)u.*" "\\1" MS110D_ABI_VERSION_NUMBER "${_abi_line}")
+  if(NOT MS110D_ABI_VERSION_NUMBER MATCHES "^[0-9]+$")
+    message(FATAL_ERROR "could not read MS110D_ABI_VERSION from the C header")
+  endif()
+  # Only the functions marked MS110D_API are exported; everything else is hidden.
+  # The static C++ library is linked into the shared one, so it needs PIC.
+  set_target_properties(ms110d PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON)
+  add_library(ms110d_c SHARED src/c_api.cpp)
+  add_library(m0lte::ms110d_c ALIAS ms110d_c)
+  target_link_libraries(ms110d_c PRIVATE ms110d)
+  target_include_directories(ms110d_c PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+  target_compile_definitions(ms110d_c PRIVATE MS110D_C_BUILDING)
+  set_target_properties(ms110d_c PROPERTIES
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${MS110D_ABI_VERSION_NUMBER}
+    LINKER_LANGUAGE CXX)
+  ms110d_apply_options(ms110d_c)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(ms110d_c PRIVATE -fno-exceptions -fno-rtti)
+  endif()
+endif()
+
 if(MS110D_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
@@ -56,13 +97,17 @@ endif()
 if(MS110D_INSTALL)
   include(CMakePackageConfigHelpers)
 
-  install(TARGETS ms110d
+  set(_ms110d_install_targets ms110d)
+  if(MS110D_BUILD_C_SHARED)
+    list(APPEND _ms110d_install_targets ms110d_c)
+  endif()
+  install(TARGETS ${_ms110d_install_targets}
     EXPORT m0lte-ms110dTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
   install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-    FILES_MATCHING PATTERN "*.hpp")
+    FILES_MATCHING PATTERN "*.hpp" PATTERN "*.h")
   install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/" DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     FILES_MATCHING PATTERN "*.hpp")
 

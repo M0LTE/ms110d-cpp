@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DMS110D_PRECISION=${{ matrix.precision }}
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DCMAKE_C_COMPILER=${{ matrix.compiler == 'clang++' && 'clang' || 'gcc' }} -DMS110D_PRECISION=${{ matrix.precision }} -DMS110D_DOTNET_TESTS=OFF
       - name: Build
         run: cmake --build build -j4
       - name: Test
@@ -39,7 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer"
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer" -DMS110D_DOTNET_TESTS=OFF
       - name: Build
         run: cmake --build build -j4
       - name: Test
@@ -76,3 +76,38 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/cortex-m7.cmake -DMS110D_PRECISION=${{ matrix.precision }} -DMS110D_BUILD_TESTS=OFF -DMS110D_INSTALL=OFF
       - name: Build the library
         run: cmake --build build -j4
+      - name: Check the C boundary types are fixed width on this target
+        run: arm-none-eabi-gcc -std=c11 -mcpu=cortex-m7 -mthumb -mfpu=fpv5-d16 -mfloat-abi=hard -Wall -Wextra -Werror -Iinclude -c tests/c_layout_check.c -o /dev/null
+
+  interop:
+    name: .NET interop tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMS110D_DOTNET_TESTS=ON
+      - name: Build the library and the C test
+        run: cmake --build build -j4
+      - name: Test (C test and the .NET tests against the shared library)
+        run: ctest --test-dir build --output-on-failure
+
+  reference:
+    name: reference files
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Cache the reference files
+        uses: actions/cache@v4
+        with:
+          path: build/_reference
+          key: reference-${{ hashFiles('reference/pin.txt', 'scripts/generate-reference.sh') }}
+      - name: Generate and verify
+        run: scripts/generate-reference.sh

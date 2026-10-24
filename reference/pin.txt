@@ -1,0 +1,12 @@
+# The C# reference this repo is tested against. One file; see docs/dev/reference-files.md.
+# Read by scripts/generate-reference.sh, by tests/interop (MSBuild) and by CI.
+#
+# nuget_version  the M0LTE.Ms110d NuGet package the .NET tests load (X.Y.Z)
+# git_ref        the M0LTE/M0LTE.Ms110d release tag the reference files are generated from (vX.Y.Z)
+# git_sha        the full commit that tag points at, so a moved tag is caught
+#
+# Rule: never change one without the others. The script fails unless git_ref is v<nuget_version>
+# and the tag resolves to git_sha.
+nuget_version=0.2.0
+git_ref=v0.2.0
+git_sha=c7eeb7456a9bf441f25614542235d1221c7b3948
