@@ -1,0 +1,8 @@
+build/
+out/
+.vs/
+.vscode/
+*.user
+bin/
+obj/
+CMakeUserPresets.json
