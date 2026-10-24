@@ -38,6 +38,9 @@ target_include_directories(ms110d_tests PRIVATE support "${PROJECT_SOURCE_DIR}/s
 set(MS110D_REFERENCE_DIR "${PROJECT_SOURCE_DIR}/build/_reference/ref" CACHE PATH
   "Directory of C# reference files made by scripts/generate-reference.sh")
 # The Poor channel corpus (scripts/generate-wn0-poor.sh, never committed): <stem>.txt and <stem>.i16le.
+# The equaliser receive path's C# dumps (scripts/generate-rx-dumps.sh, never committed).
+set(MS110D_RX_DUMP_DIR "${PROJECT_SOURCE_DIR}/build/_reference" CACHE PATH
+  "Directory of the receive dumps made by scripts/generate-rx-dumps.sh")
 set(MS110D_WN0_POOR_STEM "${PROJECT_SOURCE_DIR}/build/_reference/wn0-poor" CACHE STRING
   "Path stem of the Poor channel WN 0 corpus made by scripts/generate-wn0-poor.sh")
 target_compile_definitions(ms110d_tests PRIVATE
@@ -49,8 +52,8 @@ target_compile_definitions(ms110d_tests PRIVATE
   MS110D_CSHARP_WN0_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-wn0-0.2.1.txt"
   MS110D_CSHARP_WN0_AWGN="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-wn0-awgn-0.2.1.txt"
   MS110D_WN0_POOR_STEM="${MS110D_WN0_POOR_STEM}"
-  MS110D_CSHARP_RX_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-rx-0.2.1.txt"
-  MS110D_CSHARP_RX_AWGN="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-rx-awgn-0.2.1.txt"
+  MS110D_CSHARP_RX_DUMP="${MS110D_RX_DUMP_DIR}/csharp-rx.txt"
+  MS110D_CSHARP_RX_AWGN="${MS110D_RX_DUMP_DIR}/csharp-rx-awgn.txt"
   MS110D_CSHARP_DFE_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-dfe-0.2.1.txt"
   MS110D_PIN_FILE="${PROJECT_SOURCE_DIR}/reference/pin.txt")
 ms110d_apply_options(ms110d_tests)
