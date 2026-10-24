@@ -3,8 +3,8 @@
 // Internal tables of MIL-STD-188-110D Appendix D (3 kHz serial tone). Not part of the public
 // API and not installed: the library and its tests include this from src/. Every value is
 // ported from the C# Ms110dTables, MiniProbe and the modulator's transcoding switch, and is
-// checked against the standard's transcribed tables by tests/spec_tables_test.cpp. The file
-// named beside each table is its transcription in reference/spec-tables/.
+// checked against the C# by tests/csharp_tables_test.cpp. The d-numbers beside each table name
+// its transcription in the pdn-soundmodem repository (docs/dev/ms110d/tables).
 //
 // Everything here is constexpr data with no allocation, and holds no computed floating point
 // values (only literals), so it is safe to include under any consumer's flags.
@@ -142,8 +142,7 @@ inline constexpr std::array<Complex32, 19> base19{{
 
 // Table D-XXV, d25: 25-symbol mini-probe base. The six-decimal values are the ones the C#
 // transmits, verbatim, including 0.951056 against 0.951057 and 0.309016 against 0.309017
-// (the exact values are the fifth roots of unity; see tests/spec_tables_test.cpp and issue
-// 16). Changing any digit changes what goes on air.
+// (the exact values are the fifth roots of unity; see issue 16). Changing any digit changes what goes on air.
 inline constexpr std::array<Complex32, 25> base25{{
     {1.000000f, 0.000000f}, {1.000000f, 0.000000f}, {1.000000f, 0.000000f},
     {1.000000f, 0.000000f}, {1.000000f, 0.000000f}, {1.000000f, 0.000000f},
@@ -186,12 +185,5 @@ constexpr Complex32 probe_symbol(const ProbeSpec& spec, int i, bool boundary) no
     const int offset = boundary ? spec.shift : 0;
     return spec.base[static_cast<std::size_t>((i + offset) % static_cast<int>(spec.base.size()))];
 }
-
-// Waveform ID field mapping (Tables D-XV, D-XVI, D-XVII): d9d8d7d6 is the waveform number in
-// binary, d5d4 the interleaver option, d3 the constraint length (0 for K=7, 1 for K=9). The
-// checksum bits d2d1d0 and the encoding into di-bits belong to the framing story.
-constexpr int wid_waveform_bits(int wn) noexcept { return wn; }
-constexpr int wid_interleaver_bits(InterleaverKind kind) noexcept { return static_cast<int>(kind); }
-constexpr int wid_constraint_bit(int constraint_length) noexcept { return constraint_length == 9 ? 1 : 0; }
 
 }  // namespace m0lte::ms110d::tables
