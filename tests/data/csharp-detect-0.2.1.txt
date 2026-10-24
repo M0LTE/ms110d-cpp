@@ -1,4 +1,4 @@
-# Dumped from M0LTE.Ms110d 0.2.0 by tools/csharp-vectors (detect mode): the preamble search of Ms110dDemodulator.
+# Dumped from M0LTE.Ms110d 0.2.1 by tools/csharp-vectors (detect mode): the preamble search of Ms110dDemodulator.
 # Doubles are round-trip text. 'at' is input samples used when the lock completed.
 ref wn0_short_k7_s1_p100 -> locked=1 det=1 wn=0 il=1 k=7 count=2 at=6996 t2=3498 chip0=31.503154171985837 data=3487.503154171986 cfo=-2.462861480135686E-05 omega=-3.223878138668775E-08 theta=9.95973932731431E-05 tau=0 cfo0=-0.0003374177927683436 omega0=-4.416788578964694E-07 theta0=0.00018523726612329483 agc=1 peaks=1 rejects=0 peakmetric=0.9400938513078096
 ref wn0_short_k7_s2_p68 -> locked=1 det=1 wn=0 il=1 k=7 count=2 at=6996 t2=3498 chip0=31.503154171985837 data=3487.503154171986 cfo=-2.812199628869996E-05 omega=-3.681160706036431E-08 theta=0.00010550352453719825 tau=0 cfo0=-0.0003374177927683436 omega0=-4.416788578964694E-07 theta0=0.00018523726612329483 agc=1 peaks=1 rejects=0 peakmetric=0.9400938513078096

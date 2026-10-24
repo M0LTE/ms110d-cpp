@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Thomas Fanning
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // The preamble detector (issue 24) against the C# demodulator's own preamble search, whose
-// answers are committed in tests/data/csharp-detect-0.2.0.txt (tools/csharp-vectors, detect
+// answers are committed in tests/data/csharp-detect-0.2.1.txt (tools/csharp-vectors, detect
 // mode): every reference case, seeded impaired scenarios (carrier offset, fractional delay,
 // noise) and noise-only streams for false alarms. Plus the transmitted parameters, chunking,
 // state handling and that nothing allocates.

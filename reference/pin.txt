@@ -7,6 +7,6 @@
 #
 # Rule: never change one without the others. The script fails unless git_ref is v<nuget_version>
 # and the tag resolves to git_sha.
-nuget_version=0.2.0
-git_ref=v0.2.0
-git_sha=c7eeb7456a9bf441f25614542235d1221c7b3948
+nuget_version=0.2.1
+git_ref=v0.2.1
+git_sha=86abef9fab9cf42437e700e9d70652c3001f1afb
