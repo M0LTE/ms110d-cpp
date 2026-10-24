@@ -11,6 +11,7 @@ add_executable(ms110d_tests
   version_test.cpp
   alloc_guard_test.cpp
   scrambler_interleaver_test.cpp
+  fec_test.cpp
   deviation_test.cpp
   support/reference_files.cpp
   csharp_tables_test.cpp

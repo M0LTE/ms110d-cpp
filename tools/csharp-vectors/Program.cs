@@ -20,6 +20,12 @@ if (args.Length > 0 && args[0] == "tables")
     return;
 }
 
+if (args.Length > 0 && args[0] == "fec")
+{
+    Console.Out.Write(FecDump.Run());
+    return;
+}
+
 static ulong Fnv(IEnumerable<uint> values)
 {
     ulong h = 14695981039346656037UL;
