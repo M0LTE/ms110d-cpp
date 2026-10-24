@@ -1,0 +1,5 @@
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/m0lte-ms110dTargets.cmake")
+
+check_required_components(m0lte-ms110d)

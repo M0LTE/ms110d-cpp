@@ -1,0 +1,16 @@
+#pragma once
+
+namespace m0lte::ms110d {
+
+struct Version {
+    int major;
+    int minor;
+    int patch;
+};
+
+inline constexpr Version library_version{@PROJECT_VERSION_MAJOR@, @PROJECT_VERSION_MINOR@, @PROJECT_VERSION_PATCH@};
+
+// The version this library was built as.
+Version version() noexcept;
+
+}  // namespace m0lte::ms110d

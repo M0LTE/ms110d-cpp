@@ -12,6 +12,14 @@ A C++ implementation of the **MIL-STD-188-110D Appendix D** 3 kHz serial-tone HF
 - A small C interface for use from other languages.
 - An installable CMake project: `find_package`, `FetchContent` or a git submodule.
 
+## Building
+
+    cmake -S . -B build
+    cmake --build build -j4
+    ctest --test-dir build
+
+Options: `-DMS110D_PRECISION=single` for single precision (double is the default), `-DMS110D_BUILD_TESTS=OFF` for the library alone. For a Cortex-M7 compile check use `-DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/cortex-m7.cmake`. Use it from another project with `find_package(m0lte-ms110d CONFIG)` or `FetchContent`, then link `m0lte::ms110d`. See [docs/dev](docs/dev) for the API lock and the allocation guard.
+
 ## Compatibility, proven by tests
 
 The two implementations must agree exactly on the bits on the wire, closely on the transmitted audio, and within 0.5 dB on receive performance, on simulated HF channels and on real off-air recordings. Any difference we keep on purpose is written down as a named test. See [docs/plan.md](docs/plan.md#how-we-prove-compatibility).
