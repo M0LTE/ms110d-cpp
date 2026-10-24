@@ -6,7 +6,7 @@ This is an internal module: its headers are in `src/`, not `include/`, are not i
 
 The MS110D part, Table D-L puncture and repetition masks keyed by constraint length and code rate, lives in `src/puncture.hpp` and `src/puncture.cpp`. Masks are stored as bit sets with the first column in bit 0. Rates are looked up by numerator and denominator, not by string as in the C#.
 
-Differences in shape from the C# (none in output): a bad block size returns false or `nullopt` instead of throwing; a constraint length other than 7 or 9 finds no puncture entry (the C# treats anything but 9 as 7); `apply_puncture` checks the output capacity. The decoder side (depuncture, soft apply) is not ported yet; it belongs to the receive stories.
+Differences in shape from the C# (none in output): a bad block size returns false or `nullopt` instead of throwing; a constraint length other than 7 or 9 finds no puncture entry (the C# treats anything but 9 as 7); `apply_puncture` checks the output capacity. The soft decoders (tail-biting Viterbi and SISO) are ported too; see [soft-decoders.md](soft-decoders.md). Depuncture and the soft apply are not ported yet; they live in the C# puncture class, not the decoders, and belong with the receive chain.
 
 ## Tests
 
