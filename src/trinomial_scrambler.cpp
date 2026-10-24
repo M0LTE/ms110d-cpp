@@ -7,7 +7,7 @@ namespace m0lte::ms110d {
 namespace {
 
 // int bitshift[159] as printed in D.5.1.4.
-constexpr uint8_t k_init[Trinomial159Scrambler::register_length] = {
+constexpr std::uint8_t k_init[Trinomial159Scrambler::register_length] = {
     0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 1,
     1, 1, 1, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
     1, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0,
@@ -43,16 +43,16 @@ int Trinomial159Scrambler::next() noexcept {
     for (int j = 0; j < shifts_per_symbol; ++j) {
         // bitout = bitshift[158], bittap = bitshift[31]; shifting up by one makes the old
         // bitshift[158] slot the new bitshift[0] slot, which receives bitout ^ bittap.
-        const uint8_t bitout = ring_[wrap(head_ + (register_length - 1))];
-        const uint8_t bittap = ring_[wrap(head_ + tap)];
+        const std::uint8_t bitout = ring_[wrap(head_ + (register_length - 1))];
+        const std::uint8_t bittap = ring_[wrap(head_ + tap)];
         head_ = wrap(head_ + (register_length - 1));
-        ring_[head_] = static_cast<uint8_t>(bitout ^ bittap);
+        ring_[head_] = static_cast<std::uint8_t>(bitout ^ bittap);
     }
 
     ++symbol_count_;
-    const uint8_t b0 = ring_[head_];
-    const uint8_t b1 = ring_[wrap(head_ + 1)];
-    const uint8_t b2 = ring_[wrap(head_ + 2)];
+    const std::uint8_t b0 = ring_[head_];
+    const std::uint8_t b1 = ring_[wrap(head_ + 1)];
+    const std::uint8_t b2 = ring_[wrap(head_ + 2)];
     return (b2 << 2) + (b1 << 1) + b0;
 }
 

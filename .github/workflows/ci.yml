@@ -71,7 +71,7 @@ jobs:
       - name: Install arm-none-eabi-gcc
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi libstdc++-arm-none-eabi-newlib
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/cortex-m7.cmake -DMS110D_PRECISION=${{ matrix.precision }} -DMS110D_BUILD_TESTS=OFF -DMS110D_INSTALL=OFF
       - name: Build the library
@@ -111,3 +111,11 @@ jobs:
           key: reference-${{ hashFiles('reference/pin.txt', 'scripts/generate-reference.sh') }}
       - name: Generate and verify
         run: scripts/generate-reference.sh
+      - name: Configure the library and tests
+        run: cmake -S . -B build/tests -DCMAKE_BUILD_TYPE=Release -DMS110D_DOTNET_TESTS=OFF -DMS110D_REFERENCE_DIR="$GITHUB_WORKSPACE/build/_reference/ref"
+      - name: Build the tests
+        run: cmake --build build/tests -j4
+      - name: Run the tests that use the reference files (must not skip)
+        env:
+          MS110D_REQUIRE_REFERENCE: "1"
+        run: ctest --test-dir build/tests --output-on-failure -R "^reference " --no-tests=error

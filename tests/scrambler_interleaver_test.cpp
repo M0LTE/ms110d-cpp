@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include <catch2/catch_test_macros.hpp>
 
-#include "../src/interleaver.hpp"
-#include "../src/scrambler.hpp"
-#include "../src/trinomial_scrambler.hpp"
+#include <m0lte/ms110d/mode.hpp>
+
 #include "alloc_guard.hpp"
 #include "csharp_vectors.hpp"
+#include "interleaver.hpp"
+#include "scrambler.hpp"
+#include "trinomial_scrambler.hpp"
 
 #include <cstdint>
 #include <vector>
@@ -138,22 +140,30 @@ TEST_CASE("interleaver: D.5.3.3.2 worked example", "[interleaver][standard]") {
 }
 
 TEST_CASE("interleaver: every length and mode matches the C# reference and round trips", "[interleaver]") {
+    // Sizes and increments come from the mode tables (which csharp_tables_test.cpp compares
+    // with the C#); the vectors hold only what the C# computed from them.
+    int rows = 0;
     for (const auto& v : csharp_vectors::interleavers) {
-        CAPTURE(v.wn, v.kind, v.size, v.increment);
-        const Interleaver il(v.size, v.increment);
+        const auto params = interleaver_3k(v.wn, static_cast<InterleaverKind>(v.kind));
+        REQUIRE(params.has_value());
+        const auto size = static_cast<std::uint32_t>(params->size_bits);
+        const auto increment = static_cast<std::uint32_t>(params->increment);
+        CAPTURE(v.wn, v.kind, size, increment);
+        ++rows;
+        const Interleaver il(size, increment);
         REQUIRE(il.valid());
 
         // Load locations: first 16 and a hash of all of them.
         Fnv lf;
-        for (std::uint32_t n = 0; n < v.size; ++n) {
+        for (std::uint32_t n = 0; n < size; ++n) {
             if (n < 16) CHECK(il.load_location(n) == v.load16[n]);
             lf.add(il.load_location(n));
         }
         CHECK(lf.h == v.load_fnv);
 
         // Bytes through interleave(): same fetched array as the C#.
-        std::vector<std::uint8_t> in(v.size), wire(v.size), back(v.size);
-        for (std::uint32_t i = 0; i < v.size; ++i) in[i] = static_cast<std::uint8_t>(i & 255u);
+        std::vector<std::uint8_t> in(size), wire(size), back(size);
+        for (std::uint32_t i = 0; i < size; ++i) in[i] = static_cast<std::uint8_t>(i & 255u);
         il.interleave(in.data(), wire.data());
         Fnv bf;
         for (std::uint8_t b : wire) bf.add(b);
@@ -162,10 +172,10 @@ TEST_CASE("interleaver: every length and mode matches the C# reference and round
         CHECK(back == in);
 
         // Soft values (float and double) round trip, and the permutation is a bijection.
-        std::vector<float> fin(v.size), fwire(v.size), fback(v.size);
-        for (std::uint32_t i = 0; i < v.size; ++i) fin[i] = static_cast<float>(i);
+        std::vector<float> fin(size), fwire(size), fback(size);
+        for (std::uint32_t i = 0; i < size; ++i) fin[i] = static_cast<float>(i);
         il.interleave(fin.data(), fwire.data());
-        std::vector<bool> seen(v.size, false);
+        std::vector<bool> seen(size, false);
         for (float f : fwire) seen[static_cast<std::size_t>(f)] = true;
         bool all_seen = true;
         for (bool b : seen) all_seen = all_seen && b;
@@ -173,6 +183,7 @@ TEST_CASE("interleaver: every length and mode matches the C# reference and round
         il.deinterleave(fwire.data(), fback.data());
         CHECK(fback == fin);
     }
+    CHECK(rows == 39);  // every (waveform, length) pair that exists
 }
 
 TEST_CASE("interleaver: no allocation", "[interleaver][alloc]") {

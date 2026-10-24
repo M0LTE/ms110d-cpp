@@ -40,7 +40,7 @@ configure_file(
   "${CMAKE_CURRENT_BINARY_DIR}/generated/m0lte/ms110d/version.hpp"
   @ONLY)
 
-add_library(ms110d src/version.cpp src/trinomial_scrambler.cpp src/scrambler_interleaver_check.cpp)
+add_library(ms110d src/version.cpp src/mode.cpp src/tables.cpp src/trinomial_scrambler.cpp src/scrambler_interleaver_check.cpp)
 add_library(m0lte::ms110d ALIAS ms110d)
 
 target_compile_features(ms110d PUBLIC cxx_std_20)

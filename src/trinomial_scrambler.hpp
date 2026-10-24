@@ -10,7 +10,7 @@
 // The register is kept as a ring of 159 bits with a moving head, so one iteration is O(1)
 // and the result is identical to the printed tri(), which shifts the whole array.
 
-#include <stdint.h>  // not <cstdint>: the Cortex-M7 CI image has no C++ standard library
+#include <cstdint>
 
 namespace m0lte::ms110d {
 
@@ -31,7 +31,7 @@ public:
 
 private:
     // ring_[(head_ + i) % 159] is bitshift[i] of the printed code.
-    uint8_t ring_[register_length];
+    std::uint8_t ring_[register_length];
     unsigned head_ = 0;
     int symbol_count_ = 0;
 };

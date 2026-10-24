@@ -14,34 +14,34 @@
 // overlap. A size of 0 is an empty interleaver: valid() is false, load_location() returns 0
 // and interleave()/deinterleave() do nothing. No allocation, no exceptions.
 
-#include <stdint.h>  // not <cstdint>: the Cortex-M7 CI image has no C++ standard library
+#include <cstdint>
 
 namespace m0lte::ms110d {
 
 class Interleaver {
 public:
-    constexpr Interleaver(uint32_t size_bits, uint32_t increment) noexcept
+    constexpr Interleaver(std::uint32_t size_bits, std::uint32_t increment) noexcept
         : size_(size_bits), increment_(size_bits == 0 ? 0 : increment % size_bits) {}
 
-    constexpr uint32_t size_bits() const noexcept { return size_; }
-    constexpr uint32_t increment() const noexcept { return increment_; }
+    constexpr std::uint32_t size_bits() const noexcept { return size_; }
+    constexpr std::uint32_t increment() const noexcept { return increment_; }
 
     // True when the load map is a permutation of 0..size-1.
     constexpr bool valid() const noexcept { return size_ > 0 && gcd(size_, increment_) == 1; }
 
     // Load location of punctured bit B(n): (n * increment) mod size.
-    constexpr uint32_t load_location(uint32_t n) const noexcept {
+    constexpr std::uint32_t load_location(std::uint32_t n) const noexcept {
         if (size_ == 0) {
             return 0;  // an empty interleaver has no locations; avoids a divide by zero
         }
-        return static_cast<uint32_t>((static_cast<uint64_t>(n) * increment_) % size_);
+        return static_cast<std::uint32_t>((static_cast<std::uint64_t>(n) * increment_) % size_);
     }
 
     // TX: out[load_location(n)] = in[n]; reading `out` in order is the linear fetch.
     template <typename T>
     constexpr void interleave(const T* in, T* out) const noexcept {
-        uint32_t loc = 0;
-        for (uint32_t n = 0; n < size_; ++n) {
+        std::uint32_t loc = 0;
+        for (std::uint32_t n = 0; n < size_; ++n) {
             out[loc] = in[n];
             loc += increment_;
             if (loc >= size_) {
@@ -54,8 +54,8 @@ public:
     // from wire-order ones.
     template <typename T>
     constexpr void deinterleave(const T* in, T* out) const noexcept {
-        uint32_t loc = 0;
-        for (uint32_t n = 0; n < size_; ++n) {
+        std::uint32_t loc = 0;
+        for (std::uint32_t n = 0; n < size_; ++n) {
             out[n] = in[loc];
             loc += increment_;
             if (loc >= size_) {
@@ -65,17 +65,17 @@ public:
     }
 
 private:
-    static constexpr uint32_t gcd(uint32_t a, uint32_t b) noexcept {
+    static constexpr std::uint32_t gcd(std::uint32_t a, std::uint32_t b) noexcept {
         while (b != 0) {
-            const uint32_t t = a % b;
+            const std::uint32_t t = a % b;
             a = b;
             b = t;
         }
         return a;
     }
 
-    uint32_t size_;
-    uint32_t increment_;
+    std::uint32_t size_;
+    std::uint32_t increment_;
 };
 
 }  // namespace m0lte::ms110d

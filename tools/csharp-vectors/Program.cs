@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Dumps scrambler outputs and interleaver permutations from the C# reference (public API
-// only) as text. Run: dotnet run -c Release > out.txt, then tools/csharp-vectors/make_header.py
+// only) as text. Run from the repo root: dotnet run -c Release --project tools/csharp-vectors > out.txt, then tools/csharp-vectors/make_header.py
 // out.txt turns it into tests/csharp_vectors.hpp. Not built by CMake.
 //
 // Interleaver load locations: the float indices 0..size-1 are pushed through
@@ -12,6 +12,13 @@
 using System.Text;
 using M0LTE.Ms110d;
 using M0LTE.Ms110d.Fec;
+
+// "tables" mode: the mode/table dump for tests/data/csharp-tables-0.2.0.txt (see TablesDump.cs).
+if (args.Length > 0 && args[0] == "tables")
+{
+    Console.Out.Write(TablesDump.Run());
+    return;
+}
 
 static ulong Fnv(IEnumerable<uint> values)
 {
