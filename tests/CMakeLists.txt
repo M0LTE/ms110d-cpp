@@ -20,7 +20,9 @@ add_executable(ms110d_tests
   modulator_test.cpp
   framing_test.cpp
   transmitter_test.cpp
-  layer1_reference_test.cpp)
+  layer1_reference_test.cpp
+  support/eq_scenario.cpp
+  equaliser_test.cpp)
 target_link_libraries(ms110d_tests PRIVATE m0lte::ms110d Catch2::Catch2WithMain)
 # The tests also see the library's internal headers (src/tables.hpp); they are not installed.
 target_include_directories(ms110d_tests PRIVATE support "${PROJECT_SOURCE_DIR}/src")
@@ -35,6 +37,7 @@ target_compile_definitions(ms110d_tests PRIVATE
   MS110D_CSHARP_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-tables-0.2.0.txt"
   MS110D_CSHARP_SOFT_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-soft-0.2.0.txt"
   MS110D_CSHARP_FRAMING_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-framing-0.2.0.txt"
+  MS110D_CSHARP_DFE_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-dfe-0.2.0.txt"
   MS110D_PIN_FILE="${PROJECT_SOURCE_DIR}/reference/pin.txt")
 ms110d_apply_options(ms110d_tests)
 
