@@ -1,0 +1,7 @@
+# The layer 4 real-audio corpus this repo is tested against. See docs/dev/corpus.md.
+# Read by scripts/fetch-corpus.sh.
+#
+# corpus_tag      the GitHub release (and tag) of M0LTE/ms110d-cpp that holds the tarball
+# tarball_sha256  SHA-256 of ms110d-<corpus_tag>.tar.gz
+corpus_tag=corpus-v1
+tarball_sha256=06954dd507829532d0686dd5d7a0f74e29d9fca6162a5becbf33e22d082d5808
