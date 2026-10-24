@@ -10,7 +10,7 @@
 // b0' = b8 xor b4 with everything else shifting up, and the rightmost bits are b[2..0]
 // (b2 the most significant). Integer only, no state beyond one word, no allocation.
 
-#include <cstdint>
+#include <stdint.h>  // not <cstdint>: the Cortex-M7 CI image has no C++ standard library
 
 namespace m0lte::ms110d {
 
@@ -38,17 +38,17 @@ public:
     }
 
     // The 9-bit register, for tests.
-    constexpr std::uint32_t state() const noexcept { return sr_; }
+    constexpr uint32_t state() const noexcept { return sr_; }
 
 private:
     constexpr void iterate(int times) noexcept {
         for (int i = 0; i < times; ++i) {
-            const std::uint32_t feedback = ((sr_ >> 8) ^ (sr_ >> 4)) & 1u;
+            const uint32_t feedback = ((sr_ >> 8) ^ (sr_ >> 4)) & 1u;
             sr_ = ((sr_ << 1) | feedback) & 0x1FFu;
         }
     }
 
-    std::uint32_t sr_ = 1;
+    uint32_t sr_ = 1;
 };
 
 }  // namespace m0lte::ms110d
