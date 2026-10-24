@@ -104,3 +104,49 @@ public static class Layer3Endpoints
 
     public static IReadOnlyList<ILayer3Receiver> Receivers => [CSharpRx, CppReceiver];
 }
+
+/// <summary>
+/// A receiver that is deliberately a little worse than the one it wraps, to prove the pass rule can see a
+/// known loss: it adds white noise to the incoming audio, a chosen fraction of the channel noise already there
+/// (measured from the noise-only lead-in, so it tracks the SNR of each point). Adding the fraction f costs
+/// 10 log10(1 + f) dB, so 0.2 dB is f = 0.047 and 1 dB is f = 0.259. The noise is seeded from the run seed and a
+/// fingerprint of the audio, so different runs draw different noise and the same run repeats.
+/// </summary>
+public sealed class ExtraNoiseReceiver(ILayer3Receiver inner, string name, double relativePower, int runSeed) : ILayer3Receiver
+{
+    public string Name => name;
+
+    public bool IsAvailable => inner.IsAvailable;
+
+    public string UnavailableReason => inner.UnavailableReason;
+
+    /// <summary>The fraction of extra noise power that costs <paramref name="db"/> dB.</summary>
+    public static double FractionFor(double db) => Math.Pow(10, db / 10) - 1;
+
+    public Layer3Decode Decode(float[] audio)
+    {
+        const int leadIn = 2000; // the channel adds 2400 noise-only samples first
+        double v = 0;
+        for (int i = 0; i < leadIn; i++)
+        {
+            v += (double)audio[i] * audio[i];
+        }
+
+        double sigma = Math.Sqrt(v / leadIn * relativePower);
+        ulong h = 14695981039346656037UL ^ (ulong)(uint)runSeed;
+        for (int i = 0; i < audio.Length; i += 97)
+        {
+            h = (h ^ (uint)BitConverter.SingleToInt32Bits(audio[i])) * 1099511628211UL;
+        }
+
+        var rng = new Random((int)(h ^ (h >> 32)));
+        var o = new float[audio.Length];
+        for (int i = 0; i < o.Length; i++)
+        {
+            double g = Math.Sqrt(-2 * Math.Log(1 - rng.NextDouble())) * Math.Cos(2 * Math.PI * rng.NextDouble());
+            o[i] = audio[i] + (float)(sigma * g);
+        }
+
+        return inner.Decode(o);
+    }
+}

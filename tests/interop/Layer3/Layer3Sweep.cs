@@ -60,6 +60,15 @@ public sealed class Layer3Point(string tx, string rx, double snrDb, bool[] lost,
 
 public sealed record Layer3SweepResult(Layer3Spec Spec, IReadOnlyList<Layer3Point> Points, IReadOnlyList<string> Skipped, double Seconds)
 {
+    /// <summary>False when the reference curve never reached the target frame loss (a floor, or off the ladder).</summary>
+    public bool Reached { get; init; } = true;
+
+    /// <summary>Why the target was not reached, with the floor; empty when it was.</summary>
+    public string Note { get; init; } = "";
+
+    /// <summary>How many times the ladder was moved to bracket the target.</summary>
+    public int Shifts { get; init; }
+
     public IEnumerable<string> Pairings => Points.Select(p => p.Pairing).Distinct();
 
     public IReadOnlyList<Layer3Point> Curve(string pairing) => [.. Points.Where(p => p.Pairing == pairing).OrderBy(p => p.SnrDb)];
@@ -110,10 +119,20 @@ public static class Layer3Sweep
 
         int payloadBits = spec.PayloadBits;
         Ms110dTxSettings settings = spec.TxSettings;
+        try
+        {
         Parallel.For(0, spec.Frames, new ParallelOptions { MaxDegreeOfParallelism = Threads }, f =>
         {
             byte[] payload = TxCrossCheckTests.RandomBits(new Random(spec.PayloadSeed(f)), payloadBits);
             float[][] audio = [.. txs.Select(t => t.Modulate(settings, payload))];
+            if (audio.Any(a => a.Length != audio[0].Length))
+            {
+                // The channel draws its fading and noise for a length; with unequal lengths the pairings would no
+                // longer see the same realisation and a difference could be luck, not the modems.
+                throw new InvalidOperationException($"{spec.Label} frame {f}: transmitters produced different audio lengths ("
+                    + string.Join(", ", txs.Select((t, i) => $"{t.Name} {audio[i].Length}")) + ")");
+            }
+
             int chSeed = spec.ChannelSeed(f);
             for (int s = 0; s < nSnr; s++)
             {
@@ -131,6 +150,12 @@ public static class Layer3Sweep
                 }
             }
         });
+        }
+        catch (AggregateException ae)
+        {
+            // Report the real fault, not Parallel's wrapper.
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ae.Flatten().InnerExceptions[0]).Throw();
+        }
 
         var points = new List<Layer3Point>();
         for (int t = 0; t < txs.Count; t++)
@@ -176,37 +201,69 @@ public static class Layer3Sweep
     };
 
     /// <summary>
-    /// Finds a ladder for a cell: the reference pairing (first transmitter, first available receiver) is run on a
-    /// handful of frames at rising SNR, two dB at a time from well below the AWGN mask, until it loses at most one
-    /// of them. The ladder is then 0.5 dB steps from 2 dB below that point to 2.5 dB above. Deterministic: the same
-    /// seeds give the same frames. Every pairing then runs the same ladder.
+    /// Finds where the reference pairing crosses the target frame loss, from a short pilot: 12 frames at rising SNR,
+    /// 2 dB at a time from well below the AWGN mask, until the loss is at or below the target; the crossing is
+    /// then interpolated (log loss) between that point and the one before. Null when the target is not reached by
+    /// 40 dB. Deterministic: the same seeds give the same frames.
     /// </summary>
-    public static double[] LocateLadder(int wn, int il, int k, Layer3Channel channel, ILayer3Transmitter tx, ILayer3Receiver rx)
+    public static double? PilotCrossing(int wn, int il, int k, Layer3Channel channel, ILayer3Transmitter tx, ILayer3Receiver rx)
     {
-        const int probeFrames = 6;
-        double snr = AwgnMask[wn] - 8;
-        for (; snr < 45; snr += 2)
+        const int pilotFrames = 12;
+        double target = Layer3Report.TargetFor(channel);
+        double floor = 0.5 / pilotFrames;
+        double? prevSnr = null;
+        double prevLoss = 1;
+        for (double snr = AwgnMask[wn] - (channel.Fading ? 8 : 10); snr <= 40; snr += 2)
         {
-            var probe = new Layer3Spec(wn, il, k, channel, [snr], probeFrames);
-            if (Run(probe, [tx], [rx]).Points[0].FrameErrors <= 1)
+            double loss = Run(new Layer3Spec(wn, il, k, channel, [snr], pilotFrames), [tx], [rx]).Points[0].FrameLoss;
+            if (loss <= target)
             {
-                break;
+                if (prevSnr is not { } ps)
+                {
+                    return snr - 2;
+                }
+
+                double a = Math.Log(Math.Max(prevLoss, floor));
+                double b = Math.Log(Math.Max(loss, floor));
+                double t = a == b ? 1 : (a - Math.Log(target)) / (a - b);
+                return ps + (t * (snr - ps));
             }
+
+            prevSnr = snr;
+            prevLoss = loss;
         }
 
-        return [.. Enumerable.Range(0, 10).Select(i => snr - 2 + (0.5 * i))];
+        return null;
+    }
+
+    /// <summary>A ladder of seven points centred on the target crossing: 0.5 dB apart on AWGN, 1 dB on fading.</summary>
+    public static double[] CentredLadder(double centre, Layer3Channel channel)
+    {
+        double step = channel.Fading ? 1.0 : 0.5;
+        double c = Math.Round(centre * 2) / 2;
+        return [.. Enumerable.Range(-3, 7).Select(i => c + (i * step))];
     }
 
     /// <summary>
-    /// Locates a ladder and runs the cell. If a pairing's curve does not bracket the target (the located
-    /// point was a lucky six frames), the ladder is moved 3 dB the way the curve says and the cell is run again,
-    /// at most twice. The shifts are returned so the report can say so.
+    /// Pilots the crossing, centres a ladder on it and runs the cell. If a curve does not bracket the target (the
+    /// pilot was off) the ladder is moved by its half span the way the curve says and the cell run again, at most
+    /// three times. A target that is never reached (a floor, for example a high rate mode on Poor) is reported, with
+    /// the loss at 40 dB, not failed: <see cref="Layer3SweepResult.Reached"/> is false.
     /// </summary>
-    public static (Layer3SweepResult Result, int Shifts) RunLocated(int wn, int il, int k, Layer3Channel channel, int frames,
+    public static Layer3SweepResult RunLocated(int wn, int il, int k, Layer3Channel channel, int frames,
         IReadOnlyList<ILayer3Transmitter> txs, IReadOnlyList<ILayer3Receiver> rxs)
     {
         ILayer3Receiver firstRx = rxs.First(r => r.IsAvailable);
-        double[] ladder = LocateLadder(wn, il, k, channel, txs[0], firstRx);
+        double? centre = PilotCrossing(wn, il, k, channel, txs[0], firstRx);
+        if (centre is null)
+        {
+            Layer3SweepResult top = Run(new Layer3Spec(wn, il, k, channel, [40], frames), txs, rxs);
+            string floors = string.Join(", ", top.Pairings.Select(p => $"{p} {top.Curve(p)[0].FrameLoss * 100:F1}%"));
+            return top with { Reached = false, Note = $"target {Layer3Report.TargetFor(channel) * 100:F0}% not reached by 40 dB; frame loss at 40 dB: {floors}" };
+        }
+
+        double[] ladder = CentredLadder(centre.Value, channel);
+        double half = channel.Fading ? 3 : 1.5;
         int shifts = 0;
         while (true)
         {
@@ -214,13 +271,21 @@ public static class Layer3Sweep
             var ts = Layer3Report.Thresholds(r);
             bool above = ts.Any(t => t.SnrDb is null && t.Note.StartsWith("still above", StringComparison.Ordinal));
             bool below = ts.Any(t => t.SnrDb is null && t.Note.StartsWith("already below", StringComparison.Ordinal));
-            if ((!above && !below) || shifts == 2)
+            if (!above && !below)
             {
-                return (r, shifts);
+                return r with { Shifts = shifts };
+            }
+
+            if (shifts == 3)
+            {
+                string floor = above
+                    ? "target not reached on the ladder (floor): " + string.Join(", ", r.Pairings.Select(p => $"{p} lowest loss {r.Curve(p).Min(x => x.FrameLoss) * 100:F1}%"))
+                    : "target already met at the lowest SNR of the ladder";
+                return r with { Reached = false, Shifts = shifts, Note = floor };
             }
 
             shifts++;
-            double d = above ? 3 : -3;
+            double d = above ? half : -half;
             ladder = [.. ladder.Select(x => x + d)];
         }
     }

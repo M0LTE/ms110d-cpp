@@ -1,5 +1,7 @@
 name: Layer 3 cross-decoding (long)
 
+# The full matrix, sharded. Run by hand, and on pushes to main that change code which affects
+# transmit, receive or the channel model. No schedule. See docs/dev/layer3.md.
 on:
   workflow_dispatch:
     inputs:
@@ -11,25 +13,34 @@ on:
         description: "Comma separated waveform numbers; empty for all"
         required: false
         default: ""
-  schedule:
-    - cron: "17 3 * * 0"
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "include/**"
+      - "tests/interop/**"
+      - "cmake/**"
+      - "CMakeLists.txt"
+      - "reference/pin.txt"
+      - ".github/workflows/layer3.yml"
 
 permissions:
   contents: read
 
 concurrency:
   group: layer3-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   shard:
-    name: shard ${{ matrix.shard }} of 20
+    name: shard ${{ matrix.shard }} of 24
     runs-on: ubuntu-24.04
     timeout-minutes: 345
     strategy:
       fail-fast: false
+      max-parallel: 8
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -45,7 +56,7 @@ jobs:
           MS110D_PIN_FILE: ${{ github.workspace }}/reference/pin.txt
           MS110D_EXPECTED_VERSION: "0"
           MS110D_LAYER3_LONG: "1"
-          MS110D_LAYER3_SHARD: ${{ matrix.shard }}/20
+          MS110D_LAYER3_SHARD: ${{ matrix.shard }}/24
           MS110D_LAYER3_CHANNELS: ${{ inputs.channels }}
           MS110D_LAYER3_WN: ${{ inputs.waveforms }}
           MS110D_LAYER3_RUN: long
@@ -59,28 +70,37 @@ jobs:
           path: ${{ runner.temp }}/layer3/long/cells
           if-no-files-found: warn
 
-  summary:
-    name: combine results
+  combine:
+    name: per-channel verdicts
     needs: shard
     if: always()
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
       - uses: actions/download-artifact@v4
         with:
           pattern: layer3-shard-*
-          path: cells
+          path: ${{ runner.temp }}/cells
           merge-multiple: true
-      - name: Combine
+      - name: Aggregate verdict per channel model
+        env:
+          MS110D_LAYER3_COMBINE_DIR: ${{ runner.temp }}/cells
+          MS110D_LAYER3_COMBINE_OUT: ${{ runner.temp }}/combined
+        run: dotnet run --project tests/interop -c Release -- -class Ms110dInterop.Tests.Layer3.Layer3CombineTests
+      - name: Job summary (small; the cells are in the artifact)
+        if: always()
         run: |
-          mkdir -p out
-          echo "waveform,interleaver,code_k,channel,tx,rx,snr_db,frames,frame_errors,frame_loss,loss_ci_low,loss_ci_high,bits,bit_errors,ber" > out/curves.csv
-          echo "waveform,interleaver,code_k,channel,tx,rx,target_loss,snr_db,ci_low_db,ci_high_db,frames_per_point,note" > out/thresholds.csv
-          cat cells/*.curves.csv >> out/curves.csv || true
-          cat cells/*.thresholds.csv >> out/thresholds.csv || true
-          cat cells/*.md > out/summary.md || true
-          cp out/summary.md "$GITHUB_STEP_SUMMARY" || true
+          if [ -f "$RUNNER_TEMP/combined/summary.md" ]; then
+            head -c 200000 "$RUNNER_TEMP/combined/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: layer3-results
-          path: out
+          path: |
+            ${{ runner.temp }}/combined
+            ${{ runner.temp }}/cells
