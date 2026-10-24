@@ -56,7 +56,7 @@ inline namespace v_single {
 inline namespace v_double {
 #endif
 
-// Streaming pulse shaper and up-converter. All state is in the object (about 1.5 KB): nothing is
+// Streaming pulse shaper and up-converter. All state is in the object (2392 bytes in the double build, 1864 in the single build): nothing is
 // allocated after construction, whatever the burst length, and nothing throws.
 //
 // Use: configure(); begin(); then for each burst symbol push_symbol() followed by read() until
@@ -110,8 +110,8 @@ private:
     static constexpr std::size_t ring_size = max_pulse_taps / samples_per_symbol + 1;  // 65 symbols
 
     std::array<float, max_pulse_taps> pulse_{};
-    std::array<real, 16> carrier_cos_{};
-    std::array<real, 16> carrier_sin_{};
+    std::array<double, 16> carrier_cos_{};  // the mix runs in double, as in the C#
+    std::array<double, 16> carrier_sin_{};
     std::array<real, ring_size> ring_re_{};
     std::array<real, ring_size> ring_im_{};
     std::size_t taps_ = 0;

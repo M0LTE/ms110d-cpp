@@ -64,8 +64,8 @@ bool Modulator::configure(const TxSettings& s) noexcept {
     // after that is far below float resolution).
     for (std::size_t m = 0; m < 16; ++m) {
         const double phase = 2.0 * std::numbers::pi * 3.0 * static_cast<double>(m) / 16.0;
-        carrier_cos_[m] = static_cast<real>(std::cos(phase));
-        carrier_sin_[m] = static_cast<real>(std::sin(phase));
+        carrier_cos_[m] = std::cos(phase);
+        carrier_sin_[m] = std::sin(phase);
     }
     begin();
     return true;
@@ -139,7 +139,9 @@ std::size_t Modulator::read_impl(std::span<real> audio, std::complex<real>* base
             idx = idx + 1 == ring_size ? 0 : idx + 1;
         }
 
-        audio[produced] = re * carrier_cos_[phase_] - im * carrier_sin_[phase_];
+        // Mixed in double and rounded once, like the C# ((float)(re * cos - im * sin) in double).
+        audio[produced] = static_cast<real>((static_cast<double>(re) * carrier_cos_[phase_]) -
+                                            (static_cast<double>(im) * carrier_sin_[phase_]));
         if (baseband != nullptr) baseband[produced] = std::complex<real>(re, im);
         phase_ = (phase_ + 1) & 15u;
         ++position_;

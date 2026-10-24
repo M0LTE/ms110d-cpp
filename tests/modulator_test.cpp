@@ -34,7 +34,7 @@ namespace {
 namespace fs = std::filesystem;
 
 // The documented tolerances (docs/reference-files.md in the C# repo, docs/dev/modulator.md here).
-constexpr double audio_tolerance = 1e-5;  // absolute, per sample, baseband and audio
+constexpr double audio_tolerance = 1e-6;  // absolute, per sample, baseband and audio
 constexpr double pulse_tolerance = 1e-6;  // absolute, per tap
 
 std::vector<ReferenceCase> load_cases(const fs::path& dir) {
@@ -337,6 +337,9 @@ TEST_CASE("reference modulator audio, baseband, level and spectrum", "[reference
         if (eb > worst_bb) { worst_bb = eb; case_bb = c.name(); }
         CHECK(ea <= audio_tolerance);
         CHECK(eb <= audio_tolerance);
+#ifdef MS110D_SINGLE_PRECISION
+        CHECK(eb == 0);  // float all the way, in the C#'s order: the baseband is bit identical
+#endif
 
         // Level: RMS within 1e-5 relative (the sample tolerance already bounds it far tighter;
         // this catches a systematic gain error stated as a level).
@@ -368,7 +371,7 @@ TEST_CASE("reference modulator output does not depend on the read chunk size", "
         REQUIRE(mod.configure(settings_of(c)));
         const auto points = burst_points(c);
         const Output whole = modulate(mod, points, 100000);
-        for (std::size_t chunk : {std::size_t{1}, std::size_t{3}, std::size_t{7}, std::size_t{64}, std::size_t{1000}}) {
+        for (std::size_t chunk : {std::size_t{1}, std::size_t{2}, std::size_t{3}, std::size_t{5}, std::size_t{7}, std::size_t{64}, std::size_t{1000}}) {
             const Output part = modulate(mod, points, chunk);
             CHECK(part.audio == whole.audio);  // bit identical
             CHECK(part.baseband == whole.baseband);
@@ -426,4 +429,52 @@ TEST_CASE("mutation: the audio check fails if the signal is slightly wrong", "[r
         }
         CHECK(max_abs_error(bad, ref_audio) > audio_tolerance);
     }
+}
+
+// A plain reference shaper: direct convolution in double, nothing shared with Modulator.
+TEST_CASE("modulator matches a simple reference shaper at the extreme roll-offs", "[modulator]") {
+    for (double ro : {0.05, 0.5, 1.0}) {
+        INFO("roll-off " << ro);
+        TxSettings s;
+        s.roll_off = ro;
+        s.amplitude = 0.7f;
+        Modulator mod;
+        REQUIRE(mod.configure(s));
+        const auto pulse = mod.pulse();
+
+        std::uint32_t lcg = 12345;
+        std::vector<tables::Complex32> points(400);
+        for (auto& p : points) {
+            lcg = lcg * 1664525u + 1013904223u;
+            p = ((lcg >> 24) & 1u) ? tables::qam16[(lcg >> 16) & 15u] : tables::psk8[(lcg >> 16) & 7u];
+        }
+        const Output out = modulate(mod, points, 37);
+
+        const std::size_t total = audio_length(points.size(), pulse.size());
+        REQUIRE(out.audio.size() == total);
+        std::vector<double> re(total, 0.0), im(total, 0.0);
+        for (std::size_t n = 0; n < points.size(); ++n) {
+            const double sr = static_cast<double>(points[n].real()) * static_cast<double>(s.amplitude);
+            const double si = static_cast<double>(points[n].imag()) * static_cast<double>(s.amplitude);
+            for (std::size_t k = 0; k < pulse.size(); ++k) {
+                re[4 * n + k] += sr * static_cast<double>(pulse[k]);
+                im[4 * n + k] += si * static_cast<double>(pulse[k]);
+            }
+        }
+        double worst = 0;
+        for (std::size_t i = 0; i < total; ++i) {
+            const double phase = 2.0 * std::numbers::pi * 3.0 * static_cast<double>(i) / 16.0;
+            const double want = re[i] * std::cos(phase) - im[i] * std::sin(phase);
+            worst = std::max(worst, std::fabs(want - static_cast<double>(out.audio[i])));
+            worst = std::max(worst, std::fabs(re[i] - static_cast<double>(out.baseband[i].real())));
+            worst = std::max(worst, std::fabs(im[i] - static_cast<double>(out.baseband[i].imag())));
+        }
+        WARN("roll-off " << ro << " worst error against the reference shaper " << worst);
+        CHECK(worst <= audio_tolerance);
+    }
+}
+
+TEST_CASE("modulator state size", "[modulator]") {
+    WARN("sizeof(Modulator) = " << sizeof(Modulator));
+    CHECK(sizeof(Modulator) < 4096);
 }
