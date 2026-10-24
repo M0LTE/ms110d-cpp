@@ -92,10 +92,106 @@ MS110D_API uint32_t ms110d_abi_version(void);
 MS110D_API ms110d_status ms110d_version(int32_t* major, int32_t* minor, int32_t* patch);
 MS110D_API ms110d_status ms110d_precision_bits(int32_t* precision);
 MS110D_API const char* ms110d_status_string(ms110d_status status);
+typedef struct ms110d_tx ms110d_tx;
+enum {
+    MS110D_INTERLEAVER_ULTRA_SHORT = 0,
+    MS110D_INTERLEAVER_SHORT = 1,
+    MS110D_INTERLEAVER_MEDIUM = 2,
+    MS110D_INTERLEAVER_LONG = 3
+};
+typedef struct ms110d_tx_settings {
+    uint32_t struct_size;
+    int32_t waveform_number;
+    int32_t interleaver;
+    int32_t constraint_length;
+    int32_t preamble_superframes;
+    int32_t tlc_blocks;
+    int32_t append_eom;
+    int32_t append_eot;
+    float amplitude;
+    uint32_t reserved;
+    double roll_off;
+} ms110d_tx_settings;
+#define MS110D_TX_MAX_PAYLOAD_BITS 16777216u
+#define MS110D_TX_SAMPLE_RATE 9600u
+MS110D_API ms110d_status ms110d_tx_settings_default(ms110d_tx_settings* settings);
+MS110D_API ms110d_status ms110d_tx_create(const ms110d_tx_settings* settings, uint32_t max_payload_bits, ms110d_tx** tx);
+MS110D_API void ms110d_tx_destroy(ms110d_tx* tx);
+MS110D_API ms110d_status ms110d_tx_memory_size(const ms110d_tx_settings* settings, uint32_t max_payload_bits,
+                                               uint32_t* bytes, uint32_t* alignment);
+MS110D_API ms110d_status ms110d_tx_init(void* memory, uint32_t bytes, const ms110d_tx_settings* settings,
+                                        uint32_t max_payload_bits, ms110d_tx** tx);
+MS110D_API ms110d_status ms110d_tx_audio_length(const ms110d_tx* tx, uint32_t payload_bits, uint32_t* samples);
+MS110D_API ms110d_status ms110d_tx_begin(ms110d_tx* tx);
+MS110D_API ms110d_status ms110d_tx_push_bits(ms110d_tx* tx, const uint8_t* bits, uint32_t count);
+MS110D_API ms110d_status ms110d_tx_end_payload(ms110d_tx* tx);
+MS110D_API ms110d_status ms110d_tx_read(ms110d_tx* tx, float* audio, uint32_t capacity, uint32_t* written);
+MS110D_API ms110d_status ms110d_tx_remaining(const ms110d_tx* tx, uint32_t* samples);
 #ifdef __cplusplus
 }
 #endif
 #endif
+==== m0lte/ms110d/transmitter.hpp
+#pragma once
+#include <m0lte/ms110d/config.hpp>
+#include <m0lte/ms110d/tx_settings.hpp>
+#include <cstddef>
+#include <cstdint>
+#include <span>
+namespace m0lte::ms110d {
+enum class Status : std::int32_t {
+    Ok = 0,
+    InvalidArgument = 1,
+    BufferTooSmall = 2,
+    Unsupported = 3,
+    State = 4,
+};
+inline constexpr int tx_sample_rate_hz = 9600;
+inline constexpr std::size_t max_payload_bits_limit = std::size_t{1} << 24;
+#ifdef MS110D_SINGLE_PRECISION
+inline namespace v_single {
+#else
+inline namespace v_double {
+#endif
+class Transmitter {
+public:
+    Transmitter() noexcept = default;
+    Transmitter(const Transmitter&) = delete;
+    Transmitter& operator=(const Transmitter&) = delete;
+    static Status storage_bytes(const TxSettings& settings, std::size_t max_payload_bits,
+                                std::size_t& bytes) noexcept;
+    Status configure(const TxSettings& settings, std::size_t max_payload_bits,
+                     std::span<std::uint8_t> storage) noexcept;
+    bool configured() const noexcept { return impl_ != nullptr; }
+    Status audio_samples(std::size_t payload_bits, std::size_t& samples) const noexcept;
+    Status begin() noexcept;
+    Status push_bits(std::span<const std::uint8_t> bits) noexcept;
+    Status end_payload() noexcept;
+    Status read(std::span<float> audio, std::size_t& written) noexcept;
+    std::size_t remaining() const noexcept;
+    bool done() const noexcept;
+private:
+    struct Impl;
+    Impl* impl_ = nullptr;
+};
+}
+}
+==== m0lte/ms110d/tx_settings.hpp
+#pragma once
+#include <m0lte/ms110d/mode.hpp>
+namespace m0lte::ms110d {
+struct TxSettings {
+    int waveform_number = 6;
+    InterleaverKind interleaver = InterleaverKind::Short;
+    int constraint_length = 7;
+    int preamble_superframes = 3;
+    int tlc_blocks = 0;
+    bool append_eom = true;
+    bool append_eot = true;
+    float amplitude = 0.5f;
+    double roll_off = 0.35;
+};
+}
 ==== m0lte/ms110d/version.hpp
 #pragma once
 #include <m0lte/ms110d/config.hpp>

@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -492,4 +493,29 @@ TEST_CASE("reference end to end: framing into the modulator reproduces the refer
     }
     CHECK(cases == 122);
     INFO("worst error " << worst);
+}
+
+TEST_CASE("build_tx_block is the matching slice of build_tx_bits", "[framing]") {
+    std::mt19937 rng(5);
+    for (const std::size_t input : {24u, 40u, 96u, 288u}) {
+        for (const bool eom : {true, false}) {
+            for (const std::size_t n : {0u, 1u, 7u, 23u, 24u, 25u, 56u, 100u, 700u}) {
+                std::vector<std::uint8_t> payload(n);
+                for (auto& b : payload) b = static_cast<std::uint8_t>(rng() & 0xFFu);  // junk above the low bit
+                const std::size_t blocks = framed_block_count(n, eom, input);
+                std::vector<std::uint8_t> whole(blocks * input);
+                REQUIRE(build_tx_bits(payload, eom, input, whole));
+                for (std::size_t b = 0; b < blocks; ++b) {
+                    std::vector<std::uint8_t> one(input, 9);
+                    REQUIRE(build_tx_block(payload, eom, input, b, one));
+                    CHECK(std::equal(one.begin(), one.end(), whole.begin() + static_cast<std::ptrdiff_t>(b * input)));
+                }
+                std::vector<std::uint8_t> out(input, 9);
+                CHECK_FALSE(build_tx_block(payload, eom, input, blocks, out));
+                CHECK_FALSE(build_tx_block(payload, eom, input, 0, std::span<std::uint8_t>(out).first(input - 1)));
+                CHECK_FALSE(build_tx_block(payload, eom, 0, 0, std::span<std::uint8_t>{}));
+                CHECK(out[0] == 9);
+            }
+        }
+    }
 }

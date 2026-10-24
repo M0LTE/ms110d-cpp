@@ -1,0 +1,9 @@
+# Linker version script for the C shared library: export the C interface and nothing else.
+# The standard library's own templates (std::min and the like) are visible by default and
+# end up as weak symbols in an unoptimised build; this keeps them out of the export table.
+{
+  global:
+    ms110d_*;
+  local:
+    *;
+};

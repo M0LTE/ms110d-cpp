@@ -42,7 +42,7 @@ configure_file(
 
 add_library(ms110d src/version.cpp src/mode.cpp src/tables.cpp src/trinomial_scrambler.cpp src/scrambler_interleaver_check.cpp
   src/puncture.cpp src/fec/tail_biting_encoder.cpp
-  src/dsp/filter_design.cpp src/modulator.cpp src/framing.cpp src/preamble.cpp src/burst.cpp)
+  src/dsp/filter_design.cpp src/modulator.cpp src/framing.cpp src/preamble.cpp src/burst.cpp src/transmitter.cpp)
 add_library(m0lte::ms110d ALIAS ms110d)
 
 target_compile_features(ms110d PUBLIC cxx_std_20)
@@ -86,6 +86,10 @@ if(MS110D_BUILD_C_SHARED)
     SOVERSION ${MS110D_ABI_VERSION_NUMBER}
     LINKER_LANGUAGE CXX)
   ms110d_apply_options(ms110d_c)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_options(ms110d_c PRIVATE "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/cmake/ms110d_c.map")
+    set_property(TARGET ms110d_c APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/ms110d_c.map")
+  endif()
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(ms110d_c PRIVATE -fno-exceptions -fno-rtti)
   endif()

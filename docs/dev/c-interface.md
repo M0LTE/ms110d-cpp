@@ -55,10 +55,14 @@ To settle in [#27](https://github.com/M0LTE/ms110d-cpp/issues/27), before the fi
 
 ## Export
 
-The shared library is built with hidden visibility. Only functions marked `MS110D_API` are exported, and the ctest `c_exports` checks (on Linux) that nothing else is. On Windows `MS110D_API` is `dllexport` while building and `dllimport` for users.
+The shared library is built with hidden visibility. Only functions marked `MS110D_API` are exported, and the ctest `c_exports` checks (on Linux) that nothing else is. On Linux a linker version script (`cmake/ms110d_c.map`) enforces it: the standard library's templates are visible by default and would otherwise leak into the export table as weak symbols in an unoptimised build. On Windows `MS110D_API` is `dllexport` while building and `dllimport` for users.
 
 `MS110D_BUILD_C_SHARED` controls the target. It is ON for a top-level host build and OFF for cross builds, so the Cortex-M7 build stays a static C++ library. It is installed with the rest, as `m0lte::ms110d_c`, when on.
 
+## Transmit
+
+`ms110d_tx_*` (handle `ms110d_tx`, settings `ms110d_tx_settings`) is the first handle type and the model for the rest: create/destroy, `ms110d_tx_memory_size` plus `ms110d_tx_init` for caller memory, `ms110d_tx_audio_length` for sizing, `ms110d_tx_push_bits` and `ms110d_tx_read` with caller buffers, no events. The settings struct has `struct_size` first, flags as `int32_t` 0 or 1 and an explicit `reserved` word so the `double` sits at offset 40 on every ABI; `ms110d_tx_settings_default` fills it from the C++ defaults so the two cannot drift. How it works is in docs/dev/transmitter.md. Adding these functions did not need an ABI bump (the library is 0.x), so `MS110D_ABI_VERSION` stays 1.
+
 ## Tests
 
-`tests/c_api_test.c` is compiled as C99 (not C++), with warnings as errors, and calls every function including the null and unknown-value cases. Add each new function to it. The header is also under the API lock (docs/dev/api-lock.md), so any change to it fails `api_lock` until the snapshot is deliberately updated. The .NET project in `tests/interop` calls the same functions through P/Invoke (docs/dev/dotnet-interop.md).
+`tests/c_api_test.c` is compiled as C99 (not C++), with warnings as errors, and calls every function including the null and unknown-value cases. Add each new function to it. The header is also under the API lock (docs/dev/api-lock.md), so any change to it fails `api_lock` until the snapshot is deliberately updated. `tests/c_transmitter_test.cpp` (the `ms110d_c_tests` executable) drives the transmit functions through the shared library and compares with the C# reference audio. The .NET project in `tests/interop` calls the same functions through P/Invoke (docs/dev/dotnet-interop.md).

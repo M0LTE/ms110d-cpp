@@ -20,6 +20,39 @@ A C++ implementation of the **MIL-STD-188-110D Appendix D** 3 kHz serial-tone HF
 
 Options: `-DMS110D_PRECISION=single` for single precision (double is the default), `-DMS110D_BUILD_TESTS=OFF` for the library alone. For a Cortex-M7 compile check use `-DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/cortex-m7.cmake`. Use it from another project with `find_package(m0lte-ms110d CONFIG)` or `FetchContent`, then link `m0lte::ms110d`. The C interface (`include/m0lte/ms110d/ms110d.h`, shared library target `ms110d_c`, option `MS110D_BUILD_C_SHARED`) is for other languages. The .NET interop tests run under ctest when a .NET 10 SDK is installed. See [docs/dev](docs/dev) for the C interface conventions, the API lock, the allocation guard, the interop tests and the C# reference files.
 
+## Transmitting
+
+Payload bits in (one bit per byte, 0 or 1), 9600 Hz audio on the 1800 Hz sub-carrier out, for one burst at a time. The settings are the C# `Ms110dTxSettings`, with the same defaults.
+
+    #include <m0lte/ms110d/transmitter.hpp>
+    using namespace m0lte::ms110d;
+
+    TxSettings settings;                    // WN 6, short interleaver, K 7, and so on
+    settings.waveform_number = 4;
+
+    const std::size_t max_bits = 4000;      // the largest payload this transmitter will carry
+    std::size_t bytes = 0;
+    Transmitter::storage_bytes(settings, max_bits, bytes);
+    std::vector<std::uint8_t> memory(bytes);  // or a static array: the library never allocates
+
+    Transmitter tx;
+    if (tx.configure(settings, max_bits, memory) != Status::Ok) { /* bad settings or memory */ }
+
+    tx.push_bits(payload_bits);             // as often as you like, up to max_bits in all
+    tx.end_payload();
+    std::size_t samples = 0;
+    tx.audio_samples(payload_bits.size(), samples);  // the whole burst's length, known up front
+
+    float chunk[480];
+    while (!tx.done()) {
+        std::size_t got = 0;
+        tx.read(chunk, got);                // any chunk size, down to one sample
+        play(chunk, got);
+    }
+    tx.begin();                             // ready for the next burst
+
+The audio is the same as the C# `Ms110dModulator.Modulate` makes, to within 1e-6 per sample. Nothing throws, and nothing allocates after `configure`. The same thing is available from C as `ms110d_tx_*` in `ms110d.h`, with the library allocating (`ms110d_tx_create`) or the caller supplying the memory (`ms110d_tx_memory_size` and `ms110d_tx_init`). See [docs/dev/transmitter.md](docs/dev/transmitter.md).
+
 ## Compatibility, proven by tests
 
 The two implementations must agree exactly on the bits on the wire, closely on the transmitted audio, and within 0.5 dB on receive performance, on simulated HF channels and on real off-air recordings. Any difference we keep on purpose is written down as a named test. See [docs/plan.md](docs/plan.md#how-we-prove-compatibility).

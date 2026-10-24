@@ -28,6 +28,26 @@ bool build_tx_bits(std::span<const std::uint8_t> payload_bits, bool append_eom, 
     return true;
 }
 
+bool build_tx_block(std::span<const std::uint8_t> payload_bits, bool append_eom, std::size_t input_bits,
+                    std::size_t block_index, std::span<std::uint8_t> out) noexcept {
+    if (input_bits == 0 || out.size() != input_bits) return false;
+    if (block_index >= framed_block_count(payload_bits.size(), append_eom, input_bits)) return false;
+    const std::size_t payload = payload_bits.size();
+    const std::size_t start = block_index * input_bits;
+    for (std::size_t i = 0; i < input_bits; ++i) {
+        const std::size_t g = start + i;
+        std::uint8_t bit = 0;
+        if (g < payload) {
+            bit = payload_bits[g] & 1u;
+        } else if (append_eom && g < payload + 32) {
+            // D.5.4.3: the left most bit of 4B65A5B2 is sent first.
+            bit = static_cast<std::uint8_t>((tables::eom >> (31 - (g - payload))) & 1u);
+        }
+        out[i] = bit;
+    }
+    return true;
+}
+
 std::optional<std::array<std::uint8_t, 5>> encode_wid(int wn, InterleaverKind interleaver,
                                                       int constraint_length) noexcept {
     if (wn < 0 || wn > 13) return std::nullopt;
