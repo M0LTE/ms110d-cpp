@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Thomas Fanning
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Accepted deviations: see docs/dev/deviations.md.
 //
 // A deviation is a difference from the C# reference that we keep on purpose.

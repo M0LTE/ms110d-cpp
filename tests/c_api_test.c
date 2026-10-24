@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Thomas Fanning
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /* Compiled as C99, not C++: proves the header is valid C and every entry point links. */
 #include <m0lte/ms110d/ms110d.h>
 

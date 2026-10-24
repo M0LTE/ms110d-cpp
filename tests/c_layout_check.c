@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Thomas Fanning
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /* Compile-time checks of the size of every type that crosses the C boundary.
  * Compiled as C11 for the host and, in CI, for the Cortex-M7 (where enums are one
  * byte), so a type that is not fixed-width fails the build there. Add each new

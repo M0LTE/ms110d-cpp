@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Thomas Fanning
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 using M0LTE.Ms110d;
 using Xunit;
 

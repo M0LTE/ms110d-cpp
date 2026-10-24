@@ -12,4 +12,4 @@ This C++ library uses `std::complex` and contains no codec2-derived code.
 
 ## Contributions
 
-All code here is owned by the copyright holder, so that it can be offered under commercial licences as well as the AGPL. Outside contributions can only be accepted with a contributor licence agreement. Please open an issue before writing code.
+All code here is owned by the copyright holder, Thomas Fanning, so that it can be offered under commercial licences as well as the AGPL. Outside contributions can only be accepted with a contributor licence agreement. Please open an issue before writing code.
