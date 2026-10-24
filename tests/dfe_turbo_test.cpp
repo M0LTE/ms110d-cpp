@@ -7,7 +7,12 @@
 // (rx-corpus). Both are made by scripts/generate-rx-dumps.sh. docs/dev/dfe-receiver.md says what
 // is compared and why.
 
+#include "alloc_guard.hpp"
+#include "bcjr.hpp"
 #include "dfe_receiver.hpp"
+#include "fec/tail_biting_siso.hpp"
+#include "fec/tail_biting_viterbi.hpp"
+#include "preamble_detector.hpp"
 #include "probe_pattern.hpp"
 #include "reference_files.hpp"
 #include "rx_driver.hpp"
@@ -21,6 +26,8 @@
 #include <cstdlib>
 #include <fstream>
 #include <map>
+#include <memory>
+#include <span>
 #include <numbers>
 #include <sstream>
 #include <string>
@@ -75,6 +82,8 @@ std::string frame_hash(const std::vector<DfeFrameTrace>& frames, std::size_t fro
             f.add(t.taps[static_cast<std::size_t>(k)].imag());
         }
         f.add(static_cast<std::uint32_t>(t.fading_latched ? 1 : 0));
+        f.add(static_cast<std::uint32_t>(t.fading ? 1 : 0));
+        f.add(static_cast<std::uint32_t>(t.frames_since_excursion));
     }
     return hex(f.h);
 }
@@ -113,7 +122,7 @@ std::map<std::string, std::string> pairs(std::istringstream& in) {
 struct CsBlock {
     long long at = 0;
     std::string outcome;
-    int mfb_offered = 0, mfb_selected = 0, frames = 0;
+    int mfb_offered = 0, mfb_selected = 0, relock_offers = 0, relock_adopted = 0, frames = 0;
     std::string fhash;
     std::map<std::string, std::string> last;
     std::string first_hash, first_signs;  // first_signs: "<n> <hash>"
@@ -164,7 +173,8 @@ std::vector<CsBurst> load(const char* path, const std::string& head_kind) {
             CsBlock k;
             int index = 0;
             std::string w;
-            s >> index >> k.at >> k.outcome >> w >> k.mfb_offered >> k.mfb_selected >> w >> k.frames >> w >> k.fhash;
+            s >> index >> k.at >> k.outcome >> w >> k.mfb_offered >> k.mfb_selected >> w >> k.relock_offers >> k.relock_adopted >>
+                w >> k.frames >> w >> k.fhash;
             out.back().blocks.push_back(k);
         } else if (kind == "last") {
             out.back().blocks.back().last = pairs(s);
@@ -215,6 +225,7 @@ struct Tally {
     double first_sum = 0, turbo_sum = 0, last_state = 0;
     std::map<std::string, long> outcomes;
     long mfb_offered = 0, mfb_selected = 0;
+    long relock_offers = 0, relock_adopted = 0, relock_salvages = 0;
     std::map<std::string, long> ends;
     // Single build only: what differed from the C#.
     long bursts_diff = 0, blocks_diff = 0;
@@ -265,6 +276,9 @@ void compare(const CsBurst& c, const ms110d_test::RxRun& r, Tally& t, const std:
         ++t.outcomes[k.outcome];
         t.mfb_offered += k.mfb_offered;
         t.mfb_selected += k.mfb_selected;
+        t.relock_offers += k.relock_offers;
+        t.relock_adopted += k.relock_adopted;
+        if (k.outcome == "salvaged" && k.relock_offers > 0) ++t.relock_salvages;  // on the late-lock rung
         REQUIRE(b.frames_end - b.frames_before == static_cast<std::size_t>(k.frames));
         if (frame_hash(r.frames, b.frames_before, b.frames_end) == k.fhash) ++t.fhash_equal;
         if (k.frames > 0) {
@@ -294,6 +308,7 @@ void compare(const CsBurst& c, const ms110d_test::RxRun& r, Tally& t, const std:
         const bool block_same = signs_same && std::string(outcome_name(b.turbo)) == k.outcome &&
                                 static_cast<int>(b.mfb_offered) == k.mfb_offered &&
                                 static_cast<int>(b.mfb_selected) == k.mfb_selected &&
+                                b.relock_offers == k.relock_offers && b.relock_adopted == k.relock_adopted &&
                                 !b.turbo_llrs.empty() == k.turbo && bit_hash(b.info.begin(), b.info.end()) == k.info;
         if (!strict && !block_same) {
             ++t.blocks_diff;
@@ -303,6 +318,8 @@ void compare(const CsBurst& c, const ms110d_test::RxRun& r, Tally& t, const std:
         CHECK(std::string(outcome_name(b.turbo)) == k.outcome);
         CHECK(static_cast<int>(b.mfb_offered) == k.mfb_offered);
         CHECK(static_cast<int>(b.mfb_selected) == k.mfb_selected);
+        CHECK(b.relock_offers == k.relock_offers);
+        CHECK(b.relock_adopted == k.relock_adopted);
         CHECK(!b.turbo_llrs.empty() == k.turbo);
         if (k.turbo && !b.turbo_llrs.empty()) {
             ++t.turbo_blocks;
@@ -349,9 +366,10 @@ void require_file(const std::string& path) {
 void print(const char* what, const Tally& t) {
     std::printf("%s: %ld bursts, %ld blocks, %ld frames; frame state hashes equal %ld of %ld, first-pass hashes equal %ld, "
                 "first-pass magnitudes %.3g, last frame state %.3g; turbo iterates %ld, sign differences %ld of %ld, "
-                "magnitudes %.3g; MFB offered %ld selected %ld; outcomes",
+                "magnitudes %.3g; MFB offered %ld selected %ld; late-lock offers %ld adopted %ld, salvages on that rung %ld; outcomes",
                 what, t.bursts, t.blocks, t.frames, t.fhash_equal, t.blocks, t.first_hash_equal, t.first_sum, t.last_state,
-                t.turbo_blocks, t.turbo_sign_flips, t.turbo_bits, t.turbo_sum, t.mfb_offered, t.mfb_selected);
+                t.turbo_blocks, t.turbo_sign_flips, t.turbo_bits, t.turbo_sum, t.mfb_offered, t.mfb_selected, t.relock_offers,
+                t.relock_adopted, t.relock_salvages);
     for (const auto& [k, v] : t.outcomes) std::printf(" %s %ld", k.c_str(), v);
     std::printf("; ends");
     for (const auto& [k, v] : t.ends) std::printf(" %s %ld", k.c_str(), v);
@@ -363,14 +381,22 @@ void print(const char* what, const Tally& t) {
 // same libm on the machine the dumps are made on, as the CI reference job does), so every frame
 // hash must match there; that is what makes a change to any tracking constant fail. The single
 // build differs in the equaliser's sums only, so its frame values are held to a tolerance.
-void check_tally(const Tally& t) {
+// `max_diff_quarters`: how many quarters of the bursts the single build may take a different
+// path on (see check_tally's body).
+void check_tally(const Tally& t, int max_diff_quarters) {
     if (strict) {
         CHECK(t.fhash_equal == t.blocks);
         CHECK(t.bursts_diff == 0);
         CHECK(t.payload_right == t.cs_payload_right);
     } else {
-        // The single build decodes at least as many bursts right as the C#, give or take one.
+        // The single build decodes at least as many bursts right as the C#, give or take one. And it
+        // may take a different path from the C# only on a bounded share of bursts: none of the clean
+        // reference cases, at most a quarter of the channel corpus (measured: 15 of 159 here, about
+        // 9%; the CI runner's libm moves more). The divergence comes from the equaliser's float sums
+        // tipping marginal fading blocks, so it stays a minority; a broken single build would leave
+        // most bursts.
         CHECK(t.payload_right + 1 >= t.cs_payload_right);
+        CHECK(t.bursts_diff * 4 <= t.bursts * max_diff_quarters);
     }
     if (strict) {
         CHECK(t.first_sum <= 1e-4);
@@ -406,7 +432,7 @@ TEST_CASE("reference demodulator: the shipped receiver on every WN 1 to 8 and 13
         if (c.reason == "Eom") CHECK(c.payload_hash == bit_hash(payload.begin(), payload.end()));
     }
     print("shipped receiver vs C#, 112 clean cases", t);
-    check_tally(t);
+    check_tally(t, 0);
 }
 
 TEST_CASE("reference demodulator: Poor, Moderate and shifted multipath with carrier offsets, and the standard probe "
@@ -421,8 +447,8 @@ TEST_CASE("reference demodulator: Poor, Moderate and shifted multipath with carr
     REQUIRE(bin.good());
     ms110d_test::RxDriver driver(InterleaverKind::Medium);
     Tally t;
-    long clamp_frames = 0, fade_enters = 0, fade_exits = 0, floor_recoveries = 0, std_switched = 0, std_bursts = 0,
-         cur_kept = 0, cur_bursts = 0;
+    long clamp_frames = 0, fade_enters = 0, fade_exits = 0, fade_reentries = 0, floor_recoveries = 0, std_switched = 0,
+         std_bursts = 0, cur_kept = 0, cur_bursts = 0, std_long_bursts = 0, std_long_reached = 0;
     const double window_3hz = 2.0 * std::numbers::pi * 3.0 / (2.0 * 2400);
     for (const CsBurst& c : bursts) {
         const long long offset = std::stoll(c.head.at("offset"));
@@ -437,19 +463,33 @@ TEST_CASE("reference demodulator: Poor, Moderate and shifted multipath with carr
         compare(c, r, t, &c.payload);
 
         // What the bursts exercise (the coverage the C# comparison above is only as good as).
+        bool exited = false;
         for (std::size_t i = 0; i < r.frames.size(); ++i) {
             const DfeFrameTrace& f = r.frames[i];
             if (std::abs(std::abs(f.omega - f.omega_acquired) - window_3hz) < 1e-12) ++clamp_frames;
             if (i > 0) {
                 const DfeFrameTrace& p = r.frames[i - 1];
-                if (f.fading && !p.fading) ++fade_enters;
-                if (!f.fading && p.fading) ++fade_exits;
+                if (f.fading && !p.fading) {
+                    ++fade_enters;
+                    if (exited) ++fade_reentries;
+                }
+                if (!f.fading && p.fading) {
+                    ++fade_exits;
+                    exited = true;
+                }
                 if (f.fade_floor > p.fade_floor && !f.fresh_solve) ++floor_recoveries;
             }
         }
         // The standard pattern: the receiver switches to it and decodes; the current one it keeps.
         const bool standard = c.head.at("standard") == "1";
         const bool disagree = c.head.at("il") != "3";  // the rules agree everywhere only for Long
+        if (c.label.rfind("std-long-", 0) == 0) {
+            // Long enough to reach the probe only the standard rule shifts: frame L - 2 of the burst.
+            ++std_long_bursts;
+            const auto long_il = interleaver_3k(c.wn, InterleaverKind::Long);
+            REQUIRE(long_il);
+            if (r.frames.size() >= static_cast<std::size_t>(long_il->frames)) ++std_long_reached;
+        }
         if (disagree && !r.frames.empty()) {
             const double evidence = r.frames.back().pattern_evidence;
             if (standard) {
@@ -465,7 +505,8 @@ TEST_CASE("reference demodulator: Poor, Moderate and shifted multipath with carr
                 if (evidence < ProbePattern::switch_evidence) ++cur_kept;
             }
         }
-        if (standard && strict) {
+        if (standard) {
+            // Every standard pattern burst decodes, in both builds.
             INFO("burst " << c.label);
             REQUIRE(r.ended);
             CHECK(r.end.reason == DfeEndReason::Eom);
@@ -476,22 +517,104 @@ TEST_CASE("reference demodulator: Poor, Moderate and shifted multipath with carr
         }
     }
     print("shipped receiver vs C#, corpus", t);
-    std::printf("corpus coverage: frames at the 3 Hz carrier clamp %ld, fade entries %ld, exits %ld, fade floor recoveries %ld; "
-                "standard pattern bursts switched %ld of %ld, current pattern bursts kept %ld of %ld\n",
-                clamp_frames, fade_enters, fade_exits, floor_recoveries, std_switched, std_bursts, cur_kept, cur_bursts);
-    check_tally(t);
+    check_tally(t, 1);
+    std::printf("corpus coverage: frames at the 3 Hz carrier clamp %ld, fade entries %ld, exits %ld, re-entries %ld, fade floor "
+                "recoveries %ld; standard pattern bursts switched %ld of %ld (%ld of %ld long ones reach frame L - 2), current "
+                "pattern bursts kept %ld of %ld\n",
+                clamp_frames, fade_enters, fade_exits, fade_reentries, floor_recoveries, std_switched, std_bursts, std_long_reached,
+                std_long_bursts, cur_kept, cur_bursts);
     CHECK(clamp_frames > 0);
     CHECK(fade_enters > 0);
     CHECK(fade_exits > 0);
+    CHECK(fade_reentries > 0);
+    CHECK(std_long_bursts == 3);
+    CHECK(std_long_reached == std_long_bursts);
+    CHECK(t.relock_salvages > 0);
+    CHECK(t.relock_adopted > 0);
+    CHECK(t.relock_adopted < t.relock_offers);  // offers refused as well as taken
     CHECK(floor_recoveries > 0);
-    CHECK(std_bursts == 36);
+    CHECK(std_bursts == 39);
     // All but two: WN 1 and WN 2 with the ultra-short interleaver and two blocks offer only two
     // disagreeing probes, whose scores sum to 0.40 against the 0.5 needed to switch (the same in the
     // C#, frame for frame); both still decode their payload.
-    CHECK(std_switched == (strict ? std_bursts - 2 : std::min(std_switched, std_bursts - 2)));
-    CHECK(std_switched >= std_bursts - 3);
+    CHECK(std_switched == std_bursts - 2);
     CHECK(cur_kept == cur_bursts);
     CHECK(t.outcomes["reverted"] > 0);
     CHECK(t.outcomes["salvaged"] > 0);
     CHECK(t.mfb_selected > 0);
+}
+
+TEST_CASE("reference demodulator: nothing allocates over the whole corpus, every turbo path included", "[dfe_turbo]") {
+    const std::string stem = MS110D_RX_CORPUS_STEM;
+    require_file(stem + ".txt");
+    require_file(stem + ".i16le");
+    const std::vector<CsBurst> bursts = load((stem + ".txt").c_str(), "burst");
+    std::ifstream bin(stem + ".i16le", std::ios::binary);
+    REQUIRE(bin.good());
+
+    DfeReceiverConfig config;
+    config.max_interleaver = InterleaverKind::Medium;
+    const std::size_t bits = DfeReceiver::max_input_bits_for(config.max_interleaver);
+    m0lte::fec::TailBitingViterbiDecoder k7(m0lte::fec::k7_133_171, bits);
+    m0lte::fec::TailBitingViterbiDecoder k9(m0lte::fec::k9_561_753, bits);
+    m0lte::fec::TailBitingSisoDecoder s7(m0lte::fec::k7_133_171, bits);
+    m0lte::fec::TailBitingSisoDecoder s9(m0lte::fec::k9_561_753, bits);
+    BasicChainBcjr<float> chain(DfeReceiver::max_frame_symbols, 16);
+    DfeDecoders dec{&k7, &k9, &s7, &s9, &chain};
+    std::vector<std::uint8_t> storage(DfeReceiver::storage_bytes(config));
+    auto detector = std::make_unique<PreambleDetector>();
+    auto receiver = std::make_unique<DfeReceiver>();
+    REQUIRE(receiver->configure(config, storage, dec));
+
+    std::size_t allocations = 0;
+    std::int64_t salvaged = 0, reverted = 0, mfb_selected = 0, relock_offers = 0, blocks = 0;
+    for (const CsBurst& c : bursts) {
+        const long long offset = std::stoll(c.head.at("offset"));
+        const long long samples = std::stoll(c.head.at("samples"));
+        std::vector<std::int16_t> q(static_cast<std::size_t>(samples));
+        bin.seekg(offset);
+        bin.read(reinterpret_cast<char*>(q.data()), static_cast<std::streamsize>(2 * samples));
+        std::vector<float> audio(q.size());
+        for (std::size_t i = 0; i < q.size(); ++i) audio[i] = static_cast<float>(q[i] / 8192.0);
+        detector->reset();
+        receiver->reset();
+        const std::span<const float> in(audio);
+        bool ended = false;
+        std::size_t det = 0, rx = 0;
+        const ms110d_test::AllocationScope scope;
+        while (rx < in.size() && !ended) {
+            if (!receiver->active() && receiver->event() == DfeEvent::None) {
+                det += detector->process(in.subspan(det, std::min<std::size_t>(512, in.size() - det)));
+                while (rx < det) rx += receiver->push_audio(in.subspan(rx, det - rx));
+                PreambleDetection d;
+                if (detector->take_detection(d)) receiver->start(dfe_start_from_detection(d));
+                if (det >= in.size()) break;
+                continue;
+            }
+            rx += receiver->push_audio(in.subspan(rx, std::min<std::size_t>(512, in.size() - rx)));
+            while (receiver->event() != DfeEvent::None) {
+                if (receiver->event() == DfeEvent::BlockDecoded) {
+                    relock_offers += receiver->block().relock_offers;
+                    ++blocks;
+                } else {
+                    ended = true;
+                }
+                receiver->take_event();
+            }
+        }
+        allocations += scope.allocations();
+        const DfeReceiverStats& st = receiver->stats();
+        salvaged += st.turbo_salvaged;
+        reverted += st.turbo_reverted;
+        mfb_selected += st.mfb_selected;
+    }
+    std::printf("corpus with no allocation: %zu allocations over %zu bursts, %lld blocks; reverted %lld, salvaged %lld, "
+                "late-lock offers %lld, MFB selections %lld\n",
+                allocations, bursts.size(), static_cast<long long>(blocks), static_cast<long long>(reverted),
+                static_cast<long long>(salvaged), static_cast<long long>(relock_offers), static_cast<long long>(mfb_selected));
+    CHECK(allocations == 0);
+    CHECK(reverted > 0);
+    CHECK(salvaged > 0);
+    CHECK(relock_offers > 0);
+    CHECK(mfb_selected > 0);
 }

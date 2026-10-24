@@ -646,8 +646,10 @@ TEST_CASE("dfe receiver: nothing allocates after configure", "[dfe_receiver]") {
     auto receiver = std::make_unique<DfeReceiver>();
     REQUIRE(receiver->configure(config, storage, dec));
 
-    // WN 1: the largest equaliser (K = 48, 54 taps). WN 6: the QPSK turbo loop. WN 7 near its
-    // mask: the 8PSK turbo loop, its salvage and the MFB ensemble. WN 8: the QAM16 MFB decoder.
+    // WN 1: the largest equaliser (K = 48, 54 taps). WN 6: the QPSK turbo loop. WN 7 near its mask:
+    // the 8PSK turbo loop and the MFB ensemble (these blocks converge; the salvage, the reverts and
+    // the frozen-probe pass are held to no allocation over the whole corpus in dfe_turbo_test.cpp).
+    // WN 8: the QAM16 MFB decoder.
     const std::array<std::pair<int, double>, 4> cases{{{1, 0.0}, {6, 12.0}, {7, 13.0}, {8, 19.0}}};
     std::mt19937 rng(3);
     std::int64_t turbo_blocks = 0;

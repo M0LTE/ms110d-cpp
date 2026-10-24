@@ -29,6 +29,8 @@ struct RxBlockRecord {
     m0lte::ms110d::DfeTurbo turbo = m0lte::ms110d::DfeTurbo::Skipped;
     bool mfb_offered = false;
     bool mfb_selected = false;
+    int relock_offers = 0;
+    int relock_adopted = 0;
     std::size_t frames_before = 0;  // frames traced before this block's first frame
     std::size_t frames_end = 0;     // ... and after its last
 };

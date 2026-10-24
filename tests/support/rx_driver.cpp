@@ -81,6 +81,8 @@ RxRun RxDriver::run(std::span<const float> audio, std::size_t chunk) {
                 rec.turbo = b.turbo;
                 rec.mfb_offered = b.mfb_offered;
                 rec.mfb_selected = b.mfb_selected;
+                rec.relock_offers = b.relock_offers;
+                rec.relock_adopted = b.relock_adopted;
                 rec.frames_before = block_frames_mark_;
                 rec.frames_end = out.frames.size();
                 block_frames_mark_ = out.frames.size();

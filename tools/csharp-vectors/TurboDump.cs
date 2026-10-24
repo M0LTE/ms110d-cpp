@@ -62,6 +62,7 @@ static class TurboDump
         public byte[] Info = [];
         public string Outcome = "?";
         public int MfbOffered, MfbSelected;
+        public int RelockOffers, RelockAdopted;
         public ulong FrameHash;
         public int Frames;
         public string LastFrame = "";
@@ -147,6 +148,7 @@ static class TurboDump
         double presence = 0, plain = 0;
         float[]? first = null, turbo = null;
         int conv = 0, rev = 0, salv = 0, abort = 0, skip = 0, offered = 0, selected = 0;
+        int relockOffers = 0, relockAdopted = 0;
         demod.PresenceTraced += (_, p, q) =>
         {
             plain = p;
@@ -154,6 +156,14 @@ static class TurboDump
         };
         demod.FrameDiagnostics += line =>
         {
+            if (line.StartsWith("frozen-relock", StringComparison.Ordinal) && run.Reason == "None")
+            {
+                // The 8PSK salvage's late-lock offer for one frame, and whether it was taken.
+                relockOffers++;
+                relockAdopted += line.EndsWith("adopted=1", StringComparison.Ordinal) ? 1 : 0;
+                return;
+            }
+
             if (!line.StartsWith("frame@", StringComparison.Ordinal) || run.Reason != "None")
             {
                 return;
@@ -182,6 +192,9 @@ static class TurboDump
             }
 
             frameHash.Add(latched ? 1u : 0u);
+            // The fading detector's own state: its flag and its frames-since-excursion counter.
+            frameHash.Add((bool)Get(demod, "_fading")! ? 1u : 0u);
+            frameHash.Add((uint)(int)Get(demod, "_framesSinceExcursion")!);
             frames++;
             run.TotalFrames++;
             lastFrame = $"omega {R(omega)} theta {R(theta)} tau {R(tau)} gainref {R(gainRef)} presence {R(presence)} evidence {R(evidence)} latched {(latched ? 1 : 0)}";
@@ -223,6 +236,8 @@ static class TurboDump
                 Outcome = outcome,
                 MfbOffered = demod.MfbOffered - offered,
                 MfbSelected = demod.MfbSelected - selected,
+                RelockOffers = relockOffers,
+                RelockAdopted = relockAdopted,
                 FrameHash = frameHash.H,
                 Frames = frames,
                 LastFrame = lastFrame,
@@ -237,6 +252,8 @@ static class TurboDump
             selected = demod.MfbSelected;
             frameHash = new Fnv();
             frames = 0;
+            relockOffers = 0;
+            relockAdopted = 0;
         };
         demod.BurstCompleted += bu =>
         {
@@ -266,7 +283,7 @@ static class TurboDump
         for (int b = 0; b < r.Blocks.Count; b++)
         {
             Block k = r.Blocks[b];
-            sb.Append($"block {b} {k.AtT2} {k.Outcome} mfb {k.MfbOffered} {k.MfbSelected} frames {k.Frames} fhash {k.FrameHash:x16}\n");
+            sb.Append($"block {b} {k.AtT2} {k.Outcome} mfb {k.MfbOffered} {k.MfbSelected} relock {k.RelockOffers} {k.RelockAdopted} frames {k.Frames} fhash {k.FrameHash:x16}\n");
             sb.Append($"last {k.LastFrame}\n");
             sb.Append($"first {SoftHashed(k.First)}\n");
             sb.Append(k.Turbo is null ? "turbo -\n" : $"turbo {Soft(k.Turbo)}\n");
@@ -353,6 +370,70 @@ static class TurboDump
         return outp;
     }
 
+    // One burst's payload and its quantised received audio (16 bit samples, and as floats).
+    static (byte[] Payload, short[] Q, float[] Audio) MakeAudio(int wn, Ms110dInterleaverKind kind, bool standard, string channel,
+        double snr, int seed, int blocks, double offsetHz)
+    {
+        Ms110dInterleaverParams il = Ms110dInterleaverParams.Get3k(wn, kind);
+        var rng = new Random(seed);
+        var payload = new byte[Math.Max(1, (blocks * il.InputBits) - 32 - 8)];
+        for (int i = 0; i < payload.Length; i++)
+        {
+            payload[i] = (byte)rng.Next(2);
+        }
+
+        var tx = new Ms110dModulator(new Ms110dTxSettings { WaveformNumber = wn, Interleaver = kind });
+        typeof(Ms110dModulator).GetProperty("StandardProbePattern", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .SetValue(tx, standard);
+        float[] audio = tx.Modulate(payload);
+        if (channel == "drift")
+        {
+            audio = Drift(audio, offsetHz);  // here offsetHz is the ramp, Hz per second
+        }
+
+        // Moderate: two Rayleigh paths 1 ms apart, 0.5 Hz spread. poor-shift: the Poor geometry with
+        // the second path 6 Hz off the first, so the carrier the receiver tracks moves as the paths
+        // trade places (what the 3 Hz clamp on the carrier trim is for).
+        WattersonPath[]? paths = channel switch
+        {
+            "poor" => WattersonChannel.Poor,
+            "moderate" => [new WattersonPath(0, true, 0.5, 0), new WattersonPath(1, true, 0.5, 0)],
+            "poor-shift" => [new WattersonPath(0, true, 1.0, 0), new WattersonPath(2, true, 1.0, 6.0)],
+            _ => null,
+        };
+        if (channel == "onoff")
+        {
+            // Fading, then a static direct path, then fading again, a third of the burst each: the fade
+            // detector enters, leaves and enters again. The noise is added once over the whole.
+            float[] faded = new WattersonChannel(9600, seed + 1, WattersonChannel.Poor)
+                .Apply(audio, double.PositiveInfinity, leadInSamples: 0, leadOutSamples: 0);
+            var mixed = new float[audio.Length];
+            for (int i = 0; i < mixed.Length; i++)
+            {
+                bool still = i >= audio.Length / 3 && i < 2 * audio.Length / 3;
+                mixed[i] = still || i >= faded.Length ? audio[i] : faded[i];
+            }
+
+            audio = mixed;
+        }
+
+        float[] rx = channel switch
+        {
+            "clean" => [.. new float[1500], .. audio, .. new float[9600]],
+            "awgn" or "drift" or "onoff" => new WattersonChannel(9600, seed + 1).Apply(audio, snr, leadInSamples: 1500, leadOutSamples: 9600,
+                frequencyOffsetHz: channel == "drift" ? 0 : offsetHz),
+            _ => new WattersonChannel(9600, seed + 1, paths!).Apply(audio, snr, leadInSamples: 1500, leadOutSamples: 9600, frequencyOffsetHz: offsetHz),
+        };
+        var q = new short[rx.Length];
+        var quantised = new float[rx.Length];
+        for (int i = 0; i < rx.Length; i++)
+        {
+            q[i] = (short)Math.Clamp(Math.Round(rx[i] * Scale), short.MinValue, short.MaxValue);
+            quantised[i] = (float)(q[i] / Scale);
+        }
+        return (payload, q, quantised);
+    }
+
     public static void Corpus(string stem)
     {
         var text = new StringBuilder();
@@ -364,48 +445,7 @@ static class TurboDump
         void Burst(string label, int wn, Ms110dInterleaverKind kind, bool standard, string channel, double snr, int seed, int blocks,
             double offsetHz = 0)
         {
-            Ms110dInterleaverParams il = Ms110dInterleaverParams.Get3k(wn, kind);
-            var rng = new Random(seed);
-            var payload = new byte[Math.Max(1, (blocks * il.InputBits) - 32 - 8)];
-            for (int i = 0; i < payload.Length; i++)
-            {
-                payload[i] = (byte)rng.Next(2);
-            }
-
-            var tx = new Ms110dModulator(new Ms110dTxSettings { WaveformNumber = wn, Interleaver = kind });
-            typeof(Ms110dModulator).GetProperty("StandardProbePattern", BindingFlags.NonPublic | BindingFlags.Instance)!
-                .SetValue(tx, standard);
-            float[] audio = tx.Modulate(payload);
-            if (channel == "drift")
-            {
-                audio = Drift(audio, offsetHz);  // here offsetHz is the ramp, Hz per second
-            }
-
-            // Moderate: two Rayleigh paths 1 ms apart, 0.5 Hz spread. poor-shift: the Poor geometry with
-            // the second path 6 Hz off the first, so the carrier the receiver tracks moves as the paths
-            // trade places (what the 3 Hz clamp on the carrier trim is for).
-            WattersonPath[]? paths = channel switch
-            {
-                "poor" => WattersonChannel.Poor,
-                "moderate" => [new WattersonPath(0, true, 0.5, 0), new WattersonPath(1, true, 0.5, 0)],
-                "poor-shift" => [new WattersonPath(0, true, 1.0, 0), new WattersonPath(2, true, 1.0, 6.0)],
-                _ => null,
-            };
-            float[] rx = channel switch
-            {
-                "clean" => [.. new float[1500], .. audio, .. new float[9600]],
-                "awgn" or "drift" => new WattersonChannel(9600, seed + 1).Apply(audio, snr, leadInSamples: 1500, leadOutSamples: 9600,
-                    frequencyOffsetHz: channel == "drift" ? 0 : offsetHz),
-                _ => new WattersonChannel(9600, seed + 1, paths!).Apply(audio, snr, leadInSamples: 1500, leadOutSamples: 9600, frequencyOffsetHz: offsetHz),
-            };
-            var q = new short[rx.Length];
-            var quantised = new float[rx.Length];
-            for (int i = 0; i < rx.Length; i++)
-            {
-                q[i] = (short)Math.Clamp(Math.Round(rx[i] * Scale), short.MinValue, short.MaxValue);
-                quantised[i] = (float)(q[i] / Scale);
-            }
-
+            (byte[] payload, short[] q, float[] quantised) = MakeAudio(wn, kind, standard, channel, snr, seed, blocks, offsetHz);
             var bytes = new byte[2 * q.Length];
             Buffer.BlockCopy(q, 0, bytes, 0, bytes.Length);
             bin.Write(bytes);
@@ -460,6 +500,42 @@ static class TurboDump
 
             Burst($"std-awgn-wn{wn}", wn, Ms110dInterleaverKind.Short, true, "awgn", MaskSnr(wn) + 3, 31000 + wn, 2);
             Burst($"cur-awgn-wn{wn}", wn, Ms110dInterleaverKind.Short, false, "awgn", MaskSnr(wn) + 3, 31000 + wn, 2);
+        }
+
+        // Fading on, off and on again, long enough at each stage for the detector's 24 frame enter
+        // window and 32 frame exit (WN 1 to 4: 40 to 53 ms frames).
+        foreach (int wn in new[] { 1, 2, 3, 4 })
+        {
+            for (int n = 0; n < 2; n++)
+            {
+                Burst($"onoff-wn{wn}-{n}", wn, Ms110dInterleaverKind.Short, false, "onoff", MaskSnr(wn) + 8 + (4 * n), 25000 + (10 * wn) + n, 24);
+            }
+        }
+
+        // The standard pattern over a whole long-interleaver period, so the burst reaches the probe
+        // only the standard rule shifts (frame L - 2 of the burst, L the long interleaver's frames):
+        // WN 1 short (16 blocks of 16 frames), WN 3 medium (4 of 32) and WN 5 short (16 of 4).
+        Burst("std-long-wn1-1", 1, Ms110dInterleaverKind.Short, true, "clean", 0, 26001, 16);
+        Burst("std-long-wn3-2", 3, Ms110dInterleaverKind.Medium, true, "clean", 0, 26003, 4);
+        Burst("std-long-wn5-1", 5, Ms110dInterleaverKind.Short, true, "awgn", MaskSnr(5) + 3, 26005, 16);
+
+        // 8PSK blocks the late-lock rung salvages (found by search): the Poor channel, WN 7 short.
+        // 40019 has two offers and adopts one, 40027 offers and adopts none.
+        foreach ((int seed, double snr) in new[] { (40007, 13.0), (40020, 13.0), (40012, 13.0), (40008, 15.0), (40019, 15.0), (40036, 17.0), (40027, 13.0), (40038, 19.0) })
+        {
+            Burst($"relock-wn7-{seed}", 7, Ms110dInterleaverKind.Short, false, "poor", snr, seed, 3);
+        }
+
+        // Found by search for the boundaries of two constants: fade detector excursions with the counter
+        // at exactly 24 (enters; would not with a window of 23) and 25 (does not enter; would with 25),
+        // and late-lock offers whose floor ratio sits either side of the 0.5 margin (0.455, 0.516, 0.552).
+        foreach ((int wn, string channel, double snr, int seed, int blocks) in new[]
+        {
+            (1, "onoff", 5.0, 60036, 24), (4, "onoff", 13.0, 60042, 24), (3, "poor", 11.0, 60019, 6), (4, "poor", 11.0, 70025, 8),
+            (7, "poor", 13.0, 50044, 3), (7, "poor", 15.0, 50130, 3), (7, "poor", 17.0, 50015, 3),
+        })
+        {
+            Burst($"edge-wn{wn}-{channel}-{seed}", wn, Ms110dInterleaverKind.Short, false, channel, snr, seed, blocks);
         }
 
         File.WriteAllText(stem + ".txt", text.ToString());
