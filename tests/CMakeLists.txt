@@ -18,7 +18,8 @@ add_executable(ms110d_tests
   reference_tables_test.cpp
   modulator_test.cpp
   framing_test.cpp
-  transmitter_test.cpp)
+  transmitter_test.cpp
+  layer1_reference_test.cpp)
 target_link_libraries(ms110d_tests PRIVATE m0lte::ms110d Catch2::Catch2WithMain)
 # The tests also see the library's internal headers (src/tables.hpp); they are not installed.
 target_include_directories(ms110d_tests PRIVATE support "${PROJECT_SOURCE_DIR}/src")
@@ -100,10 +101,36 @@ if(MS110D_BUILD_C_SHARED)
         -P "${PROJECT_SOURCE_DIR}/cmake/CheckExports.cmake")
   endif()
 
+  # TEST ONLY: plain C functions over the internal stages, for the layer 1 side-by-side tests
+  # (docs/dev/layer1.md). Its own shared library, built only with the tests, never installed,
+  # and not part of the public header, the API lock or the ms110d_c exports.
+  add_library(ms110d_testhooks SHARED testhooks/testhooks.cpp)
+  target_link_libraries(ms110d_testhooks PRIVATE ms110d)
+  target_include_directories(ms110d_testhooks PUBLIC testhooks "${PROJECT_SOURCE_DIR}/include")
+  target_include_directories(ms110d_testhooks PRIVATE "${PROJECT_SOURCE_DIR}/src")
+  set_target_properties(ms110d_testhooks PROPERTIES
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+    LINKER_LANGUAGE CXX)
+  ms110d_apply_options(ms110d_testhooks)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(ms110d_testhooks PRIVATE -fno-exceptions -fno-rtti)
+  endif()
+
+  add_executable(ms110d_testhooks_c_test testhooks/testhooks_c_test.c)
+  set_target_properties(ms110d_testhooks_c_test PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+  target_link_libraries(ms110d_testhooks_c_test PRIVATE ms110d_testhooks)
+  if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(ms110d_testhooks_c_test PRIVATE -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wstrict-prototypes)
+  endif()
+  add_test(NAME testhooks_c COMMAND ms110d_testhooks_c_test)
+
   # Side-by-side .NET tests: see docs/dev/dotnet-interop.md. AUTO runs them when a
   # .NET 10 SDK is on the PATH; ON insists on one; OFF never builds them.
   set(MS110D_DOTNET_TESTS "AUTO" CACHE STRING "Run the .NET interop tests under ctest: AUTO, ON or OFF")
   set_property(CACHE MS110D_DOTNET_TESTS PROPERTY STRINGS AUTO ON OFF)
+  # Seconds allowed for the .NET tests; the full layer 1 count (MS110D_L1_FULL=1) needs far more.
+  set(MS110D_DOTNET_TIMEOUT 900 CACHE STRING "Timeout in seconds of the dotnet_interop test")
   if(NOT MS110D_DOTNET_TESTS STREQUAL "OFF")
     find_program(MS110D_DOTNET dotnet)
     set(_dotnet_ok OFF)
@@ -118,8 +145,8 @@ if(MS110D_BUILD_C_SHARED)
         COMMAND ${MS110D_DOTNET} run --project "${PROJECT_SOURCE_DIR}/tests/interop" --configuration Release
           --artifacts-path "${CMAKE_CURRENT_BINARY_DIR}/dotnet")
       set_tests_properties(dotnet_interop PROPERTIES
-        TIMEOUT 900
-        ENVIRONMENT "MS110D_NATIVE_LIB=$<TARGET_FILE:ms110d_c>;MS110D_PIN_FILE=${PROJECT_SOURCE_DIR}/reference/pin.txt;MS110D_EXPECTED_VERSION=${PROJECT_VERSION};DOTNET_NOLOGO=1;DOTNET_CLI_TELEMETRY_OPTOUT=1")
+        TIMEOUT ${MS110D_DOTNET_TIMEOUT}
+        ENVIRONMENT "MS110D_NATIVE_LIB=$<TARGET_FILE:ms110d_c>;MS110D_TESTHOOKS_LIB=$<TARGET_FILE:ms110d_testhooks>;MS110D_PIN_FILE=${PROJECT_SOURCE_DIR}/reference/pin.txt;MS110D_EXPECTED_VERSION=${PROJECT_VERSION};DOTNET_NOLOGO=1;DOTNET_CLI_TELEMETRY_OPTOUT=1")
     elseif(MS110D_DOTNET_TESTS STREQUAL "ON")
       message(FATAL_ERROR "MS110D_DOTNET_TESTS=ON but no .NET 10 SDK was found")
     else()
