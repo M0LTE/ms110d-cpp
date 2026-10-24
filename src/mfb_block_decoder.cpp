@@ -25,7 +25,6 @@ namespace {
 constexpr int win_len = MfbBlockDecoder::win_len;
 constexpr int scan_min = MfbBlockDecoder::scan_min;
 constexpr int scan_max = MfbBlockDecoder::scan_max;
-constexpr int scan_len = MfbBlockDecoder::scan_len;
 
 // Schedule caps and the re-fit gate (the C# constants; see the C# for their measurements).
 constexpr int soft_cap = 30;

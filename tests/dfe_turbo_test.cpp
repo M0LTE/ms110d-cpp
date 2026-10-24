@@ -197,9 +197,10 @@ std::vector<CsBurst> load(const char* path, const std::string& head_kind) {
 
 // The default build reproduces the C# exactly through the turbo stage (both run the equaliser
 // and the chain BCJR in the same precision), so every decision must match. The single build
-// keeps the equaliser's running sums in float where the C# uses double; on a marginal block that
-// can tip a turbo outcome, so there the differences are counted and the decoding success is held
-// to the C#'s instead.
+// keeps the equaliser's running sums in float where the C# uses double; on a hard fading or
+// drifting burst that can move the tracking and so the first pass and the turbo outcomes (by how
+// much depends on the machine's libm too), so there the differences are counted and the decoding
+// success is held to the C#'s instead.
 #ifdef MS110D_SINGLE_PRECISION
 constexpr bool strict = false;
 #else
@@ -285,11 +286,12 @@ void compare(const CsBurst& c, const ms110d_test::RxRun& r, Tally& t, const std:
         if (hex(fh.h) == k.first_hash) ++t.first_hash_equal;
         std::vector<std::uint8_t> signs;
         for (const float x : b.llrs) signs.push_back(x < 0 ? 1 : 0);
-        CHECK(bit_hash(signs.begin(), signs.end()) == k.first_signs);
+        const bool signs_same = bit_hash(signs.begin(), signs.end()) == k.first_signs;
+        if (strict) CHECK(signs_same);
         t.first_sum = std::max(t.first_sum, rel(sum, k.first_sum));
 
         // The turbo stage: what it did, its last iterate and the decode.
-        const bool block_same = std::string(outcome_name(b.turbo)) == k.outcome &&
+        const bool block_same = signs_same && std::string(outcome_name(b.turbo)) == k.outcome &&
                                 static_cast<int>(b.mfb_offered) == k.mfb_offered &&
                                 static_cast<int>(b.mfb_selected) == k.mfb_selected &&
                                 !b.turbo_llrs.empty() == k.turbo && bit_hash(b.info.begin(), b.info.end()) == k.info;
@@ -370,9 +372,9 @@ void check_tally(const Tally& t) {
         // The single build decodes at least as many bursts right as the C#, give or take one.
         CHECK(t.payload_right + 1 >= t.cs_payload_right);
     }
-    CHECK(t.first_sum <= 1e-4);
-    CHECK(t.last_state <= 1e-3);
     if (strict) {
+        CHECK(t.first_sum <= 1e-4);
+        CHECK(t.last_state <= 1e-3);
         // Measured: every turbo soft value identical.
         CHECK(t.turbo_sum <= 1e-6);
         CHECK(t.turbo_sign_flips == 0);
