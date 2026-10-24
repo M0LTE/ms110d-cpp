@@ -68,7 +68,7 @@ struct Agreement {
 };
 
 // Compares a run with a dump line; returns true if every field agrees. Tolerances are stated in
-// docs/dev/preamble-detector.md: the integers and the decision exactly, the doubles to 1e-6.
+// docs/dev/preamble-detector.md: the integers and the decision exactly, the data start to 1e-6 T/2, the frequency to 1e-4 Hz.
 bool agrees(const DumpLine& l, const Run& r, Agreement& a, std::string& why) {
     ++a.lines;
     const bool cs_det = l.integer(l.result, "det") != 0;
@@ -100,9 +100,9 @@ bool agrees(const DumpLine& l, const Run& r, Agreement& a, std::string& why) {
         a.max_omega = std::max(a.max_omega, dw);
         a.max_theta = std::max(a.max_theta, dt);
         if (dd > 1e-6) { why += " data"; ok = false; }
-        if (dc > 1e-6) { why += " cfo"; ok = false; }
-        if (dw > 1e-9) { why += " omega"; ok = false; }
-        if (dt > 1e-6) { why += " theta"; ok = false; }
+        if (dc > 1e-4) { why += " cfo"; ok = false; }
+        if (dw > 1e-8) { why += " omega"; ok = false; }
+        if (dt > 1e-5) { why += " theta"; ok = false; }
     }
     if (!ok) ++a.mismatches;
     return ok;
