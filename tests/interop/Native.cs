@@ -78,6 +78,53 @@ internal static class Native
     [DllImport(Lib, EntryPoint = "ms110d_status_string")]
     private static extern IntPtr StatusStringPtr(int status);
 
+    public const int ErrBufferTooSmall = 2;
+    public const int ErrState = 4;
+
+    /// <summary>ms110d_tx_settings. Sequential layout puts the double at offset 40, as in the C header.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TxSettings
+    {
+        public uint StructSize;
+        public int WaveformNumber;
+        public int Interleaver;
+        public int ConstraintLength;
+        public int PreambleSuperframes;
+        public int TlcBlocks;
+        public int AppendEom;
+        public int AppendEot;
+        public float Amplitude;
+        public uint Reserved;
+        public double RollOff;
+    }
+
+    [DllImport(Lib, EntryPoint = "ms110d_tx_settings_default")]
+    public static extern int TxSettingsDefault(ref TxSettings settings);
+
+    [DllImport(Lib, EntryPoint = "ms110d_tx_create")]
+    public static extern int TxCreate(ref TxSettings settings, uint maxPayloadBits, out IntPtr tx);
+
+    [DllImport(Lib, EntryPoint = "ms110d_tx_destroy")]
+    public static extern void TxDestroy(IntPtr tx);
+
+    [DllImport(Lib, EntryPoint = "ms110d_tx_audio_length")]
+    public static extern int TxAudioLength(IntPtr tx, uint payloadBits, out uint samples);
+
+    [DllImport(Lib, EntryPoint = "ms110d_tx_begin")]
+    public static extern int TxBegin(IntPtr tx);
+
+    [DllImport(Lib, EntryPoint = "ms110d_tx_push_bits")]
+    public static extern int TxPushBits(IntPtr tx, byte[] bits, uint count);
+
+    [DllImport(Lib, EntryPoint = "ms110d_tx_end_payload")]
+    public static extern int TxEndPayload(IntPtr tx);
+
+    [DllImport(Lib, EntryPoint = "ms110d_tx_read")]
+    public static extern int TxRead(IntPtr tx, float[] audio, uint capacity, out uint written);
+
+    [DllImport(Lib, EntryPoint = "ms110d_tx_modulate")]
+    public static extern int TxModulate(IntPtr tx, byte[] bits, uint bitCount, float[] audio, uint capacity, out uint written);
+
     public static string StatusString(int status) => Marshal.PtrToStringAnsi(StatusStringPtr(status))!;
 
     // ---- Test-only stage hooks (tests/testhooks/ms110d_testhooks.h). Not part of the C interface. ----
