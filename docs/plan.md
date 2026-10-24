@@ -59,7 +59,7 @@ Four layers of tests, each run on every change, covering every mode (WN0 to WN8,
 | 1. Bits on the wire | Random frames through each stage of the bit pipeline, in both: framing, scrambler, encoder, puncture, interleaver, WID, probes, EOM | Identical, bit for bit |
 | 2. Transmit audio | The same frames modulated by both | Same length, samples within a tight tolerance, same spectrum and level |
 | 3. Cross-decoding | C# to C#, C# to C++, C++ to C#, C++ to C++, through the C# HF channel at a ladder of SNRs on AWGN, Good, Moderate and Poor | Each pairing's frame loss within 0.5 dB of the others |
-| 4. Real audio | Off-air recordings of GB7RDG and of the mailcast receivers | The C++ decodes every frame the C# does, give or take the documented deviations |
+| 4. Real audio | Off-air recordings of GB7RDG and of the mailcast receivers | Same mode and burst outcome; the C++ at most one good frame short per burst and 2% over the corpus; exact payloads on error-free bursts |
 
 Two ways of running them:
 
@@ -126,3 +126,4 @@ Each stage ends with a merged, reviewed PR and its tests passing. Stages 6 and 7
 
 - 2026-10-24: plan agreed.
 - 2026-10-24: the standard's tables are not re-checked during the port, since they were transcribed twice and verified for the C#; the C++ tables are checked against the C# only (Tom).
+- 2026-10-24: layer 4 pass rule made precise. The C# receiver is chaotic on marginal real bursts (tiny audio changes alter bits, but only in frames that fail their CRC anyway), so exact payload equality is required only on error-free bursts; otherwise good-frame counts are compared with a tolerance of one frame per burst and 2% over the corpus. Details in docs/dev/corpus.md.
