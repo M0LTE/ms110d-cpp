@@ -15,34 +15,48 @@ inline namespace v_double {
 
 namespace {
 
-// The C# sentinel, -1e30f, as a real.
-constexpr real neg_inf = static_cast<real>(-1e30f);
+// The C# sentinel, -1e30f.
+template <class T>
+constexpr T neg_inf_t = static_cast<T>(-1e30f);
+constexpr real neg_inf = neg_inf_t<real>;
 
-struct Cx {
-    real re;
-    real im;
+template <class T>
+struct CxT {
+    T re;
+    T im;
 };
+using Cx = CxT<real>;
 
-template <typename T>
-inline Cx load(const std::complex<T>& c) noexcept {
-    return {static_cast<real>(c.real()), static_cast<real>(c.imag())};
+template <class T, typename U>
+inline CxT<T> load_t(const std::complex<U>& c) noexcept {
+    return {static_cast<T>(c.real()), static_cast<T>(c.imag())};
 }
-inline Cx add(Cx a, Cx b) noexcept { return {a.re + b.re, a.im + b.im}; }
-inline Cx sub(Cx a, Cx b) noexcept { return {a.re - b.re, a.im - b.im}; }
-inline Cx scale(Cx a, real s) noexcept { return {a.re * s, a.im * s}; }
+template <typename U>
+inline Cx load(const std::complex<U>& c) noexcept {
+    return load_t<real>(c);
+}
+template <class T>
+inline CxT<T> add(CxT<T> a, CxT<T> b) noexcept { return {a.re + b.re, a.im + b.im}; }
+template <class T>
+inline CxT<T> sub(CxT<T> a, CxT<T> b) noexcept { return {a.re - b.re, a.im - b.im}; }
+template <class T>
+inline CxT<T> scale(CxT<T> a, T s) noexcept { return {a.re * s, a.im * s}; }
 // (a.Re * b.Re) - (a.Im * b.Im), (a.Re * b.Im) + (a.Im * b.Re), as the C# Complex32.
-inline Cx mul(Cx a, Cx b) noexcept { return {(a.re * b.re) - (a.im * b.im), (a.re * b.im) + (a.im * b.re)}; }
-inline real mag2(Cx a) noexcept { return (a.re * a.re) + (a.im * a.im); }
+template <class T>
+inline CxT<T> mul(CxT<T> a, CxT<T> b) noexcept { return {(a.re * b.re) - (a.im * b.im), (a.re * b.im) + (a.im * b.re)}; }
+template <class T>
+inline T mag2(CxT<T> a) noexcept { return (a.re * a.re) + (a.im * a.im); }
 
 // a + log(1 + e^(b - a)) for a >= b; the guard skips the exp once the difference is beyond precision.
-inline real log_sum_exp(real a, real b) noexcept {
+template <class T>
+inline T log_sum_exp(T a, T b) noexcept {
     if (a < b) {
-        const real t = a;
+        const T t = a;
         a = b;
         b = t;
     }
-    const real diff = b - a;
-    return diff < static_cast<real>(-20.0f) ? a : a + std::log(static_cast<real>(1.0f) + std::exp(diff));
+    const T diff = b - a;
+    return diff < static_cast<T>(-20.0f) ? a : a + std::log(static_cast<T>(1.0f) + std::exp(diff));
 }
 
 // Branch metric of the shift register trellis: -|rx - (h1 xN + h2 xDelayed)|^2 / (2 noise).
@@ -166,7 +180,8 @@ bool Bcjr::equalize(std::span<const std::complex<real>> rx,
     return true;
 }
 
-ChainBcjr::ChainBcjr(std::size_t max_symbols, std::size_t max_constellation)
+template <class T>
+BasicChainBcjr<T>::BasicChainBcjr(std::size_t max_symbols, std::size_t max_constellation)
     : max_n_(max_symbols), max_m_(max_constellation) {
     inv2_.resize(std::max<std::size_t>(1, max_n_));
     alpha_.resize(max_n_ * max_m_);
@@ -174,7 +189,10 @@ ChainBcjr::ChainBcjr(std::size_t max_symbols, std::size_t max_constellation)
     post_.resize(max_m_);
 }
 
-bool ChainBcjr::equalize(const Input& in, std::span<real> llrs) noexcept {
+template <class T>
+bool BasicChainBcjr<T>::equalize(const Input& in, std::span<T> llrs) noexcept {
+    using C = CxT<T>;
+    constexpr T ninf = neg_inf_t<T>;
     const std::size_t n = in.rx.size();
     const std::size_t m = in.constellation.size();
     if (n > max_n_ || m == 0 || m > max_m_ || in.h1.size() != n || in.h2.size() != n || in.delay < 1 ||
@@ -191,18 +209,18 @@ bool ChainBcjr::equalize(const Input& in, std::span<real> llrs) noexcept {
     const std::size_t bps = static_cast<std::size_t>(in.bits_per_symbol);
     const bool has_priors = !in.symbol_log_priors.empty();
     const bool has_preceding = !in.preceding.empty();
-    real* inv2 = inv2_.data();
+    T* inv2 = inv2_.data();
     if (in.noise_var_per_symbol.size() == n && n > 0) {
         for (std::size_t t = 0; t < n; ++t) {
-            inv2[t] = static_cast<real>(1.0f) / (static_cast<real>(2.0f) * in.noise_var_per_symbol[t]);
+            inv2[t] = static_cast<T>(1.0f) / (static_cast<T>(2.0f) * in.noise_var_per_symbol[t]);
         }
     } else {
-        std::fill_n(inv2, n, static_cast<real>(1.0f) / (static_cast<real>(2.0f) * in.noise_var));
+        std::fill_n(inv2, n, static_cast<T>(1.0f) / (static_cast<T>(2.0f) * in.noise_var));
     }
 
-    real* alpha = alpha_.data();
-    real* beta = beta_.data();
-    real* post = post_.data();
+    T* alpha = alpha_.data();
+    T* beta = beta_.data();
+    T* post = post_.data();
 
     for (std::size_t c = 0; c < std::min(delay, n); ++c) {
         const std::size_t len = ((n - c) + delay - 1) / delay;
@@ -211,21 +229,21 @@ bool ChainBcjr::equalize(const Input& in, std::span<real> llrs) noexcept {
         for (std::size_t k = 0; k < len; ++k) {
             const std::size_t t = c + k * delay;
             const std::size_t base_cur = k * m;
-            const Cx r = load(in.rx[t]), a1 = load(in.h1[t]), a2 = load(in.h2[t]);
+            const C r = load_t<T>(in.rx[t]), a1 = load_t<T>(in.h1[t]), a2 = load_t<T>(in.h2[t]);
             for (std::size_t s = 0; s < m; ++s) {
-                const real prior = has_priors ? in.symbol_log_priors[t * m + s] : 0;
-                const Cx main = mul(a1, load(in.constellation[s]));
+                const T prior = has_priors ? in.symbol_log_priors[t * m + s] : 0;
+                const C main = mul(a1, load_t<T>(in.constellation[s]));
                 if (k == 0) {
-                    const Cx expected = has_preceding ? add(main, mul(a2, load(in.preceding[c]))) : main;
+                    const C expected = has_preceding ? add(main, mul(a2, load_t<T>(in.preceding[c]))) : main;
                     alpha[base_cur + s] = (-mag2(sub(r, expected)) * inv2[t]) + prior;
                     continue;
                 }
 
                 const std::size_t base_prev = (k - 1) * m;
-                real acc = neg_inf;
+                T acc = ninf;
                 for (std::size_t q = 0; q < m; ++q) {
-                    const Cx expected = add(main, mul(a2, load(in.constellation[q])));
-                    const real val = alpha[base_prev + q] - (mag2(sub(r, expected)) * inv2[t]);
+                    const C expected = add(main, mul(a2, load_t<T>(in.constellation[q])));
+                    const T val = alpha[base_prev + q] - (mag2(sub(r, expected)) * inv2[t]);
                     acc = log_sum_exp(acc, val);
                 }
                 alpha[base_cur + s] = acc + prior;
@@ -245,7 +263,7 @@ bool ChainBcjr::equalize(const Input& in, std::span<real> llrs) noexcept {
             }
 
             for (std::size_t b = 0; b < bps; ++b) {
-                real log0 = neg_inf, log1 = neg_inf;
+                T log0 = ninf, log1 = ninf;
                 for (std::size_t s = 0; s < m; ++s) {
                     const std::size_t label = in.bit_labels.empty() ? s : in.bit_labels[s];
                     if (((label >> (bps - 1 - b)) & 1u) == 0) {
@@ -263,13 +281,13 @@ bool ChainBcjr::equalize(const Input& in, std::span<real> llrs) noexcept {
 
             // beta[k-1][q] = logsumexp_s(beta[k][s] + gamma_k(q, s)); gamma carries symbol s's prior.
             const std::size_t next = 1 - cur;
-            const Cx r = load(in.rx[t]), a1 = load(in.h1[t]), a2 = load(in.h2[t]);
+            const C r = load_t<T>(in.rx[t]), a1 = load_t<T>(in.h1[t]), a2 = load_t<T>(in.h2[t]);
             for (std::size_t q = 0; q < m; ++q) {
-                const Cx echo = mul(a2, load(in.constellation[q]));
-                real acc = neg_inf;
+                const C echo = mul(a2, load_t<T>(in.constellation[q]));
+                T acc = ninf;
                 for (std::size_t s = 0; s < m; ++s) {
-                    const Cx expected = add(mul(a1, load(in.constellation[s])), echo);
-                    const real val = beta[cur * m + s] - (mag2(sub(r, expected)) * inv2[t]) +
+                    const C expected = add(mul(a1, load_t<T>(in.constellation[s])), echo);
+                    const T val = beta[cur * m + s] - (mag2(sub(r, expected)) * inv2[t]) +
                                      (has_priors ? in.symbol_log_priors[t * m + s] : 0);
                     acc = log_sum_exp(acc, val);
                 }
@@ -280,6 +298,9 @@ bool ChainBcjr::equalize(const Input& in, std::span<real> llrs) noexcept {
     }
     return true;
 }
+
+template class BasicChainBcjr<float>;
+template class BasicChainBcjr<double>;
 
 }  // inline namespace
 

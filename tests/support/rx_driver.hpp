@@ -30,6 +30,7 @@ struct RxBlockRecord {
     bool mfb_offered = false;
     bool mfb_selected = false;
     std::size_t frames_before = 0;  // frames traced before this block's first frame
+    std::size_t frames_end = 0;     // ... and after its last
 };
 
 struct RxRun {
@@ -58,7 +59,7 @@ private:
     std::unique_ptr<m0lte::fec::TailBitingViterbiDecoder> k9_;
     std::unique_ptr<m0lte::fec::TailBitingSisoDecoder> siso7_;
     std::unique_ptr<m0lte::fec::TailBitingSisoDecoder> siso9_;
-    std::unique_ptr<m0lte::ms110d::ChainBcjr> chain_;
+    std::unique_ptr<m0lte::ms110d::BasicChainBcjr<float>> chain_;
     std::size_t block_frames_mark_ = 0;
     std::vector<std::uint8_t> storage_;
     bool trace_frames_;

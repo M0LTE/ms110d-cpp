@@ -21,7 +21,7 @@ RxDriver::RxDriver(InterleaverKind max_interleaver, bool trace_frames, bool turb
     k9_ = std::make_unique<m0lte::fec::TailBitingViterbiDecoder>(m0lte::fec::k9_561_753, bits);
     siso7_ = std::make_unique<m0lte::fec::TailBitingSisoDecoder>(m0lte::fec::k7_133_171, bits);
     siso9_ = std::make_unique<m0lte::fec::TailBitingSisoDecoder>(m0lte::fec::k9_561_753, bits);
-    chain_ = std::make_unique<ChainBcjr>(DfeReceiver::max_frame_symbols, 16);
+    chain_ = std::make_unique<BasicChainBcjr<float>>(DfeReceiver::max_frame_symbols, 16);
     storage_.resize(DfeReceiver::storage_bytes(config));
     DfeDecoders d;
     d.viterbi_k7 = k7_.get();
@@ -82,6 +82,7 @@ RxRun RxDriver::run(std::span<const float> audio, std::size_t chunk) {
                 rec.mfb_offered = b.mfb_offered;
                 rec.mfb_selected = b.mfb_selected;
                 rec.frames_before = block_frames_mark_;
+                rec.frames_end = out.frames.size();
                 block_frames_mark_ = out.frames.size();
                 out.blocks.push_back(std::move(rec));
             } else {

@@ -8,6 +8,8 @@
 
 #include "alloc_guard.hpp"
 #include "dfe_receiver.hpp"
+#include "bcjr.hpp"
+#include "fec/tail_biting_siso.hpp"
 #include "fec/tail_biting_viterbi.hpp"
 #include "probe_pattern.hpp"
 #include "puncture.hpp"
@@ -202,7 +204,7 @@ TEST_CASE("reference demodulator: every WN 1 to 5 ultra-short and short case aga
     require_dump(MS110D_CSHARP_RX_DUMP);
     const std::vector<CsCase> cases = load_clean_dump();
     REQUIRE(cases.size() == 41);
-    ms110d_test::RxDriver driver(InterleaverKind::Short);
+    ms110d_test::RxDriver driver(InterleaverKind::Short, true, false);  // the first pass alone, as the dump
     Worst w;
     for (const CsCase& c : cases) {
         INFO("case " << c.name);
@@ -302,7 +304,7 @@ TEST_CASE("reference demodulator: seeded AWGN and cut bursts on WN 1 to 5 agains
     require_dump(MS110D_CSHARP_RX_AWGN);
     std::ifstream in(MS110D_CSHARP_RX_AWGN);
     REQUIRE(in.good());
-    ms110d_test::RxDriver driver(InterleaverKind::Short);
+    ms110d_test::RxDriver driver(InterleaverKind::Short, true, false);  // the first pass alone, as the dump
     std::vector<float> base;
     int lead_in = 0, lead_out = 0;
     long cut = -1;  // cut trials: the signal stops at this base sample
@@ -608,10 +610,19 @@ TEST_CASE("dfe receiver: nothing allocates after configure", "[dfe_receiver]") {
     const std::size_t bits = DfeReceiver::max_input_bits_for(config.max_interleaver);
     fec::TailBitingViterbiDecoder k7(fec::k7_133_171, bits);
     fec::TailBitingViterbiDecoder k9(fec::k9_561_753, bits);
+    fec::TailBitingSisoDecoder s7(fec::k7_133_171, bits);
+    fec::TailBitingSisoDecoder s9(fec::k9_561_753, bits);
+    BasicChainBcjr<float> chain(DfeReceiver::max_frame_symbols, 16);
+    DfeDecoders dec;
+    dec.viterbi_k7 = &k7;
+    dec.viterbi_k9 = &k9;
+    dec.siso_k7 = &s7;
+    dec.siso_k9 = &s9;
+    dec.chain = &chain;
     std::vector<std::uint8_t> storage(DfeReceiver::storage_bytes(config));
     auto detector = std::make_unique<PreambleDetector>();
     auto receiver = std::make_unique<DfeReceiver>();
-    REQUIRE(receiver->configure(config, storage, &k7, &k9));
+    REQUIRE(receiver->configure(config, storage, dec));
 
     int blocks = 0;
     bool ended = false;
@@ -659,17 +670,28 @@ TEST_CASE("dfe receiver: storage, configuration and refusals", "[dfe_receiver]")
     const std::size_t bits = DfeReceiver::max_input_bits_for(config.max_interleaver);
     fec::TailBitingViterbiDecoder k7(fec::k7_133_171, bits);
     fec::TailBitingViterbiDecoder k9(fec::k9_561_753, bits);
+    fec::TailBitingSisoDecoder s7(fec::k7_133_171, bits);
+    fec::TailBitingSisoDecoder s9(fec::k9_561_753, bits);
+    BasicChainBcjr<float> chain(DfeReceiver::max_frame_symbols, 16);
+    DfeDecoders dec;
+    dec.viterbi_k7 = &k7;
+    dec.viterbi_k9 = &k9;
+    dec.siso_k7 = &s7;
+    dec.siso_k9 = &s9;
+    dec.chain = &chain;
     std::vector<std::uint8_t> storage(DfeReceiver::storage_bytes(config));
     auto rx = std::make_unique<DfeReceiver>();
-    CHECK_FALSE(rx->configure(config, {storage.data(), storage.size() - 1}, &k7, &k9));
-    CHECK_FALSE(rx->configure(config, storage, nullptr, &k9));
+    CHECK_FALSE(rx->configure(config, {storage.data(), storage.size() - 1}, dec));
+    DfeDecoders missing = dec;
+    missing.chain = nullptr;
+    CHECK_FALSE(rx->configure(config, storage, missing));
     DfeReceiverConfig bad = config;
     bad.roll_off = 2.0;
-    CHECK_FALSE(rx->configure(bad, storage, &k7, &k9));
+    CHECK_FALSE(rx->configure(bad, storage, dec));
     // Any alignment of the block is accepted.
     std::vector<std::uint8_t> odd(storage.size() + 1);
-    CHECK(rx->configure(config, {odd.data() + 1, storage.size()}, &k7, &k9));
-    REQUIRE(rx->configure(config, storage, &k7, &k9));
+    CHECK(rx->configure(config, {odd.data() + 1, storage.size()}, dec));
+    REQUIRE(rx->configure(config, storage, dec));
 
     DfeStart s;
     s.waveform = 0;

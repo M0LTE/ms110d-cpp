@@ -13,8 +13,9 @@
 // Run from the repo root: dotnet run -c Release --project tools/csharp-vectors -- rx-turbo <ref-dir>
 //
 // Per frame the tracking state is folded into a hash (and the last frame of each block written
-// out); per block the first-pass and the last turbo iterate's soft values (hash, signs, sum of
-// magnitudes), the decode, and what the turbo stage did, from the public counters.
+// out); per block the first-pass and the last turbo iterate's soft values (hash of the float bits,
+// signs, sum of magnitudes; the turbo ones clipped at 30), the decode, and what the turbo stage did,
+// from the public counters.
 
 using System.Globalization;
 using System.Reflection;
@@ -103,7 +104,9 @@ static class TurboDump
             f.Add(BitConverter.SingleToUInt32Bits(x));
         }
 
-        return $"{f.H:x16} {Signs(llrs)} {R(llrs.Sum(x => (double)Math.Abs(x)))}";
+        // Magnitudes clipped at 30: on a clean signal the turbo soft values saturate at 1e6 and more
+        // (the noise floor sits at its minimum), where their exact size means nothing.
+        return $"{f.H:x16} {Signs(llrs)} {R(llrs.Sum(x => Math.Min((double)Math.Abs(x), 30.0)))}";
     }
 
     static string Bits(byte[] bits) => string.Concat(bits.Select(b => b == 0 ? '0' : '1'));
@@ -323,7 +326,8 @@ static class TurboDump
         using var bin = new FileStream(stem + ".i16le", FileMode.Create);
         long offset = 0;
 
-        void Burst(string label, int wn, Ms110dInterleaverKind kind, bool standard, string channel, double snr, int seed, int blocks)
+        void Burst(string label, int wn, Ms110dInterleaverKind kind, bool standard, string channel, double snr, int seed, int blocks,
+            double offsetHz = 0)
         {
             Ms110dInterleaverParams il = Ms110dInterleaverParams.Get3k(wn, kind);
             var rng = new Random(seed);
@@ -337,11 +341,21 @@ static class TurboDump
             typeof(Ms110dModulator).GetProperty("StandardProbePattern", BindingFlags.NonPublic | BindingFlags.Instance)!
                 .SetValue(tx, standard);
             float[] audio = tx.Modulate(payload);
+            // Moderate: two Rayleigh paths 1 ms apart, 0.5 Hz spread. poor-shift: the Poor geometry with
+            // the second path 6 Hz off the first, so the carrier the receiver tracks moves as the paths
+            // trade places (what the 3 Hz clamp on the carrier trim is for).
+            WattersonPath[]? paths = channel switch
+            {
+                "poor" => WattersonChannel.Poor,
+                "moderate" => [new WattersonPath(0, true, 0.5, 0), new WattersonPath(1, true, 0.5, 0)],
+                "poor-shift" => [new WattersonPath(0, true, 1.0, 0), new WattersonPath(2, true, 1.0, 6.0)],
+                _ => null,
+            };
             float[] rx = channel switch
             {
                 "clean" => [.. new float[1500], .. audio, .. new float[9600]],
-                "awgn" => new WattersonChannel(9600, seed + 1).Apply(audio, snr, leadInSamples: 1500, leadOutSamples: 9600),
-                _ => new WattersonChannel(9600, seed + 1, WattersonChannel.Poor).Apply(audio, snr, leadInSamples: 1500, leadOutSamples: 9600),
+                "awgn" => new WattersonChannel(9600, seed + 1).Apply(audio, snr, leadInSamples: 1500, leadOutSamples: 9600, frequencyOffsetHz: offsetHz),
+                _ => new WattersonChannel(9600, seed + 1, paths!).Apply(audio, snr, leadInSamples: 1500, leadOutSamples: 9600, frequencyOffsetHz: offsetHz),
             };
             var q = new short[rx.Length];
             var quantised = new float[rx.Length];
@@ -355,7 +369,7 @@ static class TurboDump
             Buffer.BlockCopy(q, 0, bytes, 0, bytes.Length);
             bin.Write(bytes);
             Run r = Demodulate(quantised);
-            text.Append($"burst {label} wn {wn} il {(int)kind} standard {(standard ? 1 : 0)} channel {channel} snr {R(snr)} seed {seed} ");
+            text.Append($"burst {label} wn {wn} il {(int)kind} standard {(standard ? 1 : 0)} channel {channel} snr {R(snr)} offset_hz {R(offsetHz)} seed {seed} ");
             text.Append($"offset {offset} samples {q.Length}\n");
             text.Append($"payload {Bits(payload)}\n");
             Lines(text, r);
@@ -378,6 +392,15 @@ static class TurboDump
             if (wn >= 5)
             {
                 Burst($"poor-wn{wn}-2", wn, Ms110dInterleaverKind.Medium, false, "poor", MaskSnr(wn) + 10, 21000 + wn, 1);
+            }
+
+            // Moderate and shifted-Poor multipath with the carrier 20 Hz off, either way: the fade
+            // detector's enter and exit windows, its floor recovery and the carrier clamp.
+            for (int n = 0; n < 2; n++)
+            {
+                double hz = n == 0 ? 20.0 : -20.0;
+                Burst($"mod-wn{wn}-{n}", wn, Ms110dInterleaverKind.Short, false, "moderate", MaskSnr(wn) + 6, 22000 + (10 * wn) + n, 3, hz);
+                Burst($"shift-wn{wn}-{n}", wn, Ms110dInterleaverKind.Short, false, "poor-shift", MaskSnr(wn) + 10, 23000 + (10 * wn) + n, 3, -hz);
             }
         }
 

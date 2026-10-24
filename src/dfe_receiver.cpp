@@ -853,6 +853,7 @@ void DfeReceiver::process_frame() noexcept {
         t.tap_change = tap_change;
         t.fade_floor = fade_floor_;
         t.omega = omega_;
+        t.omega_acquired = omega_acquired_;
         t.theta_base = theta_base_;
         t.tau = tau_;
         t.presence = presence;
@@ -1353,6 +1354,7 @@ void DfeReceiver::end_burst(DfeEndReason reason, std::int64_t payload_bits) noex
     active_ = false;
     tracking_initialized_ = false;
     agc_gain_ = 1.0f;
+    pattern_.reset();  // the C# EndBurst forgets the evidence
 }
 
 }  // inline namespace

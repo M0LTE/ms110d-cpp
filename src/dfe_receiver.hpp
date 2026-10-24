@@ -81,13 +81,14 @@ struct DfeReceiverConfig {
 
 // The decoders the receiver uses, the caller's (each allocates its tables when constructed):
 // tail-biting Viterbi and SISO for K = 7 and K = 9, built for at least max_input_bits_for() info
-// bits, and the chain BCJR, built for at least max_frame_symbols symbols and 16 points.
+// bits, and the chain BCJR, built for at least max_frame_symbols symbols and 16 points. The chain
+// BCJR is single precision in both builds, the C#'s own (docs/dev/dfe-receiver.md).
 struct DfeDecoders {
     fec::TailBitingViterbiDecoder* viterbi_k7 = nullptr;
     fec::TailBitingViterbiDecoder* viterbi_k9 = nullptr;
     fec::TailBitingSisoDecoder* siso_k7 = nullptr;
     fec::TailBitingSisoDecoder* siso_k9 = nullptr;
-    ChainBcjr* chain = nullptr;
+    BasicChainBcjr<float>* chain = nullptr;
 };
 
 // Where a burst is and what it is, as the preamble detector leaves it (from_detection()).
@@ -120,6 +121,7 @@ struct DfeFrameTrace {
     double tap_change = 0;
     double fade_floor = 0;
     double omega = 0;
+    double omega_acquired = 0;       // the carrier at the data start: the trim's clamp centre
     double theta_base = 0;
     double tau = 0;
     double presence = 0;
@@ -430,13 +432,11 @@ private:
     std::array<EqSample, eq_max_taps> causal_taps_{};
     std::array<ComplexF, 2 * max_k> probe_y_{};
     std::array<int, 2 * max_k> probe_idx_{};
-    // The same, widened to the chain BCJR's `real` (a no-op copy in the single build).
-    std::array<std::complex<real>, max_u> bcjr_rx_{};
-    std::array<std::complex<real>, max_u> bcjr_h1_{};
-    std::array<std::complex<real>, max_u> bcjr_h2_{};
-    std::array<real, max_u> bcjr_nv_{};
-    std::array<real, 16 * max_u> bcjr_priors_{};
-    std::array<real, 4 * max_u> bcjr_llrs_{};
+    // The same as the chain BCJR takes them (std::complex<float>; the values are copied, not rounded).
+    std::array<std::complex<float>, max_u> bcjr_rx_{};
+    std::array<std::complex<float>, max_u> bcjr_h1_{};
+    std::array<std::complex<float>, max_u> bcjr_h2_{};
+    std::array<float, 4 * max_u> bcjr_llrs_{};
     std::array<tables::Complex32, max_k> bcjr_preceding_{};
 
     // Events.

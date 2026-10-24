@@ -556,35 +556,31 @@ void DfeReceiver::turbo_core(const ComplexF* expected_all, const float* symbol_v
             }
         }
 
-        // The chain BCJR, in the build's precision (docs/dev/soft-decoders.md).
+        // The chain BCJR, in single precision as the C# (docs/dev/dfe-receiver.md).
         for (int u = 0; u < U; ++u) {
             const std::size_t uu = static_cast<std::size_t>(u);
-            bcjr_rx_[uu] = {static_cast<real>(rx_desc_[uu].re), static_cast<real>(rx_desc_[uu].im)};
-            bcjr_h1_[uu] = {static_cast<real>(h1_span_[uu].re), static_cast<real>(h1_span_[uu].im)};
-            bcjr_h2_[uu] = {static_cast<real>(h2_span_[uu].re), static_cast<real>(h2_span_[uu].im)};
-            if (engaged) bcjr_nv_[uu] = static_cast<real>(nv_span_[uu]);
-        }
-        if (wire_ext != nullptr) {
-            for (int i = 0; i < U * m; ++i) bcjr_priors_[static_cast<std::size_t>(i)] = static_cast<real>(log_priors_[static_cast<std::size_t>(i)]);
+            bcjr_rx_[uu] = {rx_desc_[uu].re, rx_desc_[uu].im};
+            bcjr_h1_[uu] = {h1_span_[uu].re, h1_span_[uu].im};
+            bcjr_h2_[uu] = {h2_span_[uu].re, h2_span_[uu].im};
         }
         for (int c = 0; c < delay; ++c) {
             bcjr_preceding_[static_cast<std::size_t>(c)] = {preceding_[static_cast<std::size_t>(c)].re, preceding_[static_cast<std::size_t>(c)].im};
         }
         const std::size_t n_llrs = static_cast<std::size_t>(U * bps);
-        ChainBcjr::Input in;
+        BasicChainBcjr<float>::Input in;
         in.rx = {bcjr_rx_.data(), static_cast<std::size_t>(U)};
         in.h1 = {bcjr_h1_.data(), static_cast<std::size_t>(U)};
         in.h2 = {bcjr_h2_.data(), static_cast<std::size_t>(U)};
         in.delay = delay;
-        in.noise_var = static_cast<real>(noise_var);
+        in.noise_var = noise_var;
         in.constellation = tc.points;
         in.bit_labels = tc.labels;
         in.bits_per_symbol = bps;
         in.preceding = {bcjr_preceding_.data(), static_cast<std::size_t>(delay)};
-        if (wire_ext != nullptr) in.symbol_log_priors = {bcjr_priors_.data(), static_cast<std::size_t>(U * m)};
-        if (engaged) in.noise_var_per_symbol = {bcjr_nv_.data(), static_cast<std::size_t>(U)};
+        if (wire_ext != nullptr) in.symbol_log_priors = {log_priors_.data(), static_cast<std::size_t>(U * m)};
+        if (engaged) in.noise_var_per_symbol = {nv_span_.data(), static_cast<std::size_t>(U)};
         decoders_.chain->equalize(in, {bcjr_llrs_.data(), n_llrs});
-        for (std::size_t i = 0; i < n_llrs; ++i) frame_llrs_[i] = static_cast<float>(bcjr_llrs_[i]);
+        for (std::size_t i = 0; i < n_llrs; ++i) frame_llrs_[i] = bcjr_llrs_[i];
 
         if (qam) {
             // The chains gave wire-bit soft values; data bit = wire bit XOR scramble bit.
@@ -828,26 +824,26 @@ void DfeReceiver::turbo_frozen_probe_pass() noexcept {
 
         for (int u = 0; u < U; ++u) {
             const std::size_t uu = static_cast<std::size_t>(u);
-            bcjr_rx_[uu] = {static_cast<real>(rx_desc_[uu].re), static_cast<real>(rx_desc_[uu].im)};
-            bcjr_h1_[uu] = {static_cast<real>(h1_span_[uu].re), static_cast<real>(h1_span_[uu].im)};
-            bcjr_h2_[uu] = {static_cast<real>(h2_span_[uu].re), static_cast<real>(h2_span_[uu].im)};
+            bcjr_rx_[uu] = {rx_desc_[uu].re, rx_desc_[uu].im};
+            bcjr_h1_[uu] = {h1_span_[uu].re, h1_span_[uu].im};
+            bcjr_h2_[uu] = {h2_span_[uu].re, h2_span_[uu].im};
         }
         for (int c = 0; c < chain_delay; ++c) {
             bcjr_preceding_[static_cast<std::size_t>(c)] = {preceding_[static_cast<std::size_t>(c)].re, preceding_[static_cast<std::size_t>(c)].im};
         }
         const std::size_t n_llrs = static_cast<std::size_t>(U * bps);
-        ChainBcjr::Input in;
+        BasicChainBcjr<float>::Input in;
         in.rx = {bcjr_rx_.data(), static_cast<std::size_t>(U)};
         in.h1 = {bcjr_h1_.data(), static_cast<std::size_t>(U)};
         in.h2 = {bcjr_h2_.data(), static_cast<std::size_t>(U)};
         in.delay = chain_delay;
-        in.noise_var = static_cast<real>(noise_var);
+        in.noise_var = noise_var;
         in.constellation = tc.points;
         in.bit_labels = tc.labels;
         in.bits_per_symbol = bps;
         in.preceding = {bcjr_preceding_.data(), static_cast<std::size_t>(chain_delay)};
         decoders_.chain->equalize(in, {bcjr_llrs_.data(), n_llrs});
-        for (std::size_t i = 0; i < n_llrs; ++i) add_llr(static_cast<float>(bcjr_llrs_[i]));
+        for (std::size_t i = 0; i < n_llrs; ++i) add_llr(bcjr_llrs_[i]);
     }
     restore();
 }
