@@ -32,3 +32,9 @@ CI runs the script on every PR and caches `build/_reference` keyed on `reference
 3. Run `scripts/generate-reference.sh --force` and note the new tree hash.
 4. Rerun every layer: the C++ unit tests against the new reference files, the interop tests against the new package, and the cross-decoding and real audio layers from docs/plan.md. A difference is either a C++ bug, a C# bug (fix the C# per the plan's deviation rules) or a named accepted deviation.
 5. Put the new tree hash and what changed in the PR.
+
+## Reading them from the tests
+
+`tests/support/reference_files.hpp` is a small reader for format_version 2: the manifest (`key=value`), `index.txt`, and each stage's bits, symbols, `cf32` and `f32` files, with the file size checked against the manifest count. The directory comes from the environment variable `MS110D_REFERENCE_DIR`, which CMake sets for ctest from the cache variable of the same name (default `build/_reference/ref`, where the script puts them). Tests that need the files skip with a message when they are absent. Setting `MS110D_REQUIRE_REFERENCE=1` turns a missing directory into a failure instead; CI sets it in the `reference files` job, which generates the files and runs the tests whose names start with `reference `.
+
+`tests/reference_tables_test.cpp` ties the C++ tables to the files: every case's manifest must agree with the mode and interleaver tables, and the table-driven stages (transcoding, mini-probes with the boundary rule, the EOM bits, the TLC and Fixed preamble sections) must reproduce the files exactly. The tables are separately checked against the standard's own transcriptions in `reference/spec-tables/` (`tests/spec_tables_test.cpp`).

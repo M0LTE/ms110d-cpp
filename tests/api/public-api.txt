@@ -11,6 +11,49 @@ using real = double;
 }
 #endif
 }
+==== m0lte/ms110d/mode.hpp
+#pragma once
+#include <optional>
+#include <span>
+namespace m0lte::ms110d {
+enum class Modulation {
+    Walsh,
+    Bpsk,
+    Qpsk,
+    Psk8,
+    Qam16,
+};
+enum class InterleaverKind {
+    UltraShort,
+    Short,
+    Medium,
+    Long,
+};
+struct CodeRate {
+    int numerator;
+    int denominator;
+    bool operator==(const CodeRate&) const = default;
+};
+struct Mode {
+    int wn;
+    Modulation modulation;
+    int bits_per_symbol;
+    int u;
+    int k;
+    CodeRate code_rate;
+    int bps;
+};
+struct InterleaverParams {
+    int frames;
+    int size_bits;
+    int input_bits;
+    int increment;
+};
+std::span<const Mode> modes_3k() noexcept;
+std::optional<Mode> mode_3k(int wn) noexcept;
+bool has_interleaver_3k(int wn, InterleaverKind kind) noexcept;
+std::optional<InterleaverParams> interleaver_3k(int wn, InterleaverKind kind) noexcept;
+}
 ==== m0lte/ms110d/ms110d.h
 #ifndef M0LTE_MS110D_MS110D_H
 #define M0LTE_MS110D_MS110D_H
