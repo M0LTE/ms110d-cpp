@@ -503,12 +503,12 @@ std::vector<float> on_air(const std::vector<float>& burst, double snr_db, std::u
 
 }  // namespace
 
-TEST_CASE("dfe receiver: the C++ transmitter's bursts decode, WN 1 to 5, ultra-short and short, K 7 and 9",
+TEST_CASE("dfe receiver: the C++ transmitter's bursts decode, every equaliser mode, ultra-short and short, K 7 and 9",
           "[dfe_receiver]") {
     ms110d_test::RxDriver driver(InterleaverKind::Short, false);
     std::mt19937 rng(77);
     int bursts = 0;
-    for (const int wn : {1, 2, 3, 4, 5}) {
+    for (const int wn : {1, 2, 3, 4, 5, 6, 7, 8, 13}) {
         for (const InterleaverKind il : {InterleaverKind::UltraShort, InterleaverKind::Short}) {
             for (const int k : {7, 9}) {
                 TxSettings s;
@@ -540,12 +540,42 @@ TEST_CASE("dfe receiver: the C++ transmitter's bursts decode, WN 1 to 5, ultra-s
             }
         }
     }
-    CHECK(bursts == 100);
+    CHECK(bursts == 180);
+}
+
+TEST_CASE("dfe receiver: the C++ transmitter's bursts decode with the medium and long interleavers", "[dfe_receiver]") {
+    ms110d_test::RxDriver driver(InterleaverKind::Long, false);
+    std::mt19937 rng(78);
+    int bursts = 0;
+    for (const int wn : {1, 2, 3, 4, 5, 6, 7, 8, 13}) {
+        for (const InterleaverKind il : {InterleaverKind::Medium, InterleaverKind::Long}) {
+            // The long interleaver for a few modes only: a WN 1 long block is ten seconds of audio.
+            if (il == InterleaverKind::Long && wn != 3 && wn != 7 && wn != 8) continue;
+            TxSettings s;
+            s.waveform_number = wn;
+            s.interleaver = il;
+            const auto ip = interleaver_3k(wn, il);
+            REQUIRE(ip);
+            const std::size_t n_in = static_cast<std::size_t>(ip->input_bits);
+            TxRig rig(s, n_in + 40);
+            INFO("wn " << wn << " il " << static_cast<int>(il));
+            const auto payload = random_bits(rng, n_in + 3);
+            const ms110d_test::RxRun r = driver.run(on_air(rig.burst(payload), std::nan(""), 0));
+            REQUIRE(r.ended);
+            CHECK(r.end.reason == DfeEndReason::Eom);
+            CHECK(payload_of(r) == payload);
+            for (const auto& b : r.blocks) CHECK(b.turbo == DfeTurbo::Converged);
+            ++bursts;
+        }
+    }
+    CHECK(bursts == 12);
 }
 
 TEST_CASE("dfe receiver: the C++ transmitter's bursts decode in noise", "[dfe_receiver]") {
-    // 3 dB above the C# dump's upper points, where the C# decoded 18 to 20 of 20 at the point below.
-    const std::array<std::pair<int, double>, 5> points{{{1, -3.0}, {2, 0.0}, {3, 3.0}, {4, 6.0}, {5, 9.0}}};
+    // WN 1 to 5: 3 dB above the C# dump's upper points, where the C# decoded 18 to 20 of 20 at the
+    // point below. The rest: 3 dB above the Table D-LXIV AWGN mask.
+    const std::array<std::pair<int, double>, 9> points{
+        {{1, -3.0}, {2, 0.0}, {3, 3.0}, {4, 6.0}, {5, 9.0}, {6, 12.0}, {7, 16.0}, {8, 19.0}, {13, 9.0}}};
     ms110d_test::RxDriver driver(InterleaverKind::Short, false);
     std::mt19937 rng(5);
     for (const auto& [wn, snr] : points) {
@@ -597,14 +627,6 @@ TEST_CASE("dfe receiver: results do not depend on how the audio is cut up", "[df
 }
 
 TEST_CASE("dfe receiver: nothing allocates after configure", "[dfe_receiver]") {
-    TxSettings s;
-    s.waveform_number = 1;  // the largest equaliser (K = 48, 54 taps)
-    const auto ip = interleaver_3k(1, InterleaverKind::Short);
-    TxRig rig(s, 2 * static_cast<std::size_t>(ip->input_bits));
-    std::mt19937 rng(3);
-    const auto payload = random_bits(rng, static_cast<std::size_t>(ip->input_bits) + 3);
-    const auto audio = on_air(rig.burst(payload), 0.0, 4);
-
     DfeReceiverConfig config;
     config.max_interleaver = InterleaverKind::Short;
     const std::size_t bits = DfeReceiver::max_input_bits_for(config.max_interleaver);
@@ -624,31 +646,54 @@ TEST_CASE("dfe receiver: nothing allocates after configure", "[dfe_receiver]") {
     auto receiver = std::make_unique<DfeReceiver>();
     REQUIRE(receiver->configure(config, storage, dec));
 
-    int blocks = 0;
-    bool ended = false;
-    std::size_t det = 0, rx = 0;
-    const std::span<const float> in(audio);
-    const ms110d_test::AllocationScope scope;
-    while (rx < in.size() && !ended) {
-        if (!receiver->active() && receiver->event() == DfeEvent::None) {
-            det += detector->process(in.subspan(det, std::min<std::size_t>(512, in.size() - det)));
-            while (rx < det) rx += receiver->push_audio(in.subspan(rx, det - rx));
-            PreambleDetection d;
-            if (detector->take_detection(d)) receiver->start(dfe_start_from_detection(d));
-            if (det >= in.size()) break;
-            continue;
+    // WN 1: the largest equaliser (K = 48, 54 taps). WN 6: the QPSK turbo loop. WN 7 near its
+    // mask: the 8PSK turbo loop, its salvage and the MFB ensemble. WN 8: the QAM16 MFB decoder.
+    const std::array<std::pair<int, double>, 4> cases{{{1, 0.0}, {6, 12.0}, {7, 13.0}, {8, 19.0}}};
+    std::mt19937 rng(3);
+    std::int64_t turbo_blocks = 0;
+    for (const auto& [wn, snr] : cases) {
+        INFO("wn " << wn);
+        TxSettings s;
+        s.waveform_number = wn;
+        const auto ip = interleaver_3k(wn, InterleaverKind::Short);
+        TxRig rig(s, 2 * static_cast<std::size_t>(ip->input_bits));
+        const auto payload = random_bits(rng, static_cast<std::size_t>(ip->input_bits) + 3);
+        const auto audio = on_air(rig.burst(payload), snr, 4 + static_cast<std::uint64_t>(wn));
+        detector->reset();
+        receiver->reset();
+
+        int blocks = 0;
+        bool ended = false;
+        std::size_t det = 0, rx = 0;
+        const std::span<const float> in(audio);
+        const ms110d_test::AllocationScope scope;
+        while (rx < in.size() && !ended) {
+            if (!receiver->active() && receiver->event() == DfeEvent::None) {
+                det += detector->process(in.subspan(det, std::min<std::size_t>(512, in.size() - det)));
+                while (rx < det) rx += receiver->push_audio(in.subspan(rx, det - rx));
+                PreambleDetection d;
+                if (detector->take_detection(d)) receiver->start(dfe_start_from_detection(d));
+                if (det >= in.size()) break;
+                continue;
+            }
+            rx += receiver->push_audio(in.subspan(rx, std::min<std::size_t>(512, in.size() - rx)));
+            while (receiver->event() != DfeEvent::None) {
+                if (receiver->event() == DfeEvent::BlockDecoded) {
+                    ++blocks;
+                } else {
+                    ended = true;
+                }
+                receiver->take_event();
+            }
         }
-        rx += receiver->push_audio(in.subspan(rx, std::min<std::size_t>(512, in.size() - rx)));
-        while (receiver->event() != DfeEvent::None) {
-            if (receiver->event() == DfeEvent::BlockDecoded) ++blocks;
-            else ended = true;
-            receiver->take_event();
-        }
+        const std::size_t seen = scope.allocations();
+        CHECK(seen == 0);
+        CHECK(ended);
+        CHECK(blocks == 2);
+        const auto& st = receiver->stats();
+        turbo_blocks += st.turbo_converged + st.turbo_reverted + st.turbo_aborted;
     }
-    const std::size_t seen = scope.allocations();
-    CHECK(seen == 0);
-    CHECK(ended);
-    CHECK(blocks == 2);
+    CHECK(turbo_blocks == 8);  // every block went through the turbo stage or the MFB decoder
 }
 
 TEST_CASE("dfe receiver: storage, configuration and refusals", "[dfe_receiver]") {

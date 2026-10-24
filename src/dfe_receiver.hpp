@@ -16,24 +16,26 @@
 //                   probe-anchored tap trajectory (fading) or the QAM path, soft values,
 //                   probe timing, the probe presence statistic and the signal-lost and
 //                   signal-absent exits;
-//   FinishBlock     deinterleave, depuncture, tail-biting Viterbi, the EOM scan and the block
-//                   limit. The turbo re-equalisation (and the MFB decoder) are not here yet; they
-//                   save and restore every piece of tracking state, so the first pass, and so
-//                   everything above, is the same with or without them.
+//   FinishBlock     deinterleave, depuncture, tail-biting Viterbi, then the turbo stage
+//                   (dfe_turbo.cpp: the turbo re-equalisation loop, the 8PSK salvage rungs and
+//                   per-block MFB ensemble; the MFB block decoder for QAM16, mfb_block_decoder.*),
+//                   the EOM scan and the block limit. The turbo stage saves and restores every piece
+//                   of tracking state it touches, so the first pass is the same with it on or off.
 //
 // Not here: the preamble search (preamble_detector.hpp, whose detection is the input), the WN 0
-// path (wn0_receiver.hpp), the C#'s diagnostic instruments (genie, oracle, truth injection),
-// which never run in normal use and leave the shipped path bit-identical, and the terminate
+// path (wn0_receiver.hpp), the C#'s diagnostic instruments (genie, oracle, truth injection and the
+// rest), which are off in normal use and leave the shipped path bit-identical, and the terminate
 // command (a later story, with the public receive API).
 //
 // Precision: exactly the C#'s, in both builds. Samples, the equaliser, decisions and soft values
 // are single precision (the C# Complex32 and float); the carrier and timing model, the probe
-// statistics, the fading and presence statistics are double. The only `real` is inside the
-// equaliser (docs/dev/equaliser.md). See docs/dev/dfe-receiver.md.
+// statistics, the fading and presence statistics are double. The turbo stage's chain BCJR is
+// float and the MFB decoder double, as the C#'s. The only `real` is inside the equaliser
+// (docs/dev/equaliser.md). See docs/dev/dfe-receiver.md.
 //
 // Memory: one block of caller storage (storage_bytes()), sized at configure from the longest
-// interleaver the receiver is to accept, plus the object (about 60 KB). No allocation after
-// configure, no exceptions. The tail-biting Viterbi decoders are the caller's.
+// interleaver the receiver is to accept, plus the object (about 125 KB). No allocation after
+// configure, no exceptions. The decoders (Viterbi, SISO, chain BCJR) are the caller's.
 
 #include <m0lte/ms110d/mode.hpp>
 

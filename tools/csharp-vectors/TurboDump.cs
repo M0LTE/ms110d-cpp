@@ -318,6 +318,41 @@ static class TurboDump
 
     const double Scale = 8192;  // 16 bit audio: 1.0 = 8192
 
+    // Shifts real 9600 Hz audio by a frequency that ramps linearly from 0 at `rateHzPerSecond` Hz
+    // per second: the analytic signal from a 255 tap Hamming-windowed Hilbert transformer, rotated
+    // by the ramp's phase, real part kept. A carrier that drifts during the burst, which a fixed
+    // offset (estimated at acquisition) never gives.
+    static float[] Drift(float[] audio, double rateHzPerSecond)
+    {
+        const int half = 127;
+        var h = new double[(2 * half) + 1];
+        for (int n = -half; n <= half; n++)
+        {
+            double w = 0.54 + (0.46 * Math.Cos(Math.PI * n / half));
+            h[n + half] = n % 2 == 0 ? 0 : 2.0 / (Math.PI * n) * w;
+        }
+
+        var outp = new float[audio.Length];
+        for (int t = 0; t < audio.Length; t++)
+        {
+            double q = 0;
+            for (int n = -half; n <= half; n++)
+            {
+                int i = t - n;
+                if (i >= 0 && i < audio.Length)
+                {
+                    q += h[n + half] * audio[i];
+                }
+            }
+
+            double sec = t / 9600.0;
+            double phi = 2.0 * Math.PI * 0.5 * rateHzPerSecond * sec * sec;
+            outp[t] = (float)((audio[t] * Math.Cos(phi)) - (q * Math.Sin(phi)));
+        }
+
+        return outp;
+    }
+
     public static void Corpus(string stem)
     {
         var text = new StringBuilder();
@@ -341,6 +376,11 @@ static class TurboDump
             typeof(Ms110dModulator).GetProperty("StandardProbePattern", BindingFlags.NonPublic | BindingFlags.Instance)!
                 .SetValue(tx, standard);
             float[] audio = tx.Modulate(payload);
+            if (channel == "drift")
+            {
+                audio = Drift(audio, offsetHz);  // here offsetHz is the ramp, Hz per second
+            }
+
             // Moderate: two Rayleigh paths 1 ms apart, 0.5 Hz spread. poor-shift: the Poor geometry with
             // the second path 6 Hz off the first, so the carrier the receiver tracks moves as the paths
             // trade places (what the 3 Hz clamp on the carrier trim is for).
@@ -354,7 +394,8 @@ static class TurboDump
             float[] rx = channel switch
             {
                 "clean" => [.. new float[1500], .. audio, .. new float[9600]],
-                "awgn" => new WattersonChannel(9600, seed + 1).Apply(audio, snr, leadInSamples: 1500, leadOutSamples: 9600, frequencyOffsetHz: offsetHz),
+                "awgn" or "drift" => new WattersonChannel(9600, seed + 1).Apply(audio, snr, leadInSamples: 1500, leadOutSamples: 9600,
+                    frequencyOffsetHz: channel == "drift" ? 0 : offsetHz),
                 _ => new WattersonChannel(9600, seed + 1, paths!).Apply(audio, snr, leadInSamples: 1500, leadOutSamples: 9600, frequencyOffsetHz: offsetHz),
             };
             var q = new short[rx.Length];
@@ -401,6 +442,10 @@ static class TurboDump
                 double hz = n == 0 ? 20.0 : -20.0;
                 Burst($"mod-wn{wn}-{n}", wn, Ms110dInterleaverKind.Short, false, "moderate", MaskSnr(wn) + 6, 22000 + (10 * wn) + n, 3, hz);
                 Burst($"shift-wn{wn}-{n}", wn, Ms110dInterleaverKind.Short, false, "poor-shift", MaskSnr(wn) + 10, 23000 + (10 * wn) + n, 3, -hz);
+
+                // A carrier drifting at 4 Hz per second, either way: past the 3 Hz clamp on the
+                // receiver's carrier trim within the burst ("offset_hz" is the ramp here).
+                Burst($"drift-wn{wn}-{n}", wn, Ms110dInterleaverKind.Short, false, "drift", MaskSnr(wn) + 6, 24000 + (10 * wn) + n, 3, n == 0 ? 4.0 : -4.0);
             }
         }
 
