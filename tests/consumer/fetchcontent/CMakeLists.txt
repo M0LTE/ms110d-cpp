@@ -8,3 +8,4 @@ FetchContent_MakeAvailable(m0lte-ms110d)
 
 add_executable(consumer ../main.cpp)
 target_link_libraries(consumer PRIVATE m0lte::ms110d)
+target_compile_definitions(consumer PRIVATE EXPECTED_VERSION="${EXPECTED_VERSION}")

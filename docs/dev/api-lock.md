@@ -19,3 +19,5 @@ If the change is intended, rewrite the snapshot and commit it in the same PR as 
     cmake --build build --target update-api-lock
 
 Then review the diff of `tests/api/public-api.txt` as part of the PR; that diff is the API change. A change to the public API also needs the right version bump (semantic versioning).
+
+Version numbers are blanked in the dump (`library_version{N}`), so a version bump does not need a snapshot update.

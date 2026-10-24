@@ -44,7 +44,9 @@ if(MS110D_PRECISION STREQUAL "single")
 endif()
 ms110d_apply_options(ms110d)
 # The core never throws and never uses RTTI, so it can run on a microcontroller.
-target_compile_options(ms110d PRIVATE -fno-exceptions -fno-rtti)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(ms110d PRIVATE -fno-exceptions -fno-rtti)
+endif()
 
 if(MS110D_BUILD_TESTS)
   enable_testing()
@@ -72,9 +74,10 @@ if(MS110D_INSTALL)
     cmake/m0lte-ms110dConfig.cmake.in
     "${CMAKE_CURRENT_BINARY_DIR}/m0lte-ms110dConfig.cmake"
     INSTALL_DESTINATION ${MS110D_INSTALL_CMAKEDIR})
+  # SameMinorVersion until 1.0, then switch to SameMajorVersion.
   write_basic_package_version_file(
     "${CMAKE_CURRENT_BINARY_DIR}/m0lte-ms110dConfigVersion.cmake"
-    COMPATIBILITY SameMajorVersion)
+    COMPATIBILITY SameMinorVersion)
   install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/m0lte-ms110dConfig.cmake"
     "${CMAKE_CURRENT_BINARY_DIR}/m0lte-ms110dConfigVersion.cmake"

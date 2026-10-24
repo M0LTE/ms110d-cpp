@@ -3,13 +3,13 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <string>
 #include <type_traits>
 
-TEST_CASE("version() reports 0.0.0", "[version]") {
+TEST_CASE("version() matches the CMake project version", "[version]") {
     const auto v = m0lte::ms110d::version();
-    CHECK(v.major == 0);
-    CHECK(v.minor == 0);
-    CHECK(v.patch == 0);
+    const std::string text = std::to_string(v.major) + "." + std::to_string(v.minor) + "." + std::to_string(v.patch);
+    CHECK(text == MS110D_EXPECTED_VERSION);
 }
 
 TEST_CASE("real follows the precision option", "[config]") {

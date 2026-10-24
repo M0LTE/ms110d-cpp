@@ -12,6 +12,8 @@ add_executable(ms110d_tests
   alloc_guard_test.cpp)
 target_link_libraries(ms110d_tests PRIVATE m0lte::ms110d Catch2::Catch2WithMain)
 target_include_directories(ms110d_tests PRIVATE support)
+target_compile_definitions(ms110d_tests PRIVATE
+  MS110D_EXPECTED_VERSION="${PROJECT_VERSION}")
 ms110d_apply_options(ms110d_tests)
 
 include(Catch)

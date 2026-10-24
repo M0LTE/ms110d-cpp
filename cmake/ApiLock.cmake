@@ -33,6 +33,8 @@ foreach(_entry IN LISTS _keyed)
   file(READ "${_dir}/${_rel}" _text)
   string(REPLACE "\r" "" _text "${_text}")
   string(REGEX REPLACE "//[^\n]*" "" _text "${_text}")
+  # The version numbers change every release; the declaration is what is locked.
+  string(REGEX REPLACE "library_version\\{[0-9, ]*\\}" "library_version{N}" _text "${_text}")
   string(REGEX REPLACE "[ \t]+\n" "\n" _text "${_text}")
   string(REGEX REPLACE "\n\n+" "\n" _text "${_text}")
   string(REGEX REPLACE "^\n+" "" _text "${_text}")
