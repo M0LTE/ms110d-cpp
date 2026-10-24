@@ -1,0 +1,86 @@
+name: Layer 3 cross-decoding (long)
+
+on:
+  workflow_dispatch:
+    inputs:
+      channels:
+        description: "Comma separated channels (awgn,good,moderate,poor); empty for all"
+        required: false
+        default: ""
+      waveforms:
+        description: "Comma separated waveform numbers; empty for all"
+        required: false
+        default: ""
+  schedule:
+    - cron: "17 3 * * 0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: layer3-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  shard:
+    name: shard ${{ matrix.shard }} of 20
+    runs-on: ubuntu-24.04
+    timeout-minutes: 345
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMS110D_DOTNET_TESTS=OFF
+      - name: Build the shared library
+        run: cmake --build build -j4 --target ms110d_c
+      - name: Run this shard of the full matrix
+        env:
+          MS110D_NATIVE_LIB: ${{ github.workspace }}/build/libms110d_c.so
+          MS110D_PIN_FILE: ${{ github.workspace }}/reference/pin.txt
+          MS110D_EXPECTED_VERSION: "0"
+          MS110D_LAYER3_LONG: "1"
+          MS110D_LAYER3_SHARD: ${{ matrix.shard }}/20
+          MS110D_LAYER3_CHANNELS: ${{ inputs.channels }}
+          MS110D_LAYER3_WN: ${{ inputs.waveforms }}
+          MS110D_LAYER3_RUN: long
+          MS110D_LAYER3_OUT: ${{ runner.temp }}/layer3
+          MS110D_LAYER3_THREADS: "4"
+        run: dotnet run --project tests/interop -c Release -- -class Ms110dInterop.Tests.Layer3.Layer3LongTests
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: layer3-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/layer3/long/cells
+          if-no-files-found: warn
+
+  summary:
+    name: combine results
+    needs: shard
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: layer3-shard-*
+          path: cells
+          merge-multiple: true
+      - name: Combine
+        run: |
+          mkdir -p out
+          echo "waveform,interleaver,code_k,channel,tx,rx,snr_db,frames,frame_errors,frame_loss,loss_ci_low,loss_ci_high,bits,bit_errors,ber" > out/curves.csv
+          echo "waveform,interleaver,code_k,channel,tx,rx,target_loss,snr_db,ci_low_db,ci_high_db,frames_per_point,note" > out/thresholds.csv
+          cat cells/*.curves.csv >> out/curves.csv || true
+          cat cells/*.thresholds.csv >> out/thresholds.csv || true
+          cat cells/*.md > out/summary.md || true
+          cp out/summary.md "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: layer3-results
+          path: out

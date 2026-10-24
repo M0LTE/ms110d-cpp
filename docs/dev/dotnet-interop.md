@@ -41,3 +41,7 @@ Seeds are plain arithmetic on (test, waveform, interleaver, code, round), so a r
 Payload lengths are chosen around the block size B (the info bits per interleaver block): B - 32 (the EOM ends exactly at a block end), B (the EOM then needs a second block), B + 1, and 2B + 5. The side-by-side test runs all four for every combination, so every combination covers several blocks. The receive tests run, by default, B - 32 and B + 1 on the clean channel and 2B + 5 in AWGN. A planted fault that shifts the payload by a bit in every block after the first fails all 78 combinations of the side-by-side, B + 1 and AWGN tests.
 
 The receive tests are spread over several classes only so that xunit runs them in parallel. The default run is about 5 CPU minutes and under 2 minutes on a 16 core machine. `MS110D_LONG_TESTS=1` in the environment runs 25 rounds of random settings per combination and random lengths up to four blocks (no cap) side by side, and 12 rounds per receive test. A failure is a bug in one implementation, to be settled against the standard; never loosen a check to pass.
+
+## Layer 3 cross-decoding
+
+The layer 3 harness (frame loss against SNR through the C# HF channel, pairings of the C# and C++ transmitters and receivers) lives in `tests/interop/Layer3` and has its own ctest test, `dotnet_layer3`, which `dotnet_interop` leaves out by trait. See docs/dev/layer3.md.

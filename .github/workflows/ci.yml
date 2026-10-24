@@ -94,6 +94,13 @@ jobs:
         run: cmake --build build -j4
       - name: Test (C test and the .NET tests against the shared library)
         run: ctest --test-dir build --output-on-failure
+      - name: Keep the layer 3 curves
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: layer3-default
+          path: build/layer3-results
+          if-no-files-found: ignore
 
   reference:
     name: reference files
