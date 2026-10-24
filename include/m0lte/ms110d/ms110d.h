@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Thomas Fanning
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 #ifndef M0LTE_MS110D_MS110D_H
 #define M0LTE_MS110D_MS110D_H
 
