@@ -42,7 +42,7 @@ configure_file(
 
 add_library(ms110d src/version.cpp src/mode.cpp src/tables.cpp src/trinomial_scrambler.cpp src/scrambler_interleaver_check.cpp
   src/puncture.cpp src/fec/tail_biting_encoder.cpp src/fec/tail_biting_viterbi.cpp src/fec/tail_biting_siso.cpp src/bcjr.cpp
-  src/dsp/filter_design.cpp src/modulator.cpp src/framing.cpp src/preamble.cpp src/burst.cpp src/transmitter.cpp)
+  src/dsp/filter_design.cpp src/modulator.cpp src/framing.cpp src/preamble.cpp src/preamble_detector.cpp src/burst.cpp src/transmitter.cpp)
 add_library(m0lte::ms110d ALIAS ms110d)
 
 target_compile_features(ms110d PUBLIC cxx_std_20)
