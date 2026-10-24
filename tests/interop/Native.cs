@@ -105,4 +105,22 @@ internal static class Native
 
     [DllImport(HooksLib, EntryPoint = "ms110d_th_preamble")]
     public static extern unsafe int ThPreamble(int tlcBlocks, int superframes, int wn, int interleaverKind, int constraintLength, byte* chips, uint capacity, out uint chipsLen);
+
+    /// <summary>
+    /// Binds every hook once, on the calling thread, with arguments the hooks reject. Lazy binding of
+    /// a P/Invoke from several threads at once (through the resolver above) crashed the runtime
+    /// intermittently, so tests that use worker threads call this first.
+    /// </summary>
+    public static unsafe void BindAll()
+    {
+        _ = StatusString(Ok);
+        _ = ThEncode(0, null, 0, null, 0, out _);
+        _ = ThPuncture(0, 0, 0, null, 0, null, 0, out _);
+        _ = ThInterleave(0, 0, null, 0, null, 0);
+        _ = ThTranscode(0, null, 0, null, 0, out _);
+        _ = ThScramble(0, 0, null, 0, null, 0);
+        _ = ThTrinomial(0, 0, null, 0);
+        _ = ThFrame(null, 0, 0, 0, null, 0, out _);
+        _ = ThPreamble(0, 0, 0, 0, 0, null, 0, out _);
+    }
 }

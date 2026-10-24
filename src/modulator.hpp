@@ -14,7 +14,7 @@
 #include <m0lte/ms110d/config.hpp>
 
 #include "tables.hpp"
-#include "tx_settings.hpp"
+#include <m0lte/ms110d/tx_settings.hpp>
 
 #include <array>
 #include <complex>

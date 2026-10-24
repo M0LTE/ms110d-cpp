@@ -18,6 +18,7 @@ ref="${MS110D_REFERENCE_DIR:-$root/build/_reference/ref}"
 # name | file | sed expression | stage the stand-alone test must name | stage the side-by-side test must name
 # (none: the C# has no public entry point for that stage, so only the stand-alone test can catch it)
 mutations=(
+  "frame-blocks|src/framing.cpp|s/\(used \+ input_bits - 1\) \/ input_bits/used \/ input_bits/|frame|frame"
   "frame|src/tables.hpp|s/0x4B65A5B2u/0x4B65A5B3u/|frame|frame"
   "preamble|src/tables.hpp|s/fixed_dibits\{\{0, 0, 2, 1/fixed_dibits{{0, 0, 1, 1/|preamble|preamble"
   "burst|src/burst.hpp|s/\(frame_in_block \+ 2\)/(frame_in_block + 1)/|burst|none"

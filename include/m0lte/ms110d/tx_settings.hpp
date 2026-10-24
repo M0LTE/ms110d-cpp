@@ -7,7 +7,7 @@
 namespace m0lte::ms110d {
 
 // Transmit configuration for the 3 kHz waveform: the C# Ms110dTxSettings, with the same
-// defaults. Internal for now (not part of the locked public API). The amplitude is a float
+// defaults. Public: part of the transmit API (transmitter.hpp). The amplitude is a float
 // and the roll-off a double, as in the C#, whatever the precision option.
 struct TxSettings {
     // Waveform number, 0 to 8 or 13. Default WN 6 (3200 bps QPSK).

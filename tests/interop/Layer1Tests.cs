@@ -64,6 +64,8 @@ public class Layer1Tests
         int frames = FrameCount();
         int threads = ThreadCount();
         string? failure = null;
+        // Bind every P/Invoke once, here, before the worker threads start (see Native.BindAll).
+        Native.BindAll();
         var sw = Stopwatch.StartNew();
 
         Parallel.For(0, threads, new ParallelOptions { MaxDegreeOfParallelism = threads }, t =>
@@ -95,7 +97,7 @@ public class Layer1Tests
     private static string? CheckFrame(Context c, int frame)
     {
         ulong seed = Mix(c.Combo.Seed, (ulong)frame);
-        c.NewFrame(seed);
+        c.NewFrame(seed, frame);
 
         string? d = Stage_Frame(c) ?? Stage_Preamble(c);
         for (int b = 0; d == null && b < c.Blocks; b++)
@@ -120,23 +122,24 @@ public class Layer1Tests
         byte[] expected = Ms110dFraming.BuildTxBits(c.Payload, c.AppendEom, c.Il.InputBits);
         c.Framed = expected;
         int st = c.NativeFrame();
-        return Compare("frame", expected, c.NatFramed, st);
+        return Compare("frame", expected, c.NatFramed, st, c.NatLen);
     }
 
     // The preamble chips (TLC, count-down, waveform ID, Walsh sections).
     private static string? Stage_Preamble(Context c)
     {
         byte[] expected = new PreambleGenerator(c.Tlc, c.Superframes).Generate(c.Combo.Wn, c.Combo.Kind, c.Combo.K);
-        byte[] actual = new byte[expected.Length];
+        byte[] actual = new byte[expected.Length + 64];
+        Array.Fill(actual, Sentinel);
         int st = c.NativePreamble(actual);
-        return Compare("preamble", expected, actual, st);
+        return Compare("preamble", expected, actual, st, c.NatLen);
     }
 
     private static string? Stage_Encode(Context c)
     {
         TailBitingEncoder.Encode(c.Code, c.Info, c.CsCoded);
         int st = c.NativeEncode();
-        return Compare("encode", c.CsCoded, c.NatCoded, st);
+        return Compare("encode", c.CsCoded, c.NatCoded, st, c.NatLen);
     }
 
     private static string? Stage_Puncture(Context c)
@@ -147,7 +150,7 @@ public class Layer1Tests
             return $"puncture (C# wrote {n}, expected {c.CsPunctured.Length})";
         }
         int st = c.NativePuncture();
-        return Compare("puncture", c.CsPunctured, c.NatPunctured, st);
+        return Compare("puncture", c.CsPunctured, c.NatPunctured, st, c.NatLen);
     }
 
     private static string? Stage_Interleave(Context c)
@@ -182,9 +185,9 @@ public class Layer1Tests
         // checked against the C# values in the C++ unit tests and the reference files; the C++
         // transcode output is the input to both scramblers here.
         int tst = c.NativeTranscode();
-        if (tst != 0)
+        if (tst != 0 || c.NatLen != c.Symbols)
         {
-            return $"transcode (native status {tst})";
+            return $"transcode (native status {tst}, length C++ {c.NatLen}, expected {c.Symbols})";
         }
         var scr = new Ms110dScrambler();
         bool qam = c.Mode.Modulation == Ms110dModulation.Qam16;
@@ -201,12 +204,25 @@ public class Layer1Tests
         return Compare(qam ? "scramble (qam)" : "scramble (psk)", c.CsScrambled, c.NatScrambled, sst);
     }
 
-    private static string? Compare(string stage, ReadOnlySpan<byte> expected, ReadOnlySpan<byte> actual, int nativeStatus)
+    // nativeLen is the length the C++ reported (-1: the hook reports none). Native buffers are
+    // pre-filled with Sentinel, so a stage that writes too little differs from the C#.
+    private const byte Sentinel = 0xAA;
+
+    private static string? Compare(string stage, ReadOnlySpan<byte> expected, ReadOnlySpan<byte> actual, int nativeStatus, long nativeLen = -1)
     {
         if (nativeStatus != Native.Ok)
         {
             return $"{stage} (native status {nativeStatus}: {Native.StatusString(nativeStatus)})";
         }
+        if (nativeLen >= 0 && nativeLen != expected.Length)
+        {
+            return $"{stage} (length: C# {expected.Length}, C++ reported {nativeLen})";
+        }
+        if (expected.Length > actual.Length)
+        {
+            return $"{stage} (length: C# {expected.Length}, C++ buffer {actual.Length})";
+        }
+        actual = actual[..expected.Length];
         if (expected.Length != actual.Length)
         {
             return $"{stage} (length: C# {expected.Length}, C++ {actual.Length})";
@@ -264,6 +280,8 @@ public class Layer1Tests
         public readonly PunctureSpec Spec;
         public readonly Ms110dInterleaver CsInterleaver;
         public readonly int RateNum, RateDen, Symbols, TrinomialCount;
+        private static readonly Func<int, int>[] FixedLengths = [n => 1, n => n - 32, n => n, n => n + 1, n => 2 * n];
+        public uint NatLen;
         public byte[] Payload = [], Framed = [], NatFramed = [];
         public bool AppendEom;
         public int Tlc, Superframes, Blocks;
@@ -304,13 +322,28 @@ public class Layer1Tests
         }
 
         // A random payload of 1 to 2 * InputBits bits, random EOM and preamble settings.
-        public void NewFrame(ulong seed)
+        public void NewFrame(ulong seed, int frame)
         {
             ulong x = Mix(seed, 2);
-            int len = 1 + (int)(x % (ulong)(2 * Il.InputBits));
+            int n = Il.InputBits;
+            int len = 1 + (int)(x % (ulong)(2 * n));
             AppendEom = ((x >> 40) & 1) != 0;
             Tlc = (int)((x >> 44) % 4);
             Superframes = 1 + (int)((x >> 52) % 5);
+            if ((x >> 56) % 8 == 0)
+            {
+                // Occasionally the whole valid range: TLC 0 to 255, super-frames 1 to 32.
+                ulong w = Mix(x, 3);
+                Tlc = (int)(w % 256);
+                Superframes = 1 + (int)((w >> 16) % 32);
+            }
+            if (frame < FixedLengths.Length * 2)
+            {
+                // The first frames of every combination sit on the block edges: 1 bit, N-32 (N with
+                // the EOM), N, N+1 and 2N, each with and without the EOM.
+                len = Math.Max(1, FixedLengths[frame % FixedLengths.Length](n));
+                AppendEom = frame < FixedLengths.Length;
+            }
             Payload = new byte[len];
             ulong y = seed;
             int i = 0;
@@ -329,11 +362,13 @@ public class Layer1Tests
         public int NativeFrame()
         {
             // Once per frame; the buffer is sized for the block count the C# produced.
-            NatFramed = new byte[Framed.Length];
+            // Room for a framer that writes more blocks than the C#, so over-long output is seen.
+            NatFramed = new byte[Framed.Length + 2 * Il.InputBits];
+            Array.Fill(NatFramed, Sentinel);
             Blocks = Framed.Length / Il.InputBits;
             fixed (byte* p = Payload) fixed (byte* o = NatFramed)
             {
-                return Native.ThFrame(p, (uint)Payload.Length, AppendEom ? 1 : 0, (uint)Il.InputBits, o, (uint)NatFramed.Length, out _);
+                return Native.ThFrame(p, (uint)Payload.Length, AppendEom ? 1 : 0, (uint)Il.InputBits, o, (uint)NatFramed.Length, out NatLen);
             }
         }
 
@@ -341,29 +376,32 @@ public class Layer1Tests
         {
             fixed (byte* o = actual)
             {
-                return Native.ThPreamble(Tlc, Superframes, Combo.Wn, (int)Combo.Kind, Combo.K, o, (uint)actual.Length, out _);
+                return Native.ThPreamble(Tlc, Superframes, Combo.Wn, (int)Combo.Kind, Combo.K, o, (uint)actual.Length, out NatLen);
             }
         }
 
         public int NativeEncode()
         {
+            Array.Fill(NatCoded, Sentinel);
             fixed (byte* i = Info) fixed (byte* o = NatCoded)
             {
-                return Native.ThEncode(Combo.K, i, (uint)Info.Length, o, (uint)NatCoded.Length, out _);
+                return Native.ThEncode(Combo.K, i, (uint)Info.Length, o, (uint)NatCoded.Length, out NatLen);
             }
         }
 
         public int NativePuncture()
         {
+            Array.Fill(NatPunctured, Sentinel);
             // From the C# coded bits, so this stage is judged on its own.
             fixed (byte* i = CsCoded) fixed (byte* o = NatPunctured)
             {
-                return Native.ThPuncture(Combo.K, RateNum, RateDen, i, (uint)CsCoded.Length, o, (uint)NatPunctured.Length, out _);
+                return Native.ThPuncture(Combo.K, RateNum, RateDen, i, (uint)CsCoded.Length, o, (uint)NatPunctured.Length, out NatLen);
             }
         }
 
         public int NativeInterleave()
         {
+            Array.Fill(NatInterleaved, Sentinel);
             fixed (byte* i = CsPunctured) fixed (byte* o = NatInterleaved)
             {
                 return Native.ThInterleave((uint)Il.SizeBits, (uint)Il.Increment, i, (uint)CsPunctured.Length, o, (uint)NatInterleaved.Length);
@@ -372,14 +410,16 @@ public class Layer1Tests
 
         public int NativeTranscode()
         {
+            Array.Fill(NatSymbols, Sentinel);
             fixed (byte* i = CsInterleaved) fixed (byte* o = NatSymbols)
             {
-                return Native.ThTranscode(Combo.Wn, i, (uint)CsInterleaved.Length, o, (uint)NatSymbols.Length, out _);
+                return Native.ThTranscode(Combo.Wn, i, (uint)CsInterleaved.Length, o, (uint)NatSymbols.Length, out NatLen);
             }
         }
 
         public int NativeScramble()
         {
+            Array.Fill(NatScrambled, Sentinel);
             fixed (byte* i = NatSymbols) fixed (byte* o = NatScrambled)
             {
                 return Native.ThScramble(Combo.Wn, (uint)Mode.U, i, (uint)NatSymbols.Length, o, (uint)NatScrambled.Length);
@@ -388,6 +428,7 @@ public class Layer1Tests
 
         public int NativeTrinomial()
         {
+            Array.Fill(NatTrinomial, Sentinel);
             fixed (byte* o = NatTrinomial)
             {
                 return Native.ThTrinomial((uint)TrinomialCount, (uint)TrinomialCount, o, (uint)NatTrinomial.Length);

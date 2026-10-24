@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -492,4 +493,32 @@ TEST_CASE("reference end to end: framing into the modulator reproduces the refer
     }
     CHECK(cases == 122);
     INFO("worst error " << worst);
+}
+
+TEST_CASE("build_tx_block is the matching slice of build_tx_bits", "[framing]") {
+    std::mt19937 rng(5);
+    for (const std::size_t input : {24u, 40u, 96u, 288u}) {
+        for (const bool eom : {true, false}) {
+            for (const std::size_t n : {0u, 1u, 7u, 23u, 24u, 25u, 56u, 100u, 700u}) {
+                std::vector<std::uint8_t> payload(n);
+                for (auto& b : payload) b = static_cast<std::uint8_t>(rng() & 0xFFu);  // junk above the low bit
+                std::vector<std::uint8_t> packed((n + 7) / 8, 0);
+                for (std::size_t i = 0; i < n; ++i) packed[i / 8] = static_cast<std::uint8_t>(packed[i / 8] | ((payload[i] & 1u) << (i % 8)));
+                const std::size_t blocks = framed_block_count(n, eom, input);
+                std::vector<std::uint8_t> whole(blocks * input);
+                REQUIRE(build_tx_bits(payload, eom, input, whole));
+                for (std::size_t b = 0; b < blocks; ++b) {
+                    std::vector<std::uint8_t> one(input, 9);
+                    REQUIRE(build_tx_block(packed, n, eom, input, b, one));
+                    CHECK(std::equal(one.begin(), one.end(), whole.begin() + static_cast<std::ptrdiff_t>(b * input)));
+                }
+                std::vector<std::uint8_t> out(input, 9);
+                CHECK_FALSE(build_tx_block(packed, n, eom, input, blocks, out));
+                CHECK_FALSE(build_tx_block(packed, n, eom, input, 0, std::span<std::uint8_t>(out).first(input - 1)));
+                CHECK_FALSE(build_tx_block(packed, n, eom, 0, 0, std::span<std::uint8_t>{}));
+                if (n > 0) CHECK_FALSE(build_tx_block(std::span<const std::uint8_t>(packed).first(packed.size() - 1), n + 7, eom, input, 0, out));
+                CHECK(out[0] == 9);
+            }
+        }
+    }
 }
