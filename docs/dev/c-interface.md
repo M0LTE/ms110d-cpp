@@ -53,6 +53,8 @@ To settle in [#27](https://github.com/M0LTE/ms110d-cpp/issues/27), before the fi
 - A finished burst in C# carries the whole burst's bits. Either the maximum burst length is fixed at creation so the queue can hold it, or bits are delivered one block at a time and the burst event only closes the burst.
 - Soft-decision events are switched on at creation, so a microcontroller build doesn't pay for them.
 
+The preamble detector (docs/dev/preamble-detector.md) settled the first two for its stage: `process` returns samples consumed and stops at a detection, and the detection event carries `detected_at_sample` and the sample position of the data start.
+
 ## Export
 
 The shared library is built with hidden visibility. Only functions marked `MS110D_API` are exported, and the ctest `c_exports` checks (on Linux) that the exported functions are exactly the `MS110D_API` ones the header declares. Where the linker accepts it (checked with `check_linker_flag`) a version script (`cmake/ms110d_c.map`) enforces it: the standard library's templates are visible by default and would otherwise leak into the export table as weak symbols in an unoptimised build. On Windows `MS110D_API` is `dllexport` while building and `dllimport` for users.

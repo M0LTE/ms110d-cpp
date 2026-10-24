@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Thomas Fanning
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // Compares every C++ table with the C# values it was ported from. The expected values are in
-// tests/data/csharp-tables-0.2.0.txt, dumped from the M0LTE.Ms110d 0.2.0 package itself (the
+// tests/data/csharp-tables-0.2.1.txt, dumped from the M0LTE.Ms110d 0.2.1 package itself (the
 // dump header names the commit), so this is a check against the C# code, not against the
 // C++ author's reading of it. Checking the tables against the standard was done for the C#
 // when it was written (double transcription) and is not repeated here. Floating point

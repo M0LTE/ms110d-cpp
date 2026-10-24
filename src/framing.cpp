@@ -38,7 +38,7 @@ bool build_tx_block(std::span<const std::uint8_t> packed, std::size_t payload_bi
         const std::size_t g = start + i;
         std::uint8_t bit = 0;
         if (g < payload) {
-            bit = static_cast<std::uint8_t>((packed[g / 8] >> (g % 8)) & 1u);
+            bit = static_cast<std::uint8_t>((static_cast<unsigned>(packed[g / 8]) >> (g % 8)) & 1u);
         } else if (append_eom && g < payload + 32) {
             // D.5.4.3: the left most bit of 4B65A5B2 is sent first.
             bit = static_cast<std::uint8_t>((tables::eom >> (31 - (g - payload))) & 1u);

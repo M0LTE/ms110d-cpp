@@ -13,7 +13,7 @@ using System.Text;
 using M0LTE.Ms110d;
 using M0LTE.Ms110d.Fec;
 
-// "tables" mode: the mode/table dump for tests/data/csharp-tables-0.2.0.txt (see TablesDump.cs).
+// "tables" mode: the mode/table dump for tests/data/csharp-tables-0.2.1.txt (see TablesDump.cs).
 if (args.Length > 0 && args[0] == "tables")
 {
     Console.Out.Write(TablesDump.Run());
@@ -26,10 +26,50 @@ if (args.Length > 0 && args[0] == "fec")
     return;
 }
 
-// "framing" mode: waveform ID and downcount di-bits for tests/data/csharp-framing-0.2.0.txt (see FramingDump.cs).
+// "soft" mode: Viterbi, SISO and BCJR vectors for tests/data/csharp-soft-0.2.1.txt (see SoftDump.cs).
+if (args.Length > 0 && args[0] == "soft")
+{
+    Console.Out.Write(SoftDump.Run());
+    return;
+}
+
+// "framing" mode: waveform ID and downcount di-bits for tests/data/csharp-framing-0.2.1.txt (see FramingDump.cs).
 if (args.Length > 0 && args[0] == "framing")
 {
     Console.Out.Write(FramingDump.Run());
+    return;
+}
+
+// "detect" mode: what the C# preamble search finds, for tests/data/csharp-detect-0.2.1.txt (see DetectDump.cs).
+if (args.Length > 1 && args[0] == "detect")
+{
+    Console.Out.Write(DetectDump.Run(args[1]));
+    return;
+}
+
+// "wn0" modes: the WN 0 receive path, see Wn0Dump.cs.
+if (args.Length > 0 && args[0] == "wn0")
+{
+    Console.Out.Write(Wn0Dump.Clean(args[1]));
+    return;
+}
+
+if (args.Length > 0 && args[0] == "wn0-awgn")
+{
+    Console.Out.Write(Wn0Dump.Awgn(args[1]));
+    return;
+}
+
+if (args.Length > 0 && args[0] == "wn0-poor")
+{
+    Wn0Dump.Poor(args[1]);
+    return;
+}
+
+// "dfe" mode: the equaliser driven through scripted scenarios for tests/data/csharp-dfe-0.2.1.txt (see DfeDump.cs).
+if (args.Length > 0 && args[0] == "dfe")
+{
+    Console.Out.Write(DfeDump.Run(args.Length > 1 ? args[1] : "build/_reference/ref"));
     return;
 }
 
