@@ -43,6 +43,9 @@ public:
     // Writes every chip; `out` must hold at least chip_count().
     void write(std::span<std::uint8_t> out) const noexcept;
 
+    // The waveform ID di-bits this preamble sends.
+    const std::array<std::uint8_t, 5>& wid() const noexcept { return wid_; }
+
     static constexpr int chips_per_symbol = 32;
 
 private:

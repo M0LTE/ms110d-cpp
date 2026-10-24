@@ -19,7 +19,7 @@ namespace m0lte::ms110d {
 
 // Interleaver input blocks needed for a payload: the payload plus the 32 bit EOM (when
 // appended), rounded up to whole blocks, and at least one. A payload whose EOM ends exactly on
-// a block end gets no extra block. input_bits must be above zero.
+// a block end gets no extra block. A block size of zero gives 0 blocks.
 std::size_t framed_block_count(std::size_t payload_bits, bool append_eom, std::size_t input_bits) noexcept;
 
 // Writes the framed transmit bits (one bit per byte, 0 or 1): the payload, the EOM word

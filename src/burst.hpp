@@ -15,7 +15,8 @@
 //     void qam(std::uint8_t symbol);                      // 16-QAM symbol number 0..15
 //     void probe(tables::Complex32 value);                // one mini-probe symbol
 // Blocks are independent (every scrambler resets per frame or per block), so a transmitter can
-// call write_block one block at a time as it encodes them.
+// call write_block one block at a time as it encodes them. The writers are noexcept and call
+// the sink from inside them, so a sink must not throw.
 
 #include "framing.hpp"
 #include "preamble.hpp"
@@ -25,6 +26,7 @@
 
 #include <m0lte/ms110d/mode.hpp>
 
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -45,6 +47,7 @@ struct BurstConfig {
 // Sizes of a burst for a payload length, from the tables alone.
 struct BurstLayout {
     Mode mode;
+    InterleaverKind interleaver_kind;
     InterleaverParams interleaver;
     bool append_eot;
     std::size_t blocks;            // interleaver blocks after EOM and zero fill
@@ -80,6 +83,10 @@ void write_probe(int k, bool shifted, int extra, Sink& sink) noexcept {
 // The preamble, then for WN 1 and up the initial (unshifted) mini-probe.
 template <class Sink>
 void write_head(const BurstLayout& layout, const Preamble& preamble, Sink& sink) noexcept {
+    // The preamble and the layout must describe the same waveform (a debug check only).
+    assert(preamble.chip_count() == layout.preamble_symbols);
+    assert(decode_wid(preamble.wid()).has_value() && decode_wid(preamble.wid())->wn == layout.mode.wn &&
+           decode_wid(preamble.wid())->interleaver == layout.interleaver_kind);
     const std::size_t n = preamble.chip_count();
     for (std::size_t i = 0; i < n; ++i) sink.psk(preamble.chip(i));
     if (layout.mode.wn != 0) write_probe(layout.mode.k, false, 0, sink);

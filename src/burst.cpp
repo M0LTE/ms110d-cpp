@@ -18,6 +18,7 @@ std::optional<BurstLayout> burst_layout(const BurstConfig& config, std::size_t p
 
     BurstLayout l{};
     l.mode = *mode;
+    l.interleaver_kind = config.interleaver;
     l.interleaver = *il;
     l.append_eot = config.append_eot;
     l.blocks = framed_block_count(payload_bits, config.append_eom, static_cast<std::size_t>(il->input_bits));

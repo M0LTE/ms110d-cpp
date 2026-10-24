@@ -7,6 +7,7 @@
 namespace m0lte::ms110d {
 
 std::size_t framed_block_count(std::size_t payload_bits, bool append_eom, std::size_t input_bits) noexcept {
+    if (input_bits == 0) return 0;
     const std::size_t used = payload_bits + (append_eom ? 32u : 0u);
     const std::size_t blocks = (used + input_bits - 1) / input_bits;
     return blocks < 1 ? 1 : blocks;

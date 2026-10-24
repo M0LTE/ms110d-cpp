@@ -163,9 +163,11 @@ TEST_CASE("reference whole burst symbol streams and probe values match", "[refer
 
 TEST_CASE("reference block-at-a-time assembly equals the whole burst", "[reference]") {
     const fs::path dir = ms110d_test::reference_dir_or_skip();
+    int ran = 0;
     for (const ReferenceCase& c : load_cases(dir)) {
         const Manifest& m = c.manifest();
         if (m.integer("blocks") < 2) continue;
+        ++ran;
         INFO("case " << c.name());
         const BurstConfig cfg = config_of(m);
         const auto layout = burst_layout(cfg, static_cast<std::size_t>(m.integer("payload_bits")));
@@ -180,6 +182,7 @@ TEST_CASE("reference block-at-a-time assembly equals the whole burst", "[referen
         }
         CHECK(sink.symbols == c.bytes("burst_symbols"));
     }
+    CHECK(ran >= 10);
 }
 
 TEST_CASE("framing edge cases", "[framing]") {
@@ -192,6 +195,7 @@ TEST_CASE("framing edge cases", "[framing]") {
     // EOM ending exactly on the block end adds no block; one more bit adds one.
     CHECK(framed_block_count(64, true, 96) == 1);
     CHECK(framed_block_count(65, true, 96) == 2);
+    CHECK(framed_block_count(10, true, 0) == 0);
     // Wrong output size or a zero block size is refused and writes nothing.
     out.assign(95, 9);
     CHECK_FALSE(build_tx_bits({}, false, 96, out));
@@ -273,6 +277,23 @@ TEST_CASE("downcount di-bits follow D.5.2.1.3.1 and round trip", "[framing]") {
     auto c = *encode_count(5);
     c[0] ^= 2;
     CHECK_FALSE(decode_count(c).has_value());
+}
+
+TEST_CASE("downcount decode accepts exactly the valid di-bit sets", "[framing]") {
+    // Every one of the 256 di-bit sets: accepted only if it is the encoding of its own count.
+    int accepted = 0;
+    for (unsigned v = 0; v < 256; ++v) {
+        const std::array<std::uint8_t, 4> d{static_cast<std::uint8_t>((v >> 6) & 3), static_cast<std::uint8_t>((v >> 4) & 3),
+                                            static_cast<std::uint8_t>((v >> 2) & 3), static_cast<std::uint8_t>(v & 3)};
+        const int count = static_cast<int>(v & 31u);
+        const bool valid = *encode_count(count) == d;
+        const auto got = decode_count(d);
+        CHECK(got.has_value() == valid);
+        if (valid) CHECK(*got == count);
+        accepted += got.has_value() ? 1 : 0;
+    }
+    CHECK(accepted == 32);
+    CHECK_FALSE(decode_count({4, 0, 0, 0}).has_value());
 }
 
 TEST_CASE("preamble layout: count down to zero and the WID in every super-frame", "[framing]") {
