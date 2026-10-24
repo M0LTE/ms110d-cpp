@@ -74,16 +74,6 @@ def write_wav(path, samples_i16):
         w.writeframes(samples_i16.astype("<i2").tobytes())
 
 
-def write_wav_f32(path, x):
-    """32-bit float WAV, for the 16-bit versus float check only."""
-    data = x.astype("<f4").tobytes()
-    hdr = b"RIFF" + (36 + len(data)).to_bytes(4, "little") + b"WAVEfmt " + (16).to_bytes(4, "little")
-    hdr += (3).to_bytes(2, "little") + (1).to_bytes(2, "little") + RATE_OUT.to_bytes(4, "little")
-    hdr += (RATE_OUT * 4).to_bytes(4, "little") + (4).to_bytes(2, "little") + (32).to_bytes(2, "little")
-    with open(path, "wb") as f:
-        f.write(hdr + b"data" + len(data).to_bytes(4, "little") + data)
-
-
 def quantise(x):
     return np.clip(np.rint(x * 32768.0), -32768, 32767).astype(np.int16)
 
@@ -103,6 +93,27 @@ def run_tool(dll, mode, wav):
         if line.startswith("burst "):
             res.append(dict(kv.split("=", 1) for kv in line.split()[1:]))
     return res
+
+
+INT_KEYS = ("wn", "k", "blocks", "bytes", "good_frames", "corrected", "crc_failures", "rs_failures")
+
+
+def stream_dropouts(log_path):
+    """(from, to) UTC spans in which the recorder's log says the audio stream dropped or fell behind.
+    A burst that overlaps one may have lost audio, so it is flagged `dropout` in the manifest. The log
+    reports a drop some seconds after it happens (10 s assumed), and a falling-behind report covers the
+    minute before it."""
+    spans = []
+    if os.path.exists(log_path):
+        for line in open(log_path, errors="replace"):
+            behind = "BEHIND real time" in line
+            if behind or ("stream from" in line and " ended" in line):
+                try:
+                    t = datetime.fromisoformat(line.split()[0])
+                except ValueError:
+                    continue
+                spans.append((t - timedelta(seconds=70 if behind else 10), t))
+    return spans
 
 
 def noise_floor_power(x):
@@ -139,25 +150,17 @@ def pull(args):
 
 
 def write_committed(args, manifest):
-    """A handful of bursts for quick tests in the repo: per waveform the weakest, the strongest and
-    the middle one by SNR estimate (stable bursts when the waveform has any), until the byte budget
-    is spent. Deterministic."""
+    """The small set kept in the repo for quick tests: the bursts named by --committed-ids."""
     import shutil
-    order = []
-    for wn in sorted({e["waveform"] for e in manifest["bursts"]}):
-        pool = [e for e in manifest["bursts"] if e["waveform"] == wn]
-        pool = [e for e in pool if e["stable"]] or pool
-        grp = sorted(pool, key=lambda e: (e["snr_db_estimate"], e["samples"], e["id"]))
-        picks = []
-        for e in (grp[0], grp[-1], grp[len(grp) // 2]):
-            if e not in picks:
-                picks.append(e)
-        order += picks
-    chosen, used = [], 0
-    for e in order:
-        size = os.path.getsize(os.path.join(args.out, e["file"]))
-        if used + size <= args.committed_max_bytes:
-            chosen.append(e); used += size
+    by_id = {e["id"]: e for e in manifest["bursts"]}
+    chosen = []
+    for i in args.committed_ids:
+        if i not in by_id:
+            sys.exit(f"--committed-ids: {i} is not in the corpus")
+        chosen.append(by_id[i])
+    used = sum(os.path.getsize(os.path.join(args.out, e["file"])) for e in chosen)
+    if used > args.committed_max_bytes:
+        sys.exit(f"committed set is {used} bytes, over the {args.committed_max_bytes} budget")
     shutil.rmtree(args.committed, ignore_errors=True)
     os.makedirs(os.path.join(args.committed, "bursts"))
     for e in chosen:
@@ -178,7 +181,9 @@ def main():
     ap.add_argument("--work", default=os.path.join(cache, "work"))
     ap.add_argument("--min-blocks", type=int, default=1, help="drop false alarms that decode fewer blocks")
     ap.add_argument("--committed", help="also write a small set for the repo (tests/data/corpus) to this directory")
-    ap.add_argument("--committed-max-bytes", type=int, default=1_700_000)
+    ap.add_argument("--committed-ids", nargs="*", default=["20261024T135800Z-04", "20261024T145800Z-03"],
+                    help="bursts for the committed set (default: a strong WN4 error-free one and a WN3 one-frame one)")
+    ap.add_argument("--committed-max-bytes", type=int, default=850_000)
     ap.add_argument("--max-per-wn", type=int, default=0, help="keep at most this many bursts per waveform (0 = all)")
     args = ap.parse_args()
 
@@ -206,6 +211,7 @@ def main():
         full = os.path.join(args.work, slot + ".wav")
         write_wav(full, quantise(y))
         floor = noise_floor_power(y)
+        dropouts = stream_dropouts(os.path.join(sdir, "decode.log"))
         found = run_tool(dll, "find", full)
         print(f"{slot}: {len(found)} candidate bursts")
         for i, b in enumerate(found):
@@ -219,7 +225,6 @@ def main():
             rel = f"bursts/{bid}.wav"
             path = os.path.join(args.out, rel)
             prev_end = int(found[i - 1]["end"]) if i else 0   # the receiver cannot lock again before this
-            key = lambda e: (e["sha256"], str(e["blocks"]), e["reason"])
             for margin in MARGINS_BEFORE_S:
                 a = max(0, prev_end, start - int(margin * RATE_OUT))
                 z = min(len(y), end + int(MARGIN_AFTER_S * RATE_OUT))
@@ -232,13 +237,11 @@ def main():
                 print(f"  {bid}: WN{wn} {b['reason']}: not a complete burst in the cut; skipped")
                 os.remove(path)
                 continue
-            # The decoder is sensitive to small input differences (see docs/dev/corpus.md), so record
-            # whether this burst decodes identically in the slot, in the cut, and in the cut as float.
-            fp = os.path.join(args.work, bid + ".f32.wav")
-            write_wav_f32(fp, seg)
-            float_agrees = [key(e) for e in run_tool(dll, "decode", fp)] == [key(e) for e in expected]
-            os.remove(fp)
-            matches_slot = key(expected[0]) == key(b)
+            ex = expected[0]
+            error_free = int(ex["good_frames"]) > 0 and int(ex["crc_failures"]) == 0 and int(ex["rs_failures"]) == 0
+            t_a = t0 + timedelta(seconds=a / RATE_OUT)
+            t_z = t0 + timedelta(seconds=z / RATE_OUT)
+            dropout = any(lo <= t_z and t_a <= hi for lo, hi in dropouts)
             burst_s = (end - start) / RATE_OUT
             sig = float((y[start:end] ** 2).mean()) if end > start else 0.0
             snr = 10 * np.log10(max(sig - floor, 1e-18) / floor) if sig > floor else -20.0
@@ -250,12 +253,12 @@ def main():
                 "snr_db_estimate": round(float(snr), 1),
                 "duration_s": round((len(seg)) / RATE_OUT, 2),
                 "samples": len(seg), "sha256": sha256_file(path),
-                "expected": [{k: (int(v) if k in ("wn", "k", "blocks", "bytes") else v) for k, v in e.items()} for e in expected],
-                "matches_slot_decode": matches_slot, "float_input_agrees": float_agrees,
-                "stable": matches_slot and float_agrees,
+                "expected": [{k: (int(v) if k in INT_KEYS else v) for k, v in e.items()} for e in expected],
+                "error_free": error_free, "good_frames": int(expected[0]["good_frames"]),
+                "dropout": dropout,
             })
             print(f"  {bid}: WN{wn} {b['il']} K{b['k']} {snr:+.1f} dB, {len(seg)/RATE_OUT:.1f} s, "
-                  f"stable={matches_slot and float_agrees}")
+                  f"good frames {ex['good_frames']}, error_free={error_free}, dropout={dropout}")
     pin = {}
     for line in open(os.path.join(ROOT, "reference", "pin.txt")):
         if "=" in line and not line.startswith("#"):

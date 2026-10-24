@@ -2,111 +2,67 @@
  "bursts": [
   {
    "constraint_length": 7,
-   "duration_s": 21.29,
-   "expected": [
-    {
-     "blocks": 31,
-     "bytes": 975,
-     "il": "Short",
-     "k": 7,
-     "reason": "Eom",
-     "sha256": "2d205e43d2bc6764880cf9dad6502f065caecc491e855edad506f6a4d1e561ea",
-     "wn": 3
-    }
-   ],
-   "file": "bursts/20261024T145800Z-01.wav",
-   "float_input_agrees": false,
-   "id": "20261024T145800Z-01",
-   "interleaver": "Short",
-   "matches_slot_decode": true,
-   "samples": 204384,
-   "sha256": "9e0dc6eb8c8f541547cb7f6d2bffba240abc9c9604fc8fc03bca21c8fdbefaad",
-   "slot": "20261024T145800Z",
-   "snr_db_estimate": 1.2,
-   "stable": false,
-   "utc": "2026-10-24T15:01:26Z",
-   "waveform": 3
-  },
-  {
-   "constraint_length": 7,
-   "duration_s": 21.3,
-   "expected": [
-    {
-     "blocks": 31,
-     "bytes": 975,
-     "il": "Short",
-     "k": 7,
-     "reason": "Eom",
-     "sha256": "07996cd588c6605264fddc2fd311306dfd1624878263531f2c6b8caf32343349",
-     "wn": 3
-    }
-   ],
-   "file": "bursts/20261024T145800Z-03.wav",
-   "float_input_agrees": false,
-   "id": "20261024T145800Z-03",
-   "interleaver": "Short",
-   "matches_slot_decode": true,
-   "samples": 204480,
-   "sha256": "e4153ee3db71259b58593c23ed1c1c407965dc4a2dfdf5ea14b836717d81d250",
-   "slot": "20261024T145800Z",
-   "snr_db_estimate": 4.9,
-   "stable": false,
-   "utc": "2026-10-24T15:03:12Z",
-   "waveform": 3
-  },
-  {
-   "constraint_length": 7,
-   "duration_s": 20.13,
-   "expected": [
-    {
-     "blocks": 31,
-     "bytes": 1950,
-     "il": "Short",
-     "k": 7,
-     "reason": "Eom",
-     "sha256": "6d6babf30d0fb7e04cc2e5788681d7a152b9b3e2effe07fb595d60c0877660ec",
-     "wn": 4
-    }
-   ],
-   "file": "bursts/20261024T135800Z-12.wav",
-   "float_input_agrees": true,
-   "id": "20261024T135800Z-12",
-   "interleaver": "Short",
-   "matches_slot_decode": true,
-   "samples": 193248,
-   "sha256": "e06a8dbf8c10fd574bca0ed95c466dbaf52fdae3d725ceed5a1c035c9c0000d8",
-   "slot": "20261024T135800Z",
-   "snr_db_estimate": 13.8,
-   "stable": true,
-   "utc": "2026-10-24T14:04:15Z",
-   "waveform": 4
-  },
-  {
-   "constraint_length": 7,
+   "dropout": false,
    "duration_s": 19.39,
+   "error_free": true,
    "expected": [
     {
      "blocks": 31,
      "bytes": 1950,
+     "corrected": 0,
+     "crc_failures": 0,
+     "frames_sha256": "ca3affae5819a42e7fe3b3348bb9d7a0ee295f7a0b7382c1012f9332f484be9a",
+     "good_frames": 6,
      "il": "Short",
      "k": 7,
      "reason": "Eom",
+     "rs_failures": 0,
      "sha256": "6e4208c917f1dc215eb89517ce501b80113a2b823a56c9c6ebfc1b8afe76ee58",
      "wn": 4
     }
    ],
    "file": "bursts/20261024T135800Z-04.wav",
-   "float_input_agrees": true,
+   "good_frames": 6,
    "id": "20261024T135800Z-04",
    "interleaver": "Short",
-   "matches_slot_decode": true,
    "samples": 186144,
    "sha256": "53d326e19a9541bd3e0f1bb04957edb89171b64d0af7e03e8beaed393a1555a7",
    "slot": "20261024T135800Z",
    "snr_db_estimate": 19.6,
-   "stable": true,
    "utc": "2026-10-24T14:01:50Z",
    "waveform": 4
+  },
+  {
+   "constraint_length": 7,
+   "dropout": false,
+   "duration_s": 21.3,
+   "error_free": false,
+   "expected": [
+    {
+     "blocks": 31,
+     "bytes": 975,
+     "corrected": 0,
+     "crc_failures": 0,
+     "frames_sha256": "fb7e73705a1f9ee6bd0cc538ed5285d78a3f004a5f4efb5ada08f0f4ceadb056",
+     "good_frames": 1,
+     "il": "Short",
+     "k": 7,
+     "reason": "Eom",
+     "rs_failures": 1,
+     "sha256": "07996cd588c6605264fddc2fd311306dfd1624878263531f2c6b8caf32343349",
+     "wn": 3
+    }
+   ],
+   "file": "bursts/20261024T145800Z-03.wav",
+   "good_frames": 1,
+   "id": "20261024T145800Z-03",
+   "interleaver": "Short",
+   "samples": 204480,
+   "sha256": "e4153ee3db71259b58593c23ed1c1c407965dc4a2dfdf5ea14b836717d81d250",
+   "slot": "20261024T145800Z",
+   "snr_db_estimate": 4.9,
+   "utc": "2026-10-24T15:03:12Z",
+   "waveform": 3
   }
  ],
  "format_version": 1,

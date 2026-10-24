@@ -44,6 +44,7 @@ public class CorpusTests
         using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, "manifest.json")));
         JsonElement bursts = doc.RootElement.GetProperty("bursts");
         Assert.True(bursts.GetArrayLength() > 0, "manifest has no bursts");
+        var pairs = new List<(JsonElement Want, CorpusDecode.Found Got)>();
         foreach (JsonElement b in bursts.EnumerateArray())
         {
             string id = b.GetProperty("id").GetString()!;
@@ -54,21 +55,129 @@ public class CorpusTests
             var got = CorpusDecode.Run(CorpusDecode.ReadWav(path));
             JsonElement[] want = b.GetProperty("expected").EnumerateArray().ToArray();
             Assert.True(got.Count == want.Length, $"{id}: {got.Count} bursts decoded, manifest says {want.Length}");
-            bool stable = b.GetProperty("stable").GetBoolean();
             for (int i = 0; i < want.Length; i++)
             {
                 JsonElement w = want[i];
                 Assert.True(got[i].Blocks == w.GetProperty("blocks").GetInt32(), $"{id}: block count");
                 Assert.True(got[i].Reason == w.GetProperty("reason").GetString(), $"{id}: end reason");
                 Assert.True(got[i].Wn == w.GetProperty("wn").GetInt32(), $"{id}: waveform");
+                Assert.True(got[i].Il == w.GetProperty("il").GetString(), $"{id}: interleaver");
+                Assert.True(got[i].K == w.GetProperty("k").GetInt32(), $"{id}: constraint length");
                 Assert.True(got[i].Bytes == w.GetProperty("bytes").GetInt32(), $"{id}: payload length");
-                // An unstable burst is one whose payload changes with tiny input differences, so
-                // only the stable ones are held to the payload hash (docs/dev/corpus.md).
-                if (stable)
-                {
-                    Assert.True(got[i].Sha256 == w.GetProperty("sha256").GetString(), $"{id}: payload hash");
-                }
+                Assert.True(got[i].GoodFrames == w.GetProperty("good_frames").GetInt32(), $"{id}: good frames");
+                Assert.True(got[i].FramesSha256 == w.GetProperty("frames_sha256").GetString(), $"{id}: good frame hash");
+                Assert.True(got[i].Corrected == w.GetProperty("corrected").GetInt32(), $"{id}: symbols corrected");
+                Assert.Equal(b.GetProperty("error_free").GetBoolean(), got[i].ErrorFree);
+                // The payload hash is exact only for error-free bursts (the rule in docs/dev/corpus.md),
+                // though the C# reproduces all of them on the same input.
+                Assert.True(got[i].Sha256 == w.GetProperty("sha256").GetString(), $"{id}: payload hash");
+            }
+
+            pairs.Add((b, got[0]));
+        }
+
+        // The pinned C# must satisfy the layer 4 rule against its own manifest.
+        Assert.Empty(Layer4Rule.Evaluate(pairs));
+    }
+
+    // ---- the rule itself, exercised on synthetic candidates --------------------------------
+
+    static (List<(JsonElement, CorpusDecode.Found)> Pairs, JsonDocument Doc) Committed()
+    {
+        string dir = Path.Combine(RepoRoot(), "tests", "data", "corpus");
+        JsonDocument doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, "manifest.json")));
+        var pairs = new List<(JsonElement, CorpusDecode.Found)>();
+        foreach (JsonElement b in doc.RootElement.GetProperty("bursts").EnumerateArray())
+        {
+            pairs.Add((b, CorpusDecode.Run(CorpusDecode.ReadWav(Path.Combine(dir, b.GetProperty("file").GetString()!))).Single()));
+        }
+
+        return (pairs, doc);
+    }
+
+    [Fact]
+    public void RuleAcceptsTheReferenceItself()
+    {
+        var (pairs, doc) = Committed();
+        using (doc) Assert.Empty(Layer4Rule.Evaluate(pairs));
+    }
+
+    [Fact]
+    public void RuleRejectsWhatItShould()
+    {
+        var (pairs, doc) = Committed();
+        using (doc)
+        {
+            // A wrong constraint length, a wrong end reason on a burst that has good frames, a payload
+            // that differs on an error-free burst, a frame decoded that failed its CRC, and two frames
+            // short on one burst.
+            Func<CorpusDecode.Found, CorpusDecode.Found>[] breakers =
+            [
+                f => f with { K = f.K == 7 ? 9 : 7 },
+                f => f with { Reason = "SignalLost" },
+                f => f with { Sha256 = new string('0', 64) },
+                f => f with { CrcFailures = 0, AllFramesPassCrc = false },
+                f => f with { GoodFrames = f.GoodFrames - 2 },
+            ];
+            // The first committed burst is error-free with several good frames.
+            Assert.True(pairs[0].Item2.ErrorFree && pairs[0].Item2.GoodFrames >= 3);
+            foreach (var breaker in breakers)
+            {
+                var bad = pairs.Select((p, i) => (p.Item1, i == 0 ? breaker(p.Item2) : p.Item2)).ToList();
+                Assert.NotEmpty(Layer4Rule.Evaluate(bad));
+            }
+
+            // One good frame short on one burst is allowed per burst, but the corpus budget is 2 percent.
+            var oneShort = pairs.Select((p, i) => (p.Item1, i == 0 ? p.Item2 with { GoodFrames = p.Item2.GoodFrames - 1 } : p.Item2)).ToList();
+            int total = pairs.Sum(p => p.Item2.GoodFrames);
+            Assert.Equal(total * 2 / 100 >= 1, !Layer4Rule.Evaluate(oneShort).Any());
+        }
+    }
+}
+
+// Layer 4 rule (docs/dev/corpus.md), the one the C++ receiver is held to. Per burst: waveform,
+// interleaver and K match exactly; end reason and block count match exactly unless the manifest burst
+// has no good frames; the candidate has at most one good IL2P frame fewer than the manifest, and
+// at most 2 percent fewer over the whole set; every frame it decodes passes its CRC; the payload
+// hash matches exactly on error-free bursts only. The C++ side supplies its own CorpusDecode.Found
+// values here when the receiver exists.
+static class Layer4Rule
+{
+    public static List<string> Evaluate(IEnumerable<(JsonElement Want, CorpusDecode.Found Got)> pairs)
+    {
+        var problems = new List<string>();
+        int wantTotal = 0, shortTotal = 0;
+        foreach (var (burst, got) in pairs)
+        {
+            string id = burst.GetProperty("id").GetString()!;
+            JsonElement w = burst.GetProperty("expected")[0];
+            int wantFrames = w.GetProperty("good_frames").GetInt32();
+            void Differs(string what) => problems.Add($"{id}: {what}");
+            if (got.Wn != w.GetProperty("wn").GetInt32()) Differs("waveform");
+            if (got.Il != w.GetProperty("il").GetString()) Differs("interleaver");
+            if (got.K != w.GetProperty("k").GetInt32()) Differs("constraint length");
+            if (wantFrames > 0)
+            {
+                if (got.Reason != w.GetProperty("reason").GetString()) Differs("end reason");
+                if (got.Blocks != w.GetProperty("blocks").GetInt32()) Differs("block count");
+            }
+
+            int missing = Math.Max(0, wantFrames - got.GoodFrames);
+            if (missing > 1) Differs($"{missing} good frames short (at most 1 allowed)");
+            wantTotal += wantFrames;
+            shortTotal += missing;
+            if (!got.AllFramesPassCrc) Differs("a decoded frame failed its CRC");
+            if (burst.GetProperty("error_free").GetBoolean() && got.Sha256 != w.GetProperty("sha256").GetString())
+            {
+                Differs("payload differs on an error-free burst");
             }
         }
+
+        if (shortTotal > wantTotal * 2 / 100)
+        {
+            problems.Add($"{shortTotal} good frames short over the set of {wantTotal} (at most 2 percent)");
+        }
+
+        return problems;
     }
 }

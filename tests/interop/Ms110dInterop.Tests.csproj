@@ -20,6 +20,8 @@
     <!-- Exact version, taken from reference/pin.txt. -->
     <PackageReference Include="M0LTE.Ms110d" Version="[$(Ms110dReferenceVersion)]" />
     <!-- Test-only: AWGN for the C++ transmit, C# receive tests. -->
+    <!-- Test-only: the IL2P deframer the corpus helper uses (the mailcast framing). -->
+    <PackageReference Include="M0LTE.Il2p" Version="[0.3.0]" />
     <PackageReference Include="M0LTE.HfChannel" Version="0.1.0" />
     <PackageReference Include="xunit.v3" Version="3.2.2" />
   </ItemGroup>

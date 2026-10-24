@@ -132,3 +132,18 @@ jobs:
         env:
           MS110D_REQUIRE_REFERENCE: "1"
         run: ctest --test-dir build/tests --output-on-failure -R "^reference " --no-tests=error
+      - name: Cache the real-audio corpus
+        uses: actions/cache@v4
+        with:
+          path: build/_corpus
+          key: corpus-${{ hashFiles('reference/corpus.txt', 'scripts/fetch-corpus.sh') }}
+      - name: Fetch and verify the real-audio corpus
+        run: scripts/fetch-corpus.sh
+      - name: Check the corpus against the C# reference (must not skip)
+        env:
+          MS110D_REQUIRE_CORPUS: "1"
+          MS110D_CORPUS_DIR: ${{ github.workspace }}/build/_corpus/current
+          MS110D_PIN_FILE: ${{ github.workspace }}/reference/pin.txt
+          MS110D_NATIVE_LIB: unused
+          MS110D_EXPECTED_VERSION: "0"
+        run: dotnet run --project tests/interop -c Release -- -class Ms110dInterop.Tests.CorpusTests
