@@ -392,7 +392,11 @@ bool MfbBlockDecoder::run_schedule(bool soft_first, const std::int64_t* frame_ch
 
         // An exact two-cycle in the hard tail: keep the member whose reconstruction explains the
         // ring better.
-        const bool members_hard = rung >= hard_start + 2;
+        // Both cycle members are hard-phase decodes. (The C# writes rung >= hardStart + 2, which wraps
+        // to a negative while hardStart is still int.MaxValue in the soft phase; the result is only
+        // used outside the soft phase, where hardStart is a rung number, so this overflow-free form
+        // is the same.)
+        const bool members_hard = rung - 2 >= hard_start;
         if (!soft_phase && rung > 1 && churn > 0 && members_hard && std::memcmp(dec_, prev_dec2_, input) == 0) {
             const double sigma_b = sigma2_;
             set_decisions_from(dec_);
