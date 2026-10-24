@@ -18,7 +18,7 @@ Every later entry point follows the conventions below. If a new function cannot,
 - **Precision query.** The library is built for `float` or `double` inside. `ms110d_precision_bits()` returns `MS110D_PRECISION_SINGLE` (32) or `MS110D_PRECISION_DOUBLE` (64), so a caller that depends on one can check it before it trusts any numbers.
 - **ABI version.** `MS110D_ABI_VERSION` in the header and `ms110d_abi_version()` in the library. A caller compares them before anything else and refuses a mismatch. Bump it on any change that can break an already-built caller (changed signature, struct layout or enum value). Adding a function does not need a bump while the library is 0.x, but a new header with new functions on an old library is caught by the symbol failing to resolve. The ABI version is independent of the library's semantic version.
 - **Structs.** Plain structs passed by pointer, with an explicit `uint32_t struct_size` first member filled in by the caller when a struct may grow, so old callers keep working.
-- **Enums.** C enums with explicit values; never reordered or renumbered.
+- **Named constants.** Status codes, kinds and similar values are named constants with explicit values, never reordered or renumbered. The types that carry them across the boundary are fixed-width integers, never C enum types, because enum size varies between compilers (1 byte on bare-metal ARM by default).
 
 ## Events: poll and drain
 
@@ -43,6 +43,15 @@ Results the modem produces (a decoded block, a finished burst, soft decisions) a
                                             void* payload, uint32_t payload_capacity);
 
   `payload` holds bits (one per byte) for the decoded and completed events and `float` LLRs for the LLR events; which one is given by `kind`. This is a sketch of the convention, not a commitment to those names; the stage that adds the demodulator settles the details and updates this section.
+
+## Open points for the demodulator
+
+To settle in [#27](https://github.com/M0LTE/ms110d-cpp/issues/27), before the first receive entry point lands, so the signatures don't change later:
+
+- `process` reports how many samples it consumed, so a caller can resume after the event queue fills part-way.
+- Every event carries the sample position it relates to, so tests can match events with the C# one for one.
+- A finished burst in C# carries the whole burst's bits. Either the maximum burst length is fixed at creation so the queue can hold it, or bits are delivered one block at a time and the burst event only closes the burst.
+- Soft-decision events are switched on at creation, so a microcontroller build doesn't pay for them.
 
 ## Export
 
