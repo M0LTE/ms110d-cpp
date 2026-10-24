@@ -1,7 +1,7 @@
 name: Layer 3 cross-decoding (long)
 
-# The full matrix, sharded. Run by hand, and on pushes to main that change code which affects
-# transmit, receive or the channel model. No schedule. See docs/dev/layer3.md.
+# The full matrix, sharded. Run by hand, and on release tags. No schedule, and not on pushes to main.
+# See docs/dev/layer3.md.
 on:
   workflow_dispatch:
     inputs:
@@ -14,15 +14,8 @@ on:
         required: false
         default: ""
   push:
-    branches: [main]
-    paths:
-      - "src/**"
-      - "include/**"
-      - "tests/interop/**"
-      - "cmake/**"
-      - "CMakeLists.txt"
-      - "reference/pin.txt"
-      - ".github/workflows/layer3.yml"
+    tags:
+      - 'v*.*.*'
 
 permissions:
   contents: read

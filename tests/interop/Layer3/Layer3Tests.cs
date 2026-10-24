@@ -47,7 +47,8 @@ internal static class Layer3Runner
     {
         var failed = Layer3Report.Compare(r).Where(c => c.Verdict == Layer3Analysis.Verdict.Fail).ToList();
         Assert.True(failed.Count == 0, $"{r.Spec.Label}: " + string.Join("; ", failed.Select(c =>
-            $"{c.Pairing} is {c.Diff:F2} dB worse than {c.Reference} (95% interval {c.Low:F2} to {c.High:F2} dB, limit +0.5)")));
+            c.Diff is null ? $"{c.Pairing}: {c.Note}"
+                : $"{c.Pairing} is {c.Diff:F2} dB worse than {c.Reference} (95% interval {c.Low:F2} to {c.High:F2} dB, limit +0.5)")));
     }
 
     public static Layer3Analysis.AggregateResult AggregateOf(IEnumerable<Layer3SweepResult> cells, string pairing)
@@ -270,6 +271,78 @@ public class Layer3SensitivityTests(ITestOutputHelper output)
 
         Assert.NotEqual(Layer3Analysis.Verdict.Fail, agg[Layer3Fakes.Levels[1].Name].Verdict);
         Assert.Equal(Layer3Analysis.Verdict.Fail, agg[Layer3Fakes.Levels[2].Name].Verdict);
+    }
+}
+
+/// <summary>A receiver that decodes nothing.</summary>
+internal sealed class DeadReceiver : ILayer3Receiver
+{
+    public string Name => "dead";
+
+    public bool IsAvailable => true;
+
+    public string UnavailableReason => "";
+
+    public Layer3Decode Decode(float[] audio) => new(null);
+}
+
+/// <summary>
+/// Broken receivers through the real flow (pilot, ladder, extension, comparison): a dead receiver, one 3 dB worse,
+/// and a channel in which one mode is 1.5 dB or 4 dB worse while the other is fine. All of them must FAIL, and
+/// a receiver that is fine must not.
+/// </summary>
+[Trait("Category", "Layer3")]
+public class Layer3BrokenReceiverTests(ITestOutputHelper output)
+{
+    private static readonly (int Wn, int Il, int K)[] Cells = [(3, 0, 7), (4, 0, 7)];
+
+    private const int Frames = 16;
+
+    [Fact]
+    public void DeadAndMuchWorseReceiversFailAndAModeThatIsOnlyWorseFailsTheChannel()
+    {
+        Assert.SkipWhen(Layer3LongTests.Enabled || Layer3ValidationTests.Enabled, "default run only");
+        ILayer3Receiver Fake(string name, double db) => new ExtraNoiseReceiver(Layer3Endpoints.CSharpRx, name, ExtraNoiseReceiver.FractionFor(db), 7);
+        ILayer3Receiver[] rxs =
+        [
+            Layer3Endpoints.CSharpRx, Fake("fine", 0.0), Fake("w1.5", 1.5), Fake("w3", 3), Fake("w4", 4), new DeadReceiver(),
+        ];
+        var cmp = new Dictionary<string, Dictionary<string, Layer3Comparison>>();
+        foreach (var (wn, il, k) in Cells)
+        {
+            Layer3SweepResult r = Layer3Sweep.RunLocated(wn, il, k, Layer3Channel.Awgn, Frames, [Layer3Endpoints.CSharpTx], rxs);
+            output.WriteLine(Layer3Report.Markdown(r));
+            Assert.True(r.Reached, r.Note);
+            cmp[r.Spec.Id] = Layer3Report.Compare(r).ToDictionary(c => c.Pairing.Split("->")[1]);
+        }
+
+        foreach (var (id, c) in cmp)
+        {
+            Assert.Equal(Layer3Analysis.Verdict.Fail, c["dead"].Verdict);
+            Assert.Equal(Layer3Analysis.Verdict.Fail, c["w3"].Verdict);
+            Assert.Equal(Layer3Analysis.Verdict.Fail, c["w4"].Verdict);
+            Assert.NotEqual(Layer3Analysis.Verdict.Fail, c["fine"].Verdict);
+        }
+
+        // One mode worse, the other fine: the cell fails, and so does the channel.
+        string a = cmp.Keys.First(), b = cmp.Keys.Last();
+        foreach (var (worse, name) in new[] { (a, "w1.5"), (b, "w4") })
+        {
+            var cells = cmp.Keys.Select(id => id == worse ? cmp[id][name] : cmp[id]["fine"]).ToList();
+            Assert.Contains(cells, c => c.Verdict == Layer3Analysis.Verdict.Fail);
+            Assert.Equal(Layer3Analysis.Verdict.Fail, cmp[worse][name].Verdict);
+        }
+    }
+
+    [Fact]
+    public void ADeadReceiverFailsTheChannelAggregate()
+    {
+        var curve = Enumerable.Range(0, 7).Select(i => new Layer3Point("csharp", "csharp", i,
+            [.. Enumerable.Range(0, 40).Select(f => f < 40 - (6 * i))], 0, 0)).ToList();
+        var dead = Enumerable.Range(0, 7).Select(i => new Layer3Point("csharp", "dead", i, [.. Enumerable.Repeat(true, 40)], 0, 0)).ToList();
+        var agg = Layer3Analysis.Aggregate([new("x", curve, curve, 0.1), new("y", curve, dead, 0.1)], 0.5);
+        Assert.Equal(1, agg.Unreached);
+        Assert.Equal(Layer3Analysis.Verdict.Fail, agg.Verdict);
     }
 }
 
@@ -526,11 +599,11 @@ public class Layer3CombineTests(ITestOutputHelper output)
                     var otCurve = ot.Select(ToPt).ToList();
                     double target = rf[0].Target;
                     pairs.Add(new(cell.Key, refCurve, otCurve, target));
-                    var pd = Layer3Analysis.PairedDifference(refCurve, otCurve, target);
-                    var v = Layer3Analysis.Judge(pd.Diff, pd.Low, pd.High, Layer3Report.ToleranceDb);
+                    var j = Layer3Analysis.JudgeCell(refCurve, otCurve, target, Layer3Report.ToleranceDb);
+                    var v = j.Verdict;
                     if (v != Layer3Analysis.Verdict.Pass)
                     {
-                        string d = pd.Diff is { } x ? $"{x:F2} dB ({pd.Low:F2} to {pd.High:F2})" : "";
+                        string d = j.Diff is { } x ? $"{x:F2} dB ({j.Low:F2} to {j.High:F2})" : j.Note;
                         notable.Add($"- {cell.Key} {pairing}: {v} {d}".TrimEnd());
                     }
 

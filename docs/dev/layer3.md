@@ -21,7 +21,7 @@ Per cell (one mode, interleaver, code and channel), each pairing other than C# t
 - FAIL: the interval lies wholly above +0.5 dB. The pairing is provably worse.
 - PASS: the interval lies wholly within +/-0.5 dB.
 - INCONCLUSIVE: anything else. The data cannot say. This is not a failure and is listed in the report.
-- NOT REACHED: the target was never reached.
+- NOT REACHED: the C# reference itself never reaches the target (a floor). This excuses a cell only for that reason. If the reference reaches the target and the other pairing does not, even 10 dB above the ladder, the cell FAILS (a dead or badly broken receiver) and counts as failed in the channel verdict.
 
 A single cell does not resolve 0.5 dB unless the pairings decode nearly the same frames. A modem that is genuinely 0.5 dB off on a few dozen frames per point gives an interval a dB wide. So the verdict that matters, "within 0.5 dB", is per channel model on the aggregate over cells: the mean of the per-cell differences with a bootstrap 95% interval that resamples cells and, within each, frames. The same FAIL / PASS / INCONCLUSIVE rule is applied to that interval. The default run applies it to its few cells; the long run applies it to the whole matrix in the combine job (78 combinations per channel).
 
@@ -42,6 +42,8 @@ Counts: AWGN, 3 cells (WN3, WN4, WN6, ultra-short interleaver, K7) x 40 frames p
 
 So at these counts the rule never failed a receiver 0.2 dB worse or equal, and failed one 1.0 dB worse every time (the AWGN mean difference reads 0.85 for a true 1.0 dB: the fit is a little compressed on the steep AWGN curve; it is a measured bias, not hidden). The long run has far more cells per channel than these tables, so its aggregate is tighter. The same experiment runs once in the default run (`Layer3SensitivityTests`, AWGN, +0.2 must not fail and +1.0 must fail, fixed seed).
 
+A single mode that is much worse is not averaged away: a cell that FAILS fails the channel verdict whatever the aggregate says, and the long run's shard tests fail on it. The broken-receiver tests (`Layer3BrokenReceiverTests`, default run) feed a dead receiver, one 3 dB worse, and one mode 1.5 dB or 4 dB worse with the other fine through the real flow; all must FAIL, and a receiver with no extra noise must not. The ladder is extended 10 dB upward for every pairing when a non-reference pairing does not reach the target, so a receiver several dB worse is measured, not just reported missing.
+
 Early versions of the rule read the threshold off the two points either side of the target and could not tell 0.3 dB from 0.7 dB at 40 frames; the logistic fit is what made the table above possible.
 
 ## Pairings and the C++ receiver slot
@@ -50,7 +52,7 @@ Today: C# to C# and C++ to C#. `Layer3Endpoints.CppReceiver` (`Endpoints.cs`) is
 
 ## Running
 
-Default (ctest test `dotnet_layer3`, about 80 s on 4 threads; the CI interop job uploads the results): `dotnet run --project tests/interop -c Release -- -trait "Category=Layer3"`. It runs the real C++ transmitter on AWGN (2 cells x 24 frames) and Moderate (1 cell x 48 frames), where the pairing is frame for frame identical so few frames are needed, plus the sensitivity test (3 cells x 40 frames, AWGN). Results land in `layer3-results/default/cells/` (override with `MS110D_LAYER3_OUT`):
+Default (ctest test `dotnet_layer3`, about 2 minutes on 4 threads; the CI interop job uploads the results): `dotnet run --project tests/interop -c Release -- -trait "Category=Layer3"`. It runs the real C++ transmitter on AWGN (2 cells x 24 frames) and Moderate (1 cell x 48 frames), where the pairing is frame for frame identical so few frames are needed, plus the sensitivity test (3 cells x 40 frames, AWGN) and the broken-receiver tests (2 cells x 16 frames). Results land in `layer3-results/default/cells/` (override with `MS110D_LAYER3_OUT`):
 
 - `<cell>.curves.csv`: frame and bit errors, loss and its Wilson interval per pairing and SNR.
 - `<cell>.thresholds.csv`: threshold per pairing, and for each non-reference pairing the paired difference, its interval, the number of differing decodes and the verdict.
@@ -61,6 +63,6 @@ Long mode: `MS110D_LAYER3_LONG=1` and `-class Ms110dInterop.Tests.Layer3.Layer3L
 
 ## Long run: cadence and cost
 
-`layer3.yml` runs by hand (workflow_dispatch, optionally narrowed by channel and waveform) and on pushes to main that touch `src`, `include`, `tests/interop`, `cmake`, the top CMakeLists or the reference pin. There is no schedule. It uses 24 shards, at most 8 at a time, each with `permissions: contents: read`; a final job combines them into the per-channel verdicts, writes a short job summary (the aggregate table and the first 100 cells that were not a conclusive pass) and uploads the cells and the combined results as artifacts.
+`layer3.yml` runs by hand (workflow_dispatch, optionally narrowed by channel and waveform) and on release tags (`v*.*.*`). There is no schedule and it does not run on pushes to main. It uses 24 shards, at most 8 at a time, each with `permissions: contents: read`; a final job combines them into the per-channel verdicts, writes a short job summary (the aggregate table and the first 100 cells that were not a conclusive pass) and uploads the cells and the combined results as artifacts.
 
 Cost estimate from measured decode times: about 0.7 s of CPU per decode, 78 combinations x 4 channels x (60 or 160 frames) x 7 points x 2 transmitters is about 135 CPU hours, so about 1.5 to 2 hours per shard on a 4 vcpu runner, and about 5 to 6 hours for the whole run with 8 shards at a time. Each shard is far below the 6 hour job limit.

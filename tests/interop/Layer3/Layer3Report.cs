@@ -8,7 +8,7 @@ namespace Ms110dInterop.Tests.Layer3;
 
 /// <summary>One non-reference pairing compared with the reference pairing in a cell.</summary>
 public sealed record Layer3Comparison(string Reference, string Pairing, double? Diff, double? Low, double? High,
-    int Discordant, int Total, Layer3Analysis.Verdict Verdict);
+    int Discordant, int Total, Layer3Analysis.Verdict Verdict, string Note = "");
 
 /// <summary>Writes the curves as CSV and a markdown summary, files per cell so shards never collide.</summary>
 public static class Layer3Report
@@ -93,9 +93,8 @@ public static class Layer3Report
                 continue;
             }
 
-            var pd = Layer3Analysis.PairedDifference(reference, curve, target);
-            result.Add(new Layer3Comparison(pairings[0], p, pd.Diff, pd.Low, pd.High, d.Discordant, d.Total,
-                Layer3Analysis.Judge(pd.Diff, pd.Low, pd.High, ToleranceDb)));
+            var j = Layer3Analysis.JudgeCell(reference, curve, target, ToleranceDb);
+            result.Add(new Layer3Comparison(pairings[0], p, j.Diff, j.Low, j.High, d.Discordant, d.Total, j.Verdict, j.Note));
         }
 
         return result;
@@ -163,7 +162,7 @@ public static class Layer3Report
             sb.AppendLine($"Paired by frame, {c.Pairing} against {c.Reference}: {c.Discordant} of {c.Total} frame decodes differ. "
                 + (c.Diff is { } df
                     ? $"Threshold difference {F(df)} dB (positive = worse), paired bootstrap 95% interval {F(c.Low)} to {F(c.High)} dB. Verdict: {c.Verdict.ToString().ToUpperInvariant()}."
-                    : $"Verdict: {c.Verdict.ToString().ToUpperInvariant()}."));
+                    : $"Verdict: {c.Verdict.ToString().ToUpperInvariant()}. {c.Note}".TrimEnd()));
             sb.AppendLine();
         }
 

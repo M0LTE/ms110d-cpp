@@ -245,10 +245,12 @@ public static class Layer3Sweep
     }
 
     /// <summary>
-    /// Pilots the crossing, centres a ladder on it and runs the cell. If a curve does not bracket the target (the
-    /// pilot was off) the ladder is moved by its half span the way the curve says and the cell run again, at most
-    /// three times. A target that is never reached (a floor, for example a high rate mode on Poor) is reported, with
-    /// the loss at 40 dB, not failed: <see cref="Layer3SweepResult.Reached"/> is false.
+    /// Pilots the crossing, centres a ladder on it and runs the cell. If the reference curve does not bracket the target
+    /// (the pilot was off) the ladder is moved by its half span the way the curve says and the cell run again, at most
+    /// three times. A target that the REFERENCE never reaches (a floor, for example a high rate mode on Poor) is
+    /// reported, with its floor, not failed: <see cref="Layer3SweepResult.Reached"/> is false. A pairing that does
+    /// not reach it when the reference does is not excused: the ladder is extended upward by 10 dB for every pairing
+    /// and, if it still does not reach it, the cell comparison fails.
     /// </summary>
     public static Layer3SweepResult RunLocated(int wn, int il, int k, Layer3Channel channel, int frames,
         IReadOnlyList<ILayer3Transmitter> txs, IReadOnlyList<ILayer3Receiver> rxs)
@@ -265,21 +267,22 @@ public static class Layer3Sweep
         double[] ladder = CentredLadder(centre.Value, channel);
         double half = channel.Fading ? 3 : 1.5;
         int shifts = 0;
+        Layer3SweepResult r;
         while (true)
         {
-            Layer3SweepResult r = Run(new Layer3Spec(wn, il, k, channel, ladder, frames), txs, rxs);
-            var ts = Layer3Report.Thresholds(r);
-            bool above = ts.Any(t => t.SnrDb is null && t.Note.StartsWith("still above", StringComparison.Ordinal));
-            bool below = ts.Any(t => t.SnrDb is null && t.Note.StartsWith("already below", StringComparison.Ordinal));
-            if (!above && !below)
+            r = Run(new Layer3Spec(wn, il, k, channel, ladder, frames), txs, rxs);
+            // Only the reference decides whether the target is reachable: a pairing that is worse is a finding, not a reason to move.
+            Layer3Threshold rt = Layer3Report.Thresholds(r)[0];
+            if (rt.SnrDb is not null)
             {
-                return r with { Shifts = shifts };
+                break;
             }
 
+            bool above = rt.Note.StartsWith("still above", StringComparison.Ordinal);
             if (shifts == 3)
             {
                 string floor = above
-                    ? "target not reached on the ladder (floor): " + string.Join(", ", r.Pairings.Select(p => $"{p} lowest loss {r.Curve(p).Min(x => x.FrameLoss) * 100:F1}%"))
+                    ? "reference target not reached on the ladder (floor): " + $"{r.Pairings.First()} lowest loss {r.Curve(r.Pairings.First()).Min(x => x.FrameLoss) * 100:F1}%"
                     : "target already met at the lowest SNR of the ladder";
                 return r with { Reached = false, Shifts = shifts, Note = floor };
             }
@@ -288,5 +291,28 @@ public static class Layer3Sweep
             double d = above ? half : -half;
             ladder = [.. ladder.Select(x => x + d)];
         }
+
+        // A pairing that does not reach the target on the ladder may just be several dB worse (or dead). Look further
+        // up before concluding anything: extra points above the ladder, run for every pairing so they stay paired.
+        bool needsMore = Layer3Report.Thresholds(r).Skip(1).Any(t => t.SnrDb is null && t.Note.StartsWith("still above", StringComparison.Ordinal));
+        if (needsMore)
+        {
+            double top = ladder.Max();
+            double[] extra = [.. Enumerable.Range(1, ExtensionPoints).Select(i => top + (ExtensionStepDb * i)).Where(x => x <= 40)];
+            if (extra.Length > 0)
+            {
+                Layer3SweepResult more = Run(new Layer3Spec(wn, il, k, channel, extra, frames), txs, rxs);
+                r = new Layer3SweepResult(
+                    r.Spec with { SnrLadder = [.. ladder, .. extra] },
+                    [.. r.Points, .. more.Points], r.Skipped, r.Seconds + more.Seconds) { Shifts = shifts };
+            }
+        }
+
+        return r with { Shifts = shifts };
     }
+
+    /// <summary>How far above the ladder a worse pairing is looked for: 5 points, 2 dB apart (10 dB).</summary>
+    public const int ExtensionPoints = 5;
+
+    public const double ExtensionStepDb = 2.0;
 }

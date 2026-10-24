@@ -38,6 +38,12 @@ public static class Layer3Analysis
         se = null;
         note = "";
         int m = snr.Length;
+        if (m < 3)
+        {
+            note = "too few ladder points to fit";
+            return null;
+        }
+
         double mean = snr.Average();
         double[] x = [.. snr.Select(v => v - mean)];
         double[] y = [.. lost.Select(v => v + 0.5)];
@@ -247,10 +253,41 @@ public static class Layer3Analysis
         return l >= -toleranceDb && h <= toleranceDb ? Verdict.Pass : Verdict.Inconclusive;
     }
 
+    public sealed record CellJudgement(Verdict Verdict, double? Diff, double? Low, double? High, string Note);
+
+    /// <summary>
+    /// Judges one other pairing against the reference in a cell. If the reference never reaches the target the cell is
+    /// NotReached (nothing to compare). If the reference reaches it and the other pairing does not (it still sits above
+    /// the target at the top of the ladder: a dead or very much worse receiver) the cell FAILS. Otherwise the paired
+    /// difference decides (<see cref="Judge"/>).
+    /// </summary>
+    public static CellJudgement JudgeCell(IReadOnlyList<Layer3Point> reference, IReadOnlyList<Layer3Point> other, double target, double toleranceDb)
+    {
+        int[] all = [.. Enumerable.Range(0, reference[0].Frames)];
+        double[] snr = [.. reference.Select(p => p.SnrDb)];
+        double? rt = FitThreshold(snr, [.. reference.Select(p => (double)p.FrameErrors)], [.. reference.Select(p => (double)p.Frames)], target, out _, out string rnote, ComparisonExtrapolationDb);
+        if (rt is null)
+        {
+            return new CellJudgement(Verdict.NotReached, null, null, null, "reference: " + rnote);
+        }
+
+        double? ot = FitThreshold(snr, [.. other.Select(p => (double)p.FrameErrors)], [.. other.Select(p => (double)p.Frames)], target, out _, out string onote, ComparisonExtrapolationDb);
+        if (ot is null)
+        {
+            return onote.StartsWith("still above", StringComparison.Ordinal)
+                ? new CellJudgement(Verdict.Fail, null, null, null, "does not reach the target frame loss though the reference does: " + onote)
+                : new CellJudgement(Verdict.Inconclusive, null, null, null, onote);
+        }
+
+        var pd = PairedDifference(reference, other, target);
+        return new CellJudgement(Judge(pd.Diff, pd.Low, pd.High, toleranceDb), pd.Diff, pd.Low, pd.High, "");
+    }
+
     /// <summary>One cell's two curves to be compared (reference and other), at the cell's target.</summary>
     public sealed record CellPair(string Id, IReadOnlyList<Layer3Point> Reference, IReadOnlyList<Layer3Point> Other, double Target);
 
-    public sealed record AggregateResult(int Cells, int UsedCells, double? Mean, double? Low, double? High, Verdict Verdict);
+        /// <param name="Unreached">Cells where the other pairing never reached a target the reference did: failures, and any makes the verdict Fail.</param>
+    public sealed record AggregateResult(int Cells, int UsedCells, double? Mean, double? Low, double? High, Verdict Verdict, int Unreached = 0);
 
     /// <summary>
     /// The verdict over many cells of one channel model: the mean of the per-cell paired differences with a
@@ -261,19 +298,36 @@ public static class Layer3Analysis
     {
         var used = new List<(CellPair Cell, int[] All)>();
         var diffs = new List<double>();
+        int unreached = 0;
         foreach (CellPair c in cells)
         {
             int[] all = [.. Enumerable.Range(0, c.Reference[0].Frames)];
-            if (ResampledThreshold(c.Reference, all, c.Target) is { } a && ResampledThreshold(c.Other, all, c.Target) is { } b)
+            double[] snr = [.. c.Reference.Select(p => p.SnrDb)];
+            double[] fr = [.. c.Reference.Select(p => (double)p.Frames)];
+            double? a = FitThreshold(snr, [.. c.Reference.Select(p => (double)p.FrameErrors)], fr, c.Target, out _, out _, ComparisonExtrapolationDb);
+            if (a is null)
             {
-                used.Add((c, all));
-                diffs.Add(b - a);
+                continue; // the reference never reaches the target: nothing to compare
             }
+
+            double? b = FitThreshold(snr, [.. c.Other.Select(p => (double)p.FrameErrors)], fr, c.Target, out _, out string note, ComparisonExtrapolationDb);
+            if (b is null)
+            {
+                if (note.StartsWith("still above", StringComparison.Ordinal))
+                {
+                    unreached++; // the reference reaches it and this one does not: a failure, not an exclusion
+                }
+
+                continue;
+            }
+
+            used.Add((c, all));
+            diffs.Add(b.Value - a.Value);
         }
 
         if (used.Count == 0)
         {
-            return new AggregateResult(cells.Count, 0, null, null, null, Verdict.NotReached);
+            return new AggregateResult(cells.Count, 0, null, null, null, unreached > 0 ? Verdict.Fail : Verdict.NotReached, unreached);
         }
 
         double mean = diffs.Average();
@@ -308,12 +362,12 @@ public static class Layer3Analysis
 
         if (means.Count < resamples / 2)
         {
-            return new AggregateResult(cells.Count, used.Count, mean, null, null, Verdict.Inconclusive);
+            return new AggregateResult(cells.Count, used.Count, mean, null, null, unreached > 0 ? Verdict.Fail : Verdict.Inconclusive, unreached);
         }
 
         means.Sort();
         double lo = means[(int)(0.025 * means.Count)];
         double hi = means[Math.Min(means.Count - 1, (int)(0.975 * means.Count))];
-        return new AggregateResult(cells.Count, used.Count, mean, lo, hi, Judge(mean, lo, hi, toleranceDb));
+        return new AggregateResult(cells.Count, used.Count, mean, lo, hi, unreached > 0 ? Verdict.Fail : Judge(mean, lo, hi, toleranceDb), unreached);
     }
 }
