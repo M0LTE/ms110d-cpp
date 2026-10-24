@@ -33,6 +33,25 @@ if (args.Length > 0 && args[0] == "framing")
     return;
 }
 
+// "wn0" modes: the WN 0 receive path, see Wn0Dump.cs.
+if (args.Length > 0 && args[0] == "wn0")
+{
+    Console.Out.Write(Wn0Dump.Clean(args[1]));
+    return;
+}
+
+if (args.Length > 0 && args[0] == "wn0-awgn")
+{
+    Console.Out.Write(Wn0Dump.Awgn(args[1]));
+    return;
+}
+
+if (args.Length > 0 && args[0] == "wn0-poor")
+{
+    Wn0Dump.Poor(args[1]);
+    return;
+}
+
 static ulong Fnv(IEnumerable<uint> values)
 {
     ulong h = 14695981039346656037UL;
