@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Thomas Fanning
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #pragma once
 
 // Waveform ID 0 Walsh data scrambler (D.5.1.4): a Trinomial (159, 31) bit shift register with

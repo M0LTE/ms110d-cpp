@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Thomas Fanning
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #pragma once
 
 // Appendix D data scrambler (D.5.1.3): generator x^9 + x^4 + 1, 9-bit register initialised

@@ -1,3 +1,5 @@
+// Copyright (C) 2026 Thomas Fanning
+// SPDX-License-Identifier: AGPL-3.0-or-later
 #pragma once
 
 // Appendix D block interleaver (D.5.3.3.1 to .3): one 1-D array of "Interleaver Size in
@@ -9,7 +11,8 @@
 // integers (the increment is reduced modulo the size) and needs no buffer: the caller owns the input and output arrays, each exactly
 // `size_bits` long. The increment must be coprime with the size for the load map to be a
 // permutation (every pair in the standard is; see coprime()). Input and output must not
-// overlap. No allocation, no exceptions.
+// overlap. A size of 0 is an empty interleaver: valid() is false, load_location() returns 0
+// and interleave()/deinterleave() do nothing. No allocation, no exceptions.
 
 #include <stdint.h>  // not <cstdint>: the Cortex-M7 CI image has no C++ standard library
 
@@ -28,6 +31,9 @@ public:
 
     // Load location of punctured bit B(n): (n * increment) mod size.
     constexpr uint32_t load_location(uint32_t n) const noexcept {
+        if (size_ == 0) {
+            return 0;  // an empty interleaver has no locations; avoids a divide by zero
+        }
         return static_cast<uint32_t>((static_cast<uint64_t>(n) * increment_) % size_);
     }
 
