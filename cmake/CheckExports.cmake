@@ -1,3 +1,4 @@
+cmake_minimum_required(VERSION 3.22)
 # Fails unless the shared C library exports exactly the ms110d_ functions.
 #   NM   the nm tool    LIB   the shared library
 execute_process(COMMAND "${NM}" -D --defined-only "${LIB}" OUTPUT_VARIABLE _out RESULT_VARIABLE _rc)
