@@ -63,4 +63,4 @@ The two implementations must agree exactly on the bits on the wire, closely on t
 
 Copyright (C) 2026 Thomas Fanning.
 
-AGPL-3.0-or-later; see [LICENSE](LICENSE). Commercial licences are available from the copyright holder for use where the AGPL does not suit. See [PROVENANCE.md](PROVENANCE.md) for where the code comes from.
+The code is public under AGPL-3.0-or-later; see [LICENSE](LICENSE). If the AGPL does not suit your use, commercial licences are available from the copyright holder, Thomas Fanning. To ask, open a GitHub issue titled "Commercial licence enquiry". Because of that, outside contributions can only be accepted with a contributor licence agreement; please open an issue before writing code. See [PROVENANCE.md](PROVENANCE.md) for where the code comes from.
