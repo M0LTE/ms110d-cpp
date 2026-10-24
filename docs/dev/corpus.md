@@ -48,7 +48,7 @@ A burst is found by the C# receiver's own lock, so a burst the C# misses is not 
 
     scripts/corpus/package.sh corpus-v1
 
-writes `ms110d-corpus-v1.tar.gz` (and a `.sha256`) under the cache's `release/`, byte-for-byte reproducible from the same curated files, and prints its size, burst count and hash. The first one is 31 bursts, about 9.9 MB. Then, by hand:
+writes `ms110d-corpus-v1.tar.gz` (and a `.sha256`) under the cache's `release/`, byte-for-byte reproducible from the same curated files, and prints its size, burst count and hash. The first one is 31 bursts, about 9.9 MB (the expected results were produced with the pin current when the tarball was made). Then, by hand:
 
 1. Put the tag and hash in `reference/corpus.txt` (`corpus_tag`, `tarball_sha256`).
 2. Create the GitHub release with that tag and upload the tarball as an asset.
