@@ -1,6 +1,6 @@
 # .NET interop tests
 
-`tests/interop` (`Ms110dInterop.Tests`, xunit v3, net10.0) loads the C# reference from NuGet and the C++ shared library through the C interface in one process. It is the harness later stages extend to compare the two stage by stage. Today it has smoke tests: the ABI version and library version match, the precision is reported, and a C# `Ms110dModulator` loads and modulates a few bits.
+`tests/interop` (`Ms110dInterop.Tests`, xunit v3, net10.0) loads the C# reference from NuGet and the C++ shared library through the C interface in one process. It is the harness later stages extend to compare the two stage by stage. It has smoke tests and the transmit cross-checks (below). The smoke tests: the ABI version and library version match, the precision is reported, and a C# `Ms110dModulator` loads and modulates a few bits.
 
 ## Running
 
@@ -25,3 +25,13 @@ The NuGet package version is taken from `reference/pin.txt` (`nuget_version`) by
 ## Adding a comparison
 
 Declare the new entry point in `Native.cs`, call it and the C# equivalent on the same input in a test, and compare. The library path is resolved in one place (`Native.LibraryPath`), so tests never hard-code it.
+
+## Transmit cross-checks (`TxCrossCheckTests`)
+
+Three tests per combination, for every waveform number (0 to 8 and 13), interleaver length and constraint length the standard defines (78 combinations):
+
+- **Side by side** (layer 2, issue 21). A seeded random payload and random settings (preamble super-frames, TLC blocks, EOM, EOT, amplitude, roll-off) go through the C# `Ms110dModulator` and the C++ transmitter (P/Invoke, `ms110d_tx_modulate` on even rounds and push/read in random chunk sizes on odd ones). The lengths must be equal and every sample within 1e-6 (the tolerance in docs/dev/modulator.md). Payload lengths include 0, 1, and the block edges.
+- **C++ transmit, C# receive on a clean channel** (issue 22). The C# `Ms110dDemodulator` must decode the C++ audio, reporting the EOM end reason, the waveform, interleaver and constraint length the preamble announced, and the payload bit for bit.
+- **The same in AWGN** at 20 dB SNR in 3 kHz from `M0LTE.HfChannel` (a test-only package reference), well above every AWGN mask of Table D-LXIV, so a failure is a transmit fault and not the receiver's limit.
+
+The default run does a couple of payloads per combination for the side-by-side test and one for each receive test (about 90 s on a build machine). `MS110D_LONG_TESTS=1` in the environment runs 25 payloads per combination for side by side, 5 for each receive test, and wider settings. A failure is a bug in one implementation, to be settled against the standard; never loosen a check to pass.
