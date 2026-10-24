@@ -58,6 +58,12 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 if(MS110D_BUILD_C_SHARED)
+  # The shared library's SOVERSION is the C ABI version in the header, not the library version.
+  file(STRINGS include/m0lte/ms110d/ms110d.h _abi_line REGEX "^#define MS110D_ABI_VERSION [0-9]+u")
+  string(REGEX REPLACE ".* ([0-9]+)u.*" "\\1" MS110D_ABI_VERSION_NUMBER "${_abi_line}")
+  if(NOT MS110D_ABI_VERSION_NUMBER MATCHES "^[0-9]+$")
+    message(FATAL_ERROR "could not read MS110D_ABI_VERSION from the C header")
+  endif()
   # Only the functions marked MS110D_API are exported; everything else is hidden.
   # The static C++ library is linked into the shared one, so it needs PIC.
   set_target_properties(ms110d PROPERTIES
@@ -75,7 +81,7 @@ if(MS110D_BUILD_C_SHARED)
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
     VERSION ${PROJECT_VERSION}
-    SOVERSION ${PROJECT_VERSION_MAJOR}
+    SOVERSION ${MS110D_ABI_VERSION_NUMBER}
     LINKER_LANGUAGE CXX)
   ms110d_apply_options(ms110d_c)
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")

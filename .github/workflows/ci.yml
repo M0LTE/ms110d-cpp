@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DMS110D_PRECISION=${{ matrix.precision }} -DMS110D_DOTNET_TESTS=OFF
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DCMAKE_C_COMPILER=${{ matrix.compiler == 'clang++' && 'clang' || 'gcc' }} -DMS110D_PRECISION=${{ matrix.precision }} -DMS110D_DOTNET_TESTS=OFF
       - name: Build
         run: cmake --build build -j4
       - name: Test
@@ -76,6 +76,8 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/cortex-m7.cmake -DMS110D_PRECISION=${{ matrix.precision }} -DMS110D_BUILD_TESTS=OFF -DMS110D_INSTALL=OFF
       - name: Build the library
         run: cmake --build build -j4
+      - name: Check the C boundary types are fixed width on this target
+        run: arm-none-eabi-gcc -std=c11 -mcpu=cortex-m7 -mthumb -mfpu=fpv5-d16 -mfloat-abi=hard -Wall -Wextra -Werror -Iinclude -c tests/c_layout_check.c -o /dev/null
 
   interop:
     name: .NET interop tests

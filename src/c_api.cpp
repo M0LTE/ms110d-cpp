@@ -25,7 +25,7 @@ ms110d_status ms110d_version(int32_t* major, int32_t* minor, int32_t* patch) {
     return MS110D_OK;
 }
 
-ms110d_status ms110d_precision_bits(ms110d_precision* precision) {
+ms110d_status ms110d_precision_bits(int32_t* precision) {
     if (precision == nullptr) {
         return MS110D_ERR_INVALID_ARGUMENT;
     }
@@ -34,14 +34,16 @@ ms110d_status ms110d_precision_bits(ms110d_precision* precision) {
     return MS110D_OK;
 }
 
-const char* ms110d_status_string(int32_t status) {
+const char* ms110d_status_string(ms110d_status status) {
     switch (status) {
-    case static_cast<int32_t>(MS110D_OK): return "ok";
-    case static_cast<int32_t>(MS110D_ERR_INVALID_ARGUMENT): return "invalid argument";
-    case static_cast<int32_t>(MS110D_ERR_BUFFER_TOO_SMALL): return "buffer too small";
-    case static_cast<int32_t>(MS110D_ERR_UNSUPPORTED): return "unsupported";
-    case static_cast<int32_t>(MS110D_ERR_STATE): return "invalid state";
-    case static_cast<int32_t>(MS110D_ERR_INTERNAL): return "internal error";
+    case MS110D_OK: return "ok";
+    case MS110D_ERR_INVALID_ARGUMENT: return "invalid argument";
+    case MS110D_ERR_BUFFER_TOO_SMALL: return "buffer too small";
+    case MS110D_ERR_UNSUPPORTED: return "unsupported";
+    case MS110D_ERR_STATE: return "invalid state";
+    case MS110D_ERR_INTERNAL: return "internal error";
+    case MS110D_ERR_OUT_OF_MEMORY: return "out of memory";
+    case MS110D_ERR_BAD_MEMORY: return "supplied memory too small or misaligned";
     }
     return "unknown status";
 }

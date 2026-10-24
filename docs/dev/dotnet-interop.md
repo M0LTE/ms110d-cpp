@@ -14,7 +14,9 @@ The test `dotnet_interop` runs `dotnet run` on the project, with `MS110D_NATIVE_
 
 `MS110D_DOTNET_TESTS` is `AUTO` by default: the test is registered when a .NET 10 SDK is on the PATH and silently left out when not. `ON` makes a missing SDK an error, `OFF` leaves the test out (CI uses `OFF` for the C++ matrix and the sanitizer job, which do not need it; a sanitizer-built library cannot be loaded into an uninstrumented .NET process anyway).
 
-To run it by hand, set the two variables yourself and run `dotnet run --project tests/interop -c Release`.
+The tests are an xunit v3 executable, run with `dotnet run` rather than `dotnet test`: on the .NET 10 SDK `dotnet test` drives xunit v3 through Microsoft.Testing.Platform, which needs extra SDK configuration and silently ignores a VSTest-style `--filter`. `dotnet run` just runs the exe, which exits non-zero on failure, and takes xunit's own switches after `--`.
+
+To run it by hand, set `MS110D_NATIVE_LIB`, `MS110D_EXPECTED_VERSION` and `MS110D_PIN_FILE` (ctest sets all three; the pin file is `reference/pin.txt`) and run `dotnet run --project tests/interop -c Release`. One class: `dotnet run --project tests/interop -c Release -- -class Ms110dInterop.Tests.SmokeTests`; one method: `-- -method Ms110dInterop.Tests.SmokeTests.PrecisionIsReported`. The build directory can be anywhere; nothing is located relative to the source tree.
 
 ## The reference version
 

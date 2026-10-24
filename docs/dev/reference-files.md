@@ -14,11 +14,13 @@ The C++ is tested stand-alone against files written by the C# reference, so a st
 
 RefGen was merged after the 0.1.0 release, so for now the two differ: the package is 0.1.0 and the git ref is a commit SHA on main that contains RefGen. From the first C# release that includes RefGen, both name the same release: `git_ref=vX.Y.Z` and `nuget_version=X.Y.Z`. From then on, never update one without the other, so the package the tests load and the code that wrote the files are always the same C#. Until then, change the two together by hand and say in the PR why they differ.
 
+TODO (tied to the C# release that first contains RefGen, tracked in issue #55): once `git_ref` is a release tag, `scripts/generate-reference.sh` must check that tag `vX.Y.Z` and `nuget_version` `X.Y.Z` agree and fail if not. It cannot do so today because the two legitimately differ, and it should not be a silent gap, so that issue is not done until the check exists.
+
 ## Generating
 
     scripts/generate-reference.sh [--force] [cache-dir]
 
-It reads the pin, clones M0LTE.Ms110d at `git_ref` into `<cache-dir>/csharp`, runs RefGen `standard --verify` (which generates the set twice and checks the tree hashes match), then prints the tree hash. The files are in `<cache-dir>/ref`. The default cache-dir is `build/_reference`, which is git-ignored. A rerun with an unchanged pin does nothing unless `--force` is given. It needs git and a .NET 10 SDK. The recorded commit is passed explicitly, because RefGen otherwise inspects the git checkout of the current directory.
+It reads the pin, clones M0LTE.Ms110d at `git_ref` into `<cache-dir>/csharp`, runs RefGen `standard --verify` (which generates the set twice and checks the tree hashes match), then prints the tree hash. The files are in `<cache-dir>/ref`. The default cache-dir is `build/_reference`, which is git-ignored. A rerun with an unchanged pin does not regenerate, but it does recompute the tree hash of the cached files and compare it with the recorded one (cheap), and regenerates if they differ; `--force` regenerates regardless. It needs git and a .NET 10 SDK. The recorded commit is passed explicitly, because RefGen otherwise inspects the git checkout of the current directory.
 
 The tree hash covers the manifests, which record the C# commit, so two commits give different hashes even if the audio is identical. The hash is for comparing a regeneration with the one you expect, not a value to check in.
 

@@ -52,6 +52,11 @@ if(MS110D_BUILD_C_SHARED)
   endif()
   add_test(NAME c_api COMMAND ms110d_c_test)
 
+  # Sizes of every boundary type, as C11 static asserts (CI also compiles this for the Cortex-M7).
+  add_library(ms110d_c_layout OBJECT c_layout_check.c)
+  set_target_properties(ms110d_c_layout PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+  target_include_directories(ms110d_c_layout PRIVATE "${PROJECT_SOURCE_DIR}/include")
+
   # Only the C functions are exported from the shared library (Linux and macOS check).
   if(CMAKE_NM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_test(NAME c_exports
@@ -79,7 +84,7 @@ if(MS110D_BUILD_C_SHARED)
           --artifacts-path "${CMAKE_CURRENT_BINARY_DIR}/dotnet")
       set_tests_properties(dotnet_interop PROPERTIES
         TIMEOUT 900
-        ENVIRONMENT "MS110D_NATIVE_LIB=$<TARGET_FILE:ms110d_c>;MS110D_EXPECTED_VERSION=${PROJECT_VERSION};DOTNET_NOLOGO=1;DOTNET_CLI_TELEMETRY_OPTOUT=1")
+        ENVIRONMENT "MS110D_NATIVE_LIB=$<TARGET_FILE:ms110d_c>;MS110D_PIN_FILE=${PROJECT_SOURCE_DIR}/reference/pin.txt;MS110D_EXPECTED_VERSION=${PROJECT_VERSION};DOTNET_NOLOGO=1;DOTNET_CLI_TELEMETRY_OPTOUT=1")
     elseif(MS110D_DOTNET_TESTS STREQUAL "ON")
       message(FATAL_ERROR "MS110D_DOTNET_TESTS=ON but no .NET 10 SDK was found")
     else()

@@ -34,10 +34,18 @@ fi
 
 stamp="$cache/stamp"
 want="git_ref=$git_ref"
-if [ "$force" = 0 ] && [ -f "$stamp" ] && [ "$(sed -n 1p "$stamp")" = "$want" ] && [ -d "$cache/ref" ]; then
-  echo "Reference files for $git_ref are already in $cache/ref"
-  echo "tree_hash=$(sed -n 2p "$stamp" | sed 's/^tree_hash=//')"
-  exit 0
+refgen="$cache/csharp/tools/M0LTE.Ms110d.RefGen"
+export DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
+if [ "$force" = 0 ] && [ -f "$stamp" ] && [ "$(sed -n 1p "$stamp")" = "$want" ] && [ -d "$cache/ref" ] && [ -d "$refgen" ]; then
+  # Do not trust the stamp alone: recompute the tree hash and compare.
+  expected=$(sed -n 2p "$stamp" | sed 's/^tree_hash=//')
+  actual=$(dotnet run -c Release --project "$refgen" -- hash "$cache/ref" | tail -n 1 | awk '{print $1}')
+  if [ "$actual" = "$expected" ]; then
+    echo "Reference files for $git_ref are in $cache/ref and the tree hash still matches"
+    echo "tree_hash=$actual"
+    exit 0
+  fi
+  echo "Cached reference files do not match their recorded hash; regenerating"
 fi
 
 rm -rf "$cache/csharp" "$cache/ref" "$stamp"
@@ -53,8 +61,6 @@ case "$git_ref" in
 esac
 
 echo "== Running RefGen standard (generates twice and verifies)"
-refgen="$cache/csharp/tools/M0LTE.Ms110d.RefGen"
-export DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
 # RefGen looks at the git checkout of the current directory, so pin the commit explicitly.
 dotnet run -c Release --project "$refgen" -- standard --out "$cache/ref" --verify --git-commit "$got"
 

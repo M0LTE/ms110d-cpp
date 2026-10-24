@@ -17,7 +17,7 @@ static int failures = 0;
 int main(void) {
     int32_t major = -1, minor = -1, patch = -1;
     char text[64];
-    ms110d_precision precision = (ms110d_precision)0;
+    int32_t precision = 0;
     int32_t keep = 12345;
 
     CHECK(ms110d_abi_version() == MS110D_ABI_VERSION);
@@ -40,9 +40,12 @@ int main(void) {
 #endif
     CHECK(ms110d_precision_bits(NULL) == MS110D_ERR_INVALID_ARGUMENT);
 
-    CHECK(strcmp(ms110d_status_string((int32_t)MS110D_OK), "ok") == 0);
-    CHECK(strcmp(ms110d_status_string((int32_t)MS110D_ERR_BUFFER_TOO_SMALL), "buffer too small") == 0);
+    CHECK(strcmp(ms110d_status_string(MS110D_OK), "ok") == 0);
+    CHECK(strcmp(ms110d_status_string(MS110D_ERR_BUFFER_TOO_SMALL), "buffer too small") == 0);
+    CHECK(strcmp(ms110d_status_string(MS110D_ERR_OUT_OF_MEMORY), "out of memory") == 0);
+    CHECK(strcmp(ms110d_status_string(MS110D_ERR_BAD_MEMORY), "supplied memory too small or misaligned") == 0);
     CHECK(strcmp(ms110d_status_string(999), "unknown status") == 0);
+    CHECK(strcmp(ms110d_status_string(-1), "unknown status") == 0);
 
     if (failures != 0) {
         fprintf(stderr, "%d check(s) failed\n", failures);

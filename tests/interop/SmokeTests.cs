@@ -43,7 +43,8 @@ public class SmokeTests
             .Cast<System.Reflection.AssemblyInformationalVersionAttribute>()
             .Single();
         string pinned = ReadPin("nuget_version");
-        Assert.StartsWith(pinned, attr.InformationalVersion);
+        // Exact equality; only a "+commit" build suffix, if any, is dropped.
+        Assert.Equal(pinned, attr.InformationalVersion.Split('+')[0]);
     }
 
     [Fact]
@@ -58,19 +59,15 @@ public class SmokeTests
 
     private static string ReadPin(string key)
     {
-        string? dir = AppContext.BaseDirectory;
-        while (dir is not null && !File.Exists(Path.Combine(dir, "reference", "pin.txt")))
-        {
-            dir = Path.GetDirectoryName(dir);
-        }
-        Assert.NotNull(dir);
-        foreach (string line in File.ReadAllLines(Path.Combine(dir!, "reference", "pin.txt")))
+        string path = Environment.GetEnvironmentVariable("MS110D_PIN_FILE")
+            ?? throw new InvalidOperationException("MS110D_PIN_FILE is not set; run these tests through ctest.");
+        foreach (string line in File.ReadAllLines(path))
         {
             if (line.StartsWith(key + "=", StringComparison.Ordinal))
             {
                 return line[(key.Length + 1)..].Trim();
             }
         }
-        throw new InvalidOperationException($"{key} not in reference/pin.txt");
+        throw new InvalidOperationException($"{key} not in {path}");
     }
 }
