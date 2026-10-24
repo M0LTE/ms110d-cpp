@@ -27,13 +27,18 @@ pin() {
 }
 git_ref=$(pin git_ref)
 nuget_version=$(pin nuget_version)
-if [ -z "$git_ref" ] || [ -z "$nuget_version" ]; then
-  echo "reference/pin.txt must define nuget_version and git_ref" >&2
+git_sha=$(pin git_sha)
+if [ -z "$git_ref" ] || [ -z "$nuget_version" ] || [ -z "$git_sha" ]; then
+  echo "reference/pin.txt must define nuget_version, git_ref and git_sha" >&2
+  exit 1
+fi
+if [ "$git_ref" != "v$nuget_version" ]; then
+  echo "pin mismatch: git_ref is $git_ref but nuget_version $nuget_version needs v$nuget_version" >&2
   exit 1
 fi
 
 stamp="$cache/stamp"
-want="git_ref=$git_ref"
+want="git_ref=$git_ref git_sha=$git_sha"
 refgen="$cache/csharp/tools/M0LTE.Ms110d.RefGen"
 export DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
 if [ "$force" = 0 ] && [ -f "$stamp" ] && [ "$(sed -n 1p "$stamp")" = "$want" ] && [ -d "$cache/ref" ] && [ -d "$refgen" ]; then
@@ -55,10 +60,10 @@ git -C "$cache/csharp" remote add origin https://github.com/M0LTE/M0LTE.Ms110d.g
 git -C "$cache/csharp" fetch -q --depth 1 origin "$git_ref"
 git -C "$cache/csharp" checkout -q FETCH_HEAD
 got=$(git -C "$cache/csharp" rev-parse HEAD)
-case "$git_ref" in
-  *[!0-9a-f]*) ;; # a tag or branch name: nothing to compare
-  *) if [ "${#git_ref}" -eq 40 ] && [ "$got" != "$git_ref" ]; then echo "checked out $got, wanted $git_ref" >&2; exit 1; fi ;;
-esac
+if [ "$got" != "$git_sha" ]; then
+  echo "tag $git_ref resolves to $got but reference/pin.txt says git_sha=$git_sha" >&2
+  exit 1
+fi
 
 echo "== Running RefGen standard (generates twice and verifies)"
 # RefGen looks at the git checkout of the current directory, so pin the commit explicitly.

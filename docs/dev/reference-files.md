@@ -6,21 +6,20 @@ The C++ is tested stand-alone against files written by the C# reference, so a st
 
 `reference/pin.txt` is the one place the C# reference version is named:
 
-    nuget_version=0.1.0
-    git_ref=cf4565f7830e76de706d7a27c444e4f9ff5a7ee4
+    nuget_version=0.2.0
+    git_ref=v0.2.0
+    git_sha=c7eeb7456a9bf441f25614542235d1221c7b3948
 
 - `nuget_version` is the M0LTE.Ms110d NuGet package the .NET interop tests load (tests/interop reads it as an exact version).
-- `git_ref` is the commit or tag of M0LTE.Ms110d the reference files are generated from.
+- `git_ref` is the release tag of M0LTE.Ms110d the reference files are generated from, and `git_sha` the full commit that tag points at (so a moved tag is caught).
 
-RefGen was merged after the 0.1.0 release, so for now the two differ: the package is 0.1.0 and the git ref is a commit SHA on main that contains RefGen. From the first C# release that includes RefGen, both name the same release: `git_ref=vX.Y.Z` and `nuget_version=X.Y.Z`. From then on, never update one without the other, so the package the tests load and the code that wrote the files are always the same C#. Until then, change the two together by hand and say in the PR why they differ.
-
-TODO (tied to the C# release that first contains RefGen, tracked in issue #55): once `git_ref` is a release tag, `scripts/generate-reference.sh` must check that tag `vX.Y.Z` and `nuget_version` `X.Y.Z` agree and fail if not. It cannot do so today because the two legitimately differ, and it should not be a silent gap, so that issue is not done until the check exists.
+Both name the same release: tag `vX.Y.Z` and package `X.Y.Z`. Never update one without the other. `scripts/generate-reference.sh` enforces it: it fails unless `git_ref` is `v<nuget_version>` and the fetched tag resolves to `git_sha`. (0.1.0 predates RefGen, so this repo started on a commit SHA; 0.2.0 is the first release that contains it.)
 
 ## Generating
 
     scripts/generate-reference.sh [--force] [cache-dir]
 
-It reads the pin, clones M0LTE.Ms110d at `git_ref` into `<cache-dir>/csharp`, runs RefGen `standard --verify` (which generates the set twice and checks the tree hashes match), then prints the tree hash. The files are in `<cache-dir>/ref`. The default cache-dir is `build/_reference`, which is git-ignored. A rerun with an unchanged pin does not regenerate, but it does recompute the tree hash of the cached files and compare it with the recorded one (cheap), and regenerates if they differ; `--force` regenerates regardless. It needs git and a .NET 10 SDK. The recorded commit is passed explicitly, because RefGen otherwise inspects the git checkout of the current directory.
+It reads the pin, clones M0LTE.Ms110d at the pinned tag into `<cache-dir>/csharp`, runs RefGen `standard --verify` (which generates the set twice and checks the tree hashes match), then prints the tree hash. The files are in `<cache-dir>/ref`. The default cache-dir is `build/_reference`, which is git-ignored. A rerun with an unchanged pin does not regenerate, but it does recompute the tree hash of the cached files and compare it with the recorded one (cheap), and regenerates if they differ; `--force` regenerates regardless. It needs git and a .NET 10 SDK. The recorded commit is passed explicitly, because RefGen otherwise inspects the git checkout of the current directory.
 
 The tree hash covers the manifests, which record the C# commit, so two commits give different hashes even if the audio is identical. The hash is for comparing a regeneration with the one you expect, not a value to check in.
 
@@ -28,8 +27,8 @@ CI runs the script on every PR and caches `build/_reference` keyed on `reference
 
 ## When the C# changes
 
-1. Release the C# change (or, before the first release containing RefGen, note the main commit).
-2. Bump `reference/pin.txt`: `nuget_version` and `git_ref` together (see above).
+1. Release the C# change.
+2. Bump `reference/pin.txt`: `nuget_version`, `git_ref` and `git_sha` together (see above).
 3. Run `scripts/generate-reference.sh --force` and note the new tree hash.
 4. Rerun every layer: the C++ unit tests against the new reference files, the interop tests against the new package, and the cross-decoding and real audio layers from docs/plan.md. A difference is either a C++ bug, a C# bug (fix the C# per the plan's deviation rules) or a named accepted deviation.
 5. Put the new tree hash and what changed in the PR.
