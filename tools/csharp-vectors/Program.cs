@@ -26,6 +26,13 @@ if (args.Length > 0 && args[0] == "fec")
     return;
 }
 
+// "framing" mode: waveform ID and downcount di-bits for tests/data/csharp-framing-0.2.0.txt (see FramingDump.cs).
+if (args.Length > 0 && args[0] == "framing")
+{
+    Console.Out.Write(FramingDump.Run());
+    return;
+}
+
 static ulong Fnv(IEnumerable<uint> values)
 {
     ulong h = 14695981039346656037UL;

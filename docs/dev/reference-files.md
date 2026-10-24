@@ -41,4 +41,8 @@ CI runs the script on every PR and caches `build/_reference` keyed on `reference
 
     dotnet run -c Release --project tools/csharp-vectors -- tables > tests/data/csharp-tables-0.2.0.txt
 
+`tests/framing_test.cpp` checks framing, the preamble and the whole burst symbol stream (with the probe marker 255 and the probe values) for all 122 cases, taking the interleaved bits from the files so it does not depend on the encoder. The waveform ID and downcount di-bits are also compared for every possible input with a second dump, regenerated the same way when the pin moves:
+
+    dotnet run -c Release --project tools/csharp-vectors -- framing > tests/data/csharp-framing-0.2.0.txt
+
 The tool (`tools/csharp-vectors`) is pinned to the NuGet package `M0LTE.Ms110d` 0.2.0, so bump the version in its project file together with `reference/pin.txt`. The BPSK, QPSK and 8PSK transcode lines come from the C# modulator's private `Transcode`, evaluated for every input through reflection. Without arguments the same tool prints the scrambler and interleaver vectors for `tests/csharp_vectors.hpp` (see `tools/csharp-vectors/make_header.py`).
