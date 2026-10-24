@@ -23,7 +23,7 @@
 #include "scrambler.hpp"
 #include "tables.hpp"
 #include "trinomial_scrambler.hpp"
-#include "tx_settings.hpp"
+#include <m0lte/ms110d/tx_settings.hpp>
 
 #include <m0lte/ms110d/mode.hpp>
 
@@ -83,6 +83,61 @@ void write_head(const BurstLayout& layout, const Preamble& preamble, Sink& sink)
     if (layout.mode.wn != 0) write_probe(layout.mode.k, false, 0, sink);
 }
 
+// One 32-chip Walsh channel symbol of a WN 0 block: the `index`-th pair of fetched bits (two
+// bits per symbol, first bit the MSB of the di-bit). The scramble sequence restarts at the
+// interleaver boundary (D.5.1.4), so the caller resets `scrambler` at the start of each block
+// and calls this for index 0, 1, 2 ... in order. `wire_bits` is the whole block.
+template <class Sink>
+void write_walsh_symbol(std::span<const std::uint8_t> wire_bits, std::size_t index,
+                        Trinomial159Scrambler& scrambler, Sink& sink) noexcept {
+    const std::size_t n = index * 2;
+    assert(n + 1 < wire_bits.size());
+    const unsigned dibit = (static_cast<unsigned>(wire_bits[n] & 1u) << 1) | (wire_bits[n + 1] & 1u);
+    for (int i = 0; i < 32; ++i) {
+        sink.psk(static_cast<std::uint8_t>((tables::walsh[dibit][static_cast<std::size_t>(i) & 3] + scrambler.next()) & 7));
+    }
+}
+
+// One data frame of a WN 1 and up block: U unknown symbols, scrambled afresh (D.5.1.3), then
+// the mini-probe (shifted before an interleaver boundary), extended by the 32 symbol EOT
+// marker after the very last frame of the burst. Frames are independent, so a transmitter can
+// produce a burst a frame at a time. `wire_bits` is the whole block (layout.interleaver.size_bits
+// bits), `frame` is 0 to layout.interleaver.frames - 1 and block_index below layout.blocks;
+// the caller checks these (a debug build asserts).
+template <class Sink>
+void write_frame(const BurstLayout& layout, std::size_t block_index, int frame,
+                 std::span<const std::uint8_t> wire_bits, Sink& sink) noexcept {
+    assert(layout.mode.wn != 0 && block_index < layout.blocks && frame >= 0 && frame < layout.interleaver.frames);
+    assert(wire_bits.size() == static_cast<std::size_t>(layout.interleaver.size_bits));
+    const Mode& mode = layout.mode;
+    const int bps = mode.bits_per_symbol;
+    const auto bit = [&](std::size_t p) { return static_cast<unsigned>(wire_bits[p] & 1u); };
+    std::size_t pos = static_cast<std::size_t>(frame) * static_cast<std::size_t>(mode.u) * static_cast<std::size_t>(bps);
+    Scrambler scrambler;  // initialised to 1 at the start of each data frame (D.5.1.3)
+    for (int u = 0; u < mode.u; ++u) {
+        unsigned value = 0;
+        for (int b = 0; b < bps; ++b) value = (value << 1) | bit(pos++);  // first fetched bit is the MSB
+        switch (mode.modulation) {
+            case Modulation::Bpsk:
+                sink.psk(static_cast<std::uint8_t>(scrambler.next_psk(tables::transcode_bpsk[value])));
+                break;
+            case Modulation::Qpsk:
+                sink.psk(static_cast<std::uint8_t>(scrambler.next_psk(tables::transcode_qpsk[value])));
+                break;
+            case Modulation::Psk8:
+                sink.psk(static_cast<std::uint8_t>(scrambler.next_psk(tables::transcode_8psk[value])));
+                break;
+            case Modulation::Qam16:
+                sink.qam(static_cast<std::uint8_t>(scrambler.next_qam(static_cast<int>(value), 4)));
+                break;
+            case Modulation::Walsh:
+                break;
+        }
+    }
+    const bool last = block_index + 1 == layout.blocks && frame == layout.interleaver.frames - 1;
+    write_probe(mode.k, probe_is_shifted(frame, layout.interleaver.frames), last && layout.append_eot ? 32 : 0, sink);
+}
+
 // Symbols of one interleaver block: `wire_bits` is exactly layout.interleaver.size_bits bits.
 // Returns false and writes nothing if the length is wrong or block_index is out of range.
 template <class Sink>
@@ -90,50 +145,13 @@ bool write_block(const BurstLayout& layout, std::size_t block_index, std::span<c
                  Sink& sink) noexcept {
     const auto size = static_cast<std::size_t>(layout.interleaver.size_bits);
     if (wire_bits.size() != size || block_index >= layout.blocks) return false;
-    const Mode& mode = layout.mode;
 
-    if (mode.wn == 0) {
-        // Two fetched bits per 32-chip Walsh channel symbol, first bit the MSB of the di-bit;
-        // the scramble sequence restarts at the interleaver boundary (D.5.1.4).
+    if (layout.mode.wn == 0) {
         Trinomial159Scrambler scrambler;
-        for (std::size_t n = 0; n < size; n += 2) {
-            const unsigned dibit = (static_cast<unsigned>(wire_bits[n] & 1u) << 1) | (wire_bits[n + 1] & 1u);
-            for (int i = 0; i < 32; ++i) {
-                sink.psk(static_cast<std::uint8_t>((tables::walsh[dibit][static_cast<std::size_t>(i) & 3] + scrambler.next()) & 7));
-            }
-        }
+        for (std::size_t n = 0; n < size / 2; ++n) write_walsh_symbol(wire_bits, n, scrambler, sink);
         return true;
     }
-
-    const int bps = mode.bits_per_symbol;
-    const auto bit = [&](std::size_t p) { return static_cast<unsigned>(wire_bits[p] & 1u); };
-    std::size_t pos = 0;
-    Scrambler scrambler;
-    for (int f = 0; f < layout.interleaver.frames; ++f) {
-        scrambler.reset();  // initialised to 1 at the start of each data frame (D.5.1.3)
-        for (int u = 0; u < mode.u; ++u) {
-            unsigned value = 0;
-            for (int b = 0; b < bps; ++b) value = (value << 1) | bit(pos++);  // first fetched bit is the MSB
-            switch (mode.modulation) {
-                case Modulation::Bpsk:
-                    sink.psk(static_cast<std::uint8_t>(scrambler.next_psk(tables::transcode_bpsk[value])));
-                    break;
-                case Modulation::Qpsk:
-                    sink.psk(static_cast<std::uint8_t>(scrambler.next_psk(tables::transcode_qpsk[value])));
-                    break;
-                case Modulation::Psk8:
-                    sink.psk(static_cast<std::uint8_t>(scrambler.next_psk(tables::transcode_8psk[value])));
-                    break;
-                case Modulation::Qam16:
-                    sink.qam(static_cast<std::uint8_t>(scrambler.next_qam(static_cast<int>(value), 4)));
-                    break;
-                case Modulation::Walsh:
-                    break;
-            }
-        }
-        const bool last = block_index + 1 == layout.blocks && f == layout.interleaver.frames - 1;
-        write_probe(mode.k, probe_is_shifted(f, layout.interleaver.frames), last && layout.append_eot ? 32 : 0, sink);
-    }
+    for (int f = 0; f < layout.interleaver.frames; ++f) write_frame(layout, block_index, f, wire_bits, sink);
     return true;
 }
 

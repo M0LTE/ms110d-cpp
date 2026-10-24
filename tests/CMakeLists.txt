@@ -17,7 +17,8 @@ add_executable(ms110d_tests
   csharp_tables_test.cpp
   reference_tables_test.cpp
   modulator_test.cpp
-  framing_test.cpp)
+  framing_test.cpp
+  transmitter_test.cpp)
 target_link_libraries(ms110d_tests PRIVATE m0lte::ms110d Catch2::Catch2WithMain)
 # The tests also see the library's internal headers (src/tables.hpp); they are not installed.
 target_include_directories(ms110d_tests PRIVATE support "${PROJECT_SOURCE_DIR}/src")
@@ -66,6 +67,9 @@ if(MS110D_BUILD_C_SHARED)
   add_executable(ms110d_c_test c_api_test.c)
   set_target_properties(ms110d_c_test PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
   target_link_libraries(ms110d_c_test PRIVATE ms110d_c)
+  if(UNIX)
+    target_link_libraries(ms110d_c_test PRIVATE m)
+  endif()
   target_compile_definitions(ms110d_c_test PRIVATE MS110D_EXPECTED_VERSION="${PROJECT_VERSION}")
   if(MS110D_PRECISION STREQUAL "single")
     target_compile_definitions(ms110d_c_test PRIVATE MS110D_EXPECT_SINGLE)
@@ -74,6 +78,13 @@ if(MS110D_BUILD_C_SHARED)
     target_compile_options(ms110d_c_test PRIVATE -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wstrict-prototypes)
   endif()
   add_test(NAME c_api COMMAND ms110d_c_test)
+
+  # The transmit path through the C interface alone, against the C# reference files.
+  add_executable(ms110d_c_tests c_transmitter_test.cpp support/reference_files.cpp)
+  target_link_libraries(ms110d_c_tests PRIVATE ms110d_c Catch2::Catch2WithMain)
+  target_include_directories(ms110d_c_tests PRIVATE support)
+  ms110d_apply_options(ms110d_c_tests)
+  catch_discover_tests(ms110d_c_tests PROPERTIES ENVIRONMENT "MS110D_REFERENCE_DIR=${MS110D_REFERENCE_DIR}")
 
   # Sizes of every boundary type, as C11 static asserts (CI also compiles this for the Cortex-M7).
   add_library(ms110d_c_layout OBJECT c_layout_check.c)
@@ -85,6 +96,7 @@ if(MS110D_BUILD_C_SHARED)
     add_test(NAME c_exports
       COMMAND ${CMAKE_COMMAND}
         "-DNM=${CMAKE_NM}" "-DLIB=$<TARGET_FILE:ms110d_c>"
+        "-DHEADER=${PROJECT_SOURCE_DIR}/include/m0lte/ms110d/ms110d.h"
         -P "${PROJECT_SOURCE_DIR}/cmake/CheckExports.cmake")
   endif()
 

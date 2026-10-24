@@ -1,11 +1,11 @@
 # Modulator and the dsp module
 
-This is an internal module, like the FEC module: its headers are in `src/`, are not installed, and are not part of the locked public API. The public modulator comes when the whole transmit path exists.
+This is an internal module, like the FEC module: its headers are in `src/`, are not installed, and are not part of the locked public API. The public transmitter (docs/dev/transmitter.md) wraps it.
 
 ## What is here
 
 - `src/dsp/filter_design.{hpp,cpp}` (`m0lte::dsp`): the root-raised-cosine pulse function. It knows nothing of MS110D and is laid out as a module boundary so it can become its own library, as `src/fec/` can. Only the part of M0LTE.Dsp the modulator uses is ported (`FilterDesign.RootRaisedCosine`). The C# modulator uses no FIR filter, so `FirFilter`, the low-pass and band-pass designs and the rest wait for the receiver.
-- `src/tx_settings.hpp`: `TxSettings`, the C# `Ms110dTxSettings` with the same fields and defaults (waveform 6, short interleaver, K 7, 3 super-frames, no TLC, EOM and EOT on, amplitude 0.5, roll-off 0.35).
+- `include/m0lte/ms110d/tx_settings.hpp`: `TxSettings` (public), the C# `Ms110dTxSettings` with the same fields and defaults (waveform 6, short interleaver, K 7, 3 super-frames, no TLC, EOM and EOT on, amplitude 0.5, roll-off 0.35).
 - `src/modulator.{hpp,cpp}`: `design_pulse`, `pulse_span_symbols` and the streaming `Modulator`, from burst symbols to 9600 Hz audio: pulse shaping at 4 samples per symbol and mixing to the 1800 Hz sub-carrier. The symbol stream itself (preamble, scrambling, probes, FEC) is the framing module's job; the modulator takes constellation points.
 
 ## Streaming, no allocation
