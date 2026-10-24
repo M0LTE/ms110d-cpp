@@ -40,6 +40,13 @@ if (args.Length > 0 && args[0] == "framing")
     return;
 }
 
+// "detect" mode: what the C# preamble search finds, for tests/data/csharp-detect-0.2.0.txt (see DetectDump.cs).
+if (args.Length > 1 && args[0] == "detect")
+{
+    Console.Out.Write(DetectDump.Run(args[1]));
+    return;
+}
+
 // "wn0" modes: the WN 0 receive path, see Wn0Dump.cs.
 if (args.Length > 0 && args[0] == "wn0")
 {
