@@ -114,6 +114,18 @@ static class DetectDump
             }
         }
 
+        // Weak signals, so that the equaliser path's input level gain engages (level below 0.04).
+        foreach (string c in picks.Skip(1))
+        {
+            foreach (double gain in new[] { 0.1, 0.2, 0.3 })
+            {
+                foreach (double snr in new[] { 6.0, 12.0 })
+                {
+                    yield return new Scenario(c, snr, 0, 0.5, 200, seed++, 0.32, gain);
+                }
+            }
+        }
+
         // A lower threshold, to make the search accept more candidates and so exercise the rejection gates.
         foreach (string c in picks)
         {
@@ -151,6 +163,7 @@ static class DetectDump
     static readonly FieldInfo Written = Field("_written");
     static readonly FieldInfo TrackingInitialized = Field("_trackingInitialized");
     static readonly FieldInfo Tau = Field("_tau");
+    static readonly FieldInfo AgcGain = Field("_agcGain");
 
     static FieldInfo Field(string name) =>
         typeof(Ms110dDemodulator).GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)
@@ -168,6 +181,7 @@ static class DetectDump
 
         var one = new float[1];
         int used = 0, lockedAt = 0;
+        double cfo0 = 0, omega0 = 0, theta0 = 0;
         long lockedT2 = 0;
         bool locked = false, ready = false;
         for (int i = 0; i < audio.Length; i++)
@@ -179,6 +193,9 @@ static class DetectDump
                 locked = true;
                 lockedAt = i + 1;
                 lockedT2 = (long)Written.GetValue(demod)!;
+                cfo0 = demod.Lock!.CfoHz;
+                omega0 = (double)Omega.GetValue(demod)!;
+                theta0 = (double)ThetaBase.GetValue(demod)!;
             }
 
             // The receiver is "ready" once its tracking stage has initialised, which for every
@@ -202,7 +219,8 @@ static class DetectDump
                $" count={dsc / 576 - 1} at={lockedAt} t2={lockedT2}" +
                $" chip0={R(chip0)} data={R(chip0 + (2.0 * dsc))} cfo={R(lk.CfoHz)}" +
                $" omega={R((double)Omega.GetValue(demod)!)} theta={R((double)ThetaBase.GetValue(demod)!)}" +
-               $" tau={R((double)Tau.GetValue(demod)!)}" + tail;
+               $" tau={R((double)Tau.GetValue(demod)!)}" +
+               $" cfo0={R(cfo0)} omega0={R(omega0)} theta0={R(theta0)} agc={R((float)AgcGain.GetValue(demod)!)}" + tail;
     }
 
     // ---- files ----------------------------------------------------------------------------
@@ -228,12 +246,13 @@ static class DetectDump
     }
 
     public static string R(double v) => v.ToString("R", Inv);
+    public static string R(float v) => v.ToString("R", Inv);
 }
 
-readonly record struct Scenario(string Case, double SnrDb, double DfHz, double Delay, int Lead, ulong Seed, double Threshold)
+readonly record struct Scenario(string Case, double SnrDb, double DfHz, double Delay, int Lead, ulong Seed, double Threshold, double Gain = 1.0)
 {
     public string Describe() =>
-        $"{Case} snr={DetectDump.R(SnrDb)} df={DetectDump.R(DfHz)} delay={DetectDump.R(Delay)} lead={Lead} seed={Seed} thr={DetectDump.R(Threshold)}";
+        $"{Case} snr={DetectDump.R(SnrDb)} df={DetectDump.R(DfHz)} delay={DetectDump.R(Delay)} lead={Lead} seed={Seed} thr={DetectDump.R(Threshold)} gain={DetectDump.R(Gain)}";
 }
 
 // The deterministic noise source shared with the C++ tests: splitmix64, uniforms with 53 bits,
@@ -276,7 +295,7 @@ static class Impair
     // A reference case's complex baseband (9600 Hz, before the 1800 Hz mix), delayed by `Delay`
     // input samples (integer part by shifting, fractional part by the receiver's own 8-tap
     // windowed-sinc interpolator formula in double), put back on a carrier of 1800 + DfHz, with
-    // `Lead` samples of lead-in, then seeded noise added at SnrDb measured in 3 kHz (noise power
+    // `Lead` samples of lead-in, scaled by `Gain` (a weak signal, for the equaliser path's level gain), then seeded noise added at SnrDb measured in 3 kHz (noise power
     // sigma^2 * 3000 / 4800 against the mean signal power over the samples from the end of the
     // lead-in). The stream is long enough for the preamble plus 4000 samples. No noise when
     // SnrDb is NaN.
@@ -322,7 +341,7 @@ static class Impair
             }
 
             double phase = 2.0 * Math.PI * (1800.0 + s.DfHz) * k / 9600.0;
-            sig[k] = (re * Math.Cos(phase)) - (im * Math.Sin(phase));
+            sig[k] = s.Gain * ((re * Math.Cos(phase)) - (im * Math.Sin(phase)));
         }
 
         double sigma = 0;

@@ -11,12 +11,16 @@
 #include "alloc_guard.hpp"
 #include "dsp/fir_filter.hpp"
 #include "impair.hpp"
+#include "framing.hpp"
+#include "modulator.hpp"
 #include "preamble_detector.hpp"
+#include "tables.hpp"
 #include "reference_files.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <map>
@@ -65,6 +69,7 @@ struct Agreement {
     double max_cfo = 0;
     double max_omega = 0;
     double max_theta = 0;
+    int agc_engaged = 0;
 };
 
 // Compares a run with a dump line; returns true if every field agrees. Tolerances are stated in
@@ -103,6 +108,11 @@ bool agrees(const DumpLine& l, const Run& r, Agreement& a, std::string& why) {
         a.max_omega = std::max(a.max_omega, dw);
         a.max_theta = std::max(a.max_theta, dt);
         if (std::abs(r.e.chip0_t2 - l.real(l.result, "chip0")) > 1e-9) { why += " chip0"; ok = false; }
+        if (std::abs(r.e.cfo_hz_first_fit - l.real(l.result, "cfo0")) > 1e-4) { why += " cfo0"; ok = false; }
+        if (std::abs(r.e.carrier_omega_first_fit - l.real(l.result, "omega0")) > 1e-8) { why += " omega0"; ok = false; }
+        if (std::abs(r.e.carrier_theta_base_first_fit - l.real(l.result, "theta0")) > 1e-5) { why += " theta0"; ok = false; }
+        if (std::abs(static_cast<double>(r.e.agc_gain) - l.real(l.result, "agc")) > 1e-4 * l.real(l.result, "agc")) { why += " agc"; ok = false; }
+        if (r.e.agc_gain != 1.0f) ++a.agc_engaged;
         if (dd > 1e-6) { why += " data"; ok = false; }
         if (dc > 1e-4) { why += " cfo"; ok = false; }
         if (dw > 1e-8) { why += " omega"; ok = false; }
@@ -113,10 +123,10 @@ bool agrees(const DumpLine& l, const Run& r, Agreement& a, std::string& why) {
 }
 
 void report(const char* what, const Agreement& a) {
-    char buf[300];
+    char buf[400];
     std::snprintf(buf, sizeof buf,
-                  "%s: %d lines, decision agrees %d, detected by both %d, max diff data start %.3g T/2, cfo %.3g Hz, omega %.3g, theta %.3g",
-                  what, a.lines, a.same_decision, a.both_detected, a.max_data_t2, a.max_cfo, a.max_omega, a.max_theta);
+                  "%s: %d lines, decision agrees %d, detected by both %d, level gain engaged %d, max diff data start %.3g T/2, cfo %.3g Hz, omega %.3g, theta %.3g",
+                  what, a.lines, a.same_decision, a.both_detected, a.agc_engaged, a.max_data_t2, a.max_cfo, a.max_omega, a.max_theta);
     WARN(buf);
 }
 
@@ -227,6 +237,7 @@ TEST_CASE("reference preamble detector: impaired scenarios agree with the C#", "
     }
     CHECK(a.mismatches == 0);
     CHECK(a.lines > 300);
+    CHECK(a.agc_engaged >= 10);  // the weak signal scenarios do reach the level gain
 }
 
 TEST_CASE("preamble detector: false alarms on noise are the C#'s", "[preamble-detector]") {
@@ -418,4 +429,107 @@ TEST_CASE("fir filter: matches a direct convolution and next() equals push() the
         CHECK(std::abs(y - expect) < 1e-6f);
         CHECK(g.output() == y);
     }
+}
+
+namespace {
+
+// A bare preamble of `m` super-frames with the given waveform ID di-bits (which need not be a
+// valid ID), modulated by the real modulator, with silence either side.
+std::vector<float> preamble_audio(const std::array<std::uint8_t, 5>& wid, int m) {
+    Modulator mod;
+    REQUIRE(mod.configure(TxSettings{}));
+    mod.begin();
+    std::vector<float> audio(500, 0.0f);
+    std::vector<real> chunk(4);
+    const auto push = [&](std::uint8_t chip) {
+        REQUIRE(mod.push_symbol(tables::psk8[chip]));
+        const std::size_t got = mod.read(chunk);
+        for (std::size_t i = 0; i < got; ++i) audio.push_back(static_cast<float>(chunk[i]));
+    };
+    for (int rep = 0; rep < m; ++rep) {
+        const auto count = encode_count(m - 1 - rep);
+        for (std::size_t i = 0; i < 288; ++i) {
+            push(static_cast<std::uint8_t>((tables::walsh[tables::fixed_dibits[i / 32]][i & 3] + tables::fixed_pn[i % 256]) & 7));
+        }
+        for (std::size_t i = 0; i < 128; ++i) {
+            push(static_cast<std::uint8_t>((tables::walsh[(*count)[i / 32]][i & 3] + tables::cnt_pn[i]) & 7));
+        }
+        for (std::size_t i = 0; i < 160; ++i) {
+            push(static_cast<std::uint8_t>((tables::walsh[wid[i / 32]][i & 3] + tables::wid_pn[i]) & 7));
+        }
+    }
+    mod.end_of_symbols();
+    for (;;) {
+        const std::size_t got = mod.read(chunk);
+        if (got == 0) break;
+        for (std::size_t i = 0; i < got; ++i) audio.push_back(static_cast<float>(chunk[i]));
+    }
+    audio.insert(audio.end(), 500, 0.0f);
+    return audio;
+}
+
+}  // namespace
+
+TEST_CASE("preamble detector: the waveform ID check bits and defined pairs are enforced", "[preamble-detector]") {
+    auto det = make_detector();
+    const auto good = *encode_wid(1, InterleaverKind::Short, 7);
+
+    {
+        const Run r = run_detector(*det, preamble_audio(good, 3), 0.32, 960);
+        REQUIRE(r.det);
+        CHECK(r.e.waveform == 1);
+        CHECK(r.e.interleaver == InterleaverKind::Short);
+        CHECK(r.stats.rejected_wid == 0);
+    }
+
+    // Each of the three check bits d2 (in di-bit 3) and d1, d0 (in di-bit 4) flipped in turn, and
+    // the constraint length bit d3 (which the check covers): all rejected on the checksum.
+    struct Flip { const char* name; std::size_t dibit; std::uint8_t mask; };
+    for (const Flip f : {Flip{"d2", 3, 1}, Flip{"d1", 4, 2}, Flip{"d0", 4, 1}, Flip{"d3", 3, 2}}) {
+        INFO(f.name);
+        auto bad = good;
+        bad[f.dibit] = static_cast<std::uint8_t>(bad[f.dibit] ^ f.mask);
+        const Run r = run_detector(*det, preamble_audio(bad, 3), 0.32, 960);
+        CHECK_FALSE(r.det);
+        CHECK(r.stats.peaks_accepted >= 1);
+        CHECK(r.stats.rejected_wid >= 1);
+        CHECK(r.stats.locks == 0);
+    }
+
+    // A valid checksum on a pair the tables do not define (WN 0 has no ultra-short row) is
+    // rejected too, and so is a waveform number the library does not implement (WN 9).
+    for (const auto& wid : {*encode_wid(0, InterleaverKind::UltraShort, 7), *encode_wid(9, InterleaverKind::Short, 7),
+                            *encode_wid(14, InterleaverKind::Short, 7)}) {
+        const Run r = run_detector(*det, preamble_audio(wid, 3), 0.32, 960);
+        CHECK_FALSE(r.det);
+        CHECK(r.stats.rejected_wid >= 1);
+    }
+}
+
+TEST_CASE("preamble detector: a default constructed detector detects at the default threshold", "[preamble-detector]") {
+    CHECK(PreambleDetectorConfig{}.sync_threshold == 0.32);
+    TxSettings s;
+    s.waveform_number = 3;
+    s.interleaver = InterleaverKind::Medium;
+    const std::vector<std::uint8_t> bits(60, 1);
+    std::size_t bytes = 0;
+    REQUIRE(Transmitter::storage_bytes(s, bits.size(), bytes) == Status::Ok);
+    std::vector<std::uint8_t> mem(bytes);
+    Transmitter tx;
+    REQUIRE(tx.configure(s, bits.size(), mem) == Status::Ok);
+    std::size_t n = 0;
+    REQUIRE(tx.audio_samples(bits.size(), n) == Status::Ok);
+    std::vector<float> audio(n);
+    REQUIRE(tx.modulate(bits, audio, n) == Status::Ok);
+
+    PreambleDetector det;  // no configure call
+    CHECK(det.configured());
+    std::size_t at = 0;
+    while (at < audio.size() && !det.has_detection()) at += det.process(std::span<const float>(audio).subspan(at));
+    PreambleDetection e;
+    REQUIRE(det.take_detection(e));
+    CHECK(e.waveform == 3);
+    CHECK(e.interleaver == InterleaverKind::Medium);
+    CHECK(e.agc_gain == 1.0f);
+    CHECK(e.input_level > 0.04);
 }

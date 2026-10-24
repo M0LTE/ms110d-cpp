@@ -8,6 +8,7 @@
 #include "tables.hpp"
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <numbers>
 
@@ -280,6 +281,7 @@ void PreambleDetector::accept_peak() noexcept {
                            (2.0 * std::numbers::pi * 32.0);
     const double cfo_hz = bins_hz[bin] + fine_hz;
 
+    agc_gain_ = 1.0f;
     chip0_ = static_cast<double>(s) + delta;
     omega_ = 2.0 * std::numbers::pi * cfo_hz / (2.0 * tables::symbol_rate);
     theta_base_ = 0;
@@ -311,6 +313,8 @@ PreambleDetector::ComplexF PreambleDetector::interpolate(double pos) const noexc
                 (0.5 + (0.5 * std::cos(std::numbers::pi * u / interp_half)));
         }
         const std::int64_t idx = i0 + j;
+        // Look-back bound: a read at or after the oldest sample the ring still holds.
+        assert(idx < 0 || idx >= written_ || written_ - idx <= static_cast<std::int64_t>(ring_size));
         if (idx >= 0 && idx < written_) {
             acc = cadd(acc, cscale(ring_[static_cast<std::size_t>(idx & ring_mask)], static_cast<float>(w)));
         }
@@ -324,7 +328,7 @@ PreambleDetector::ComplexF PreambleDetector::read_chip(int chip) const noexcept 
     const double pos = chip0_ + half_chips;  // the C# adds a timing correction that is zero until it locks
     const ComplexF value = interpolate(pos);
     const double theta = theta_base_ + (omega_ * (pos - chip0_));
-    return cmul(value, from_phase(-static_cast<float>(theta)));
+    return cmul(value, from_phase(-static_cast<float>(theta))) * agc_gain_;
 }
 
 std::uint8_t PreambleDetector::read_walsh_symbol(int start_chip, const std::array<std::uint8_t, 256>& pn,
@@ -525,6 +529,9 @@ void PreambleDetector::try_read_preamble() noexcept {
     e.data_start_sample = (2.0 * e.data_start_t2) + 1.0 - (static_cast<double>(taps_ - 1) / 2.0);
     e.timing_fraction_t2 = timing_fraction_;
     e.locked_at_sample = used_;
+    e.cfo_hz_first_fit = cfo_hz_;
+    e.carrier_omega_first_fit = omega_;
+    e.carrier_theta_base_first_fit = theta_base_;
     e.coarse_bin_hz = coarse_bin_hz_;
     e.peak_metric = accepted_metric_;
     event_ = e;
@@ -542,6 +549,27 @@ void PreambleDetector::superframe_chips(int count, int wn, InterleaverKind il, i
     for (std::size_t i = 0; i < chips_superframe; ++i) out[i] = preamble->chip(base + i);
 }
 
+double PreambleDetector::estimate_input_level(std::int64_t data_start_chip) const noexcept {
+    std::array<std::uint8_t, chips_superframe> fixed{};
+    superframe_chips(0, 0, InterleaverKind::Short, 7, fixed.data());  // the Fixed section is the first 288
+    const int available = static_cast<int>(std::clamp<std::int64_t>(data_start_chip / chips_superframe, 1, 8));
+    double sum = 0;
+    int groups = 0;
+    for (int sf = 1; sf <= available; ++sf) {
+        const int base = static_cast<int>(data_start_chip) - (sf * chips_superframe);
+        for (int g = 0; g < chips_fixed / 32; ++g) {
+            ComplexF c{0, 0};
+            for (int i = 0; i < 32; ++i) {
+                const int chip = (g * 32) + i;
+                c = cadd(c, cmul(read_chip(base + chip), cconj(psk8(fixed[static_cast<std::size_t>(chip)]))));
+            }
+            sum += static_cast<double>(cabs(c)) / 32.0;
+            ++groups;
+        }
+    }
+    return groups > 0 ? sum / groups : 0;
+}
+
 // The C# re-fits the carrier over the last preamble super-frames (up to four, about a second)
 // just before the data, because the matched super-frame can be many seconds back and the phase
 // extrapolated from it stale (TrackWalsh and InitializeDfe both do it first). It needs the
@@ -553,6 +581,19 @@ void PreambleDetector::finish_tail() noexcept {
     const double last = chip0_ + (2.0 * static_cast<double>(data_start_chip + 2));
     if (written_ <= static_cast<std::int64_t>(std::ceil(last)) + interp_half + 1) return;
 
+    // The input level, read with the first-fit carrier; the equaliser path then reads everything
+    // through the gain it implies (the C# sets it before the re-fit).
+    event_.input_level = estimate_input_level(data_start_chip);
+    const double level = event_.input_level;
+    float gain = 1.0f;
+    if (!(level <= 0 || level >= static_cast<double>(0.04f))) {
+        gain = static_cast<float>(std::min(static_cast<double>(0.12f) / level, static_cast<double>(32.0f)));
+    }
+    if (event_.waveform != 0) {
+        event_.agc_gain = gain;
+        agc_gain_ = gain;
+    }
+
     const int tail = std::clamp(count + 1, 1, 4);
     std::array<std::uint8_t, 4 * chips_superframe> known{};
     for (int i = 0; i < tail; ++i) {
@@ -561,6 +602,7 @@ void PreambleDetector::finish_tail() noexcept {
     }
     refine_carrier(static_cast<int>(data_start_chip) - (tail * chips_superframe), known.data(), tail * chips_superframe);
 
+    agc_gain_ = 1.0f;
     event_.cfo_hz = cfo_hz_;
     event_.carrier_omega = omega_;
     event_.carrier_theta_base = theta_base_;

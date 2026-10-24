@@ -37,6 +37,7 @@ struct Scenario {
     int lead = 0;            // samples of lead-in (noise only)
     std::uint64_t seed = 0;
     double threshold = 0.32;
+    double gain = 1.0;       // signal scale (a weak signal), applied before the noise is sized
 };
 
 // A reference case's baseband, delayed, put on a carrier 1800 + df_hz, with a lead-in and seeded

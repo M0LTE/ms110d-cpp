@@ -72,7 +72,7 @@ std::vector<float> build_scenario(const std::filesystem::path& ref_dir, const Sc
             }
         }
         const double phase = 2.0 * std::numbers::pi * (1800.0 + s.df_hz) * k / 9600.0;
-        sig[static_cast<std::size_t>(k)] = (re * std::cos(phase)) - (im * std::sin(phase));
+        sig[static_cast<std::size_t>(k)] = s.gain * ((re * std::cos(phase)) - (im * std::sin(phase)));
     }
 
     double sigma = 0;
@@ -159,6 +159,7 @@ Scenario scenario_of(const DumpLine& line) {
     s.lead = static_cast<int>(line.integer(line.params, "lead"));
     s.seed = static_cast<std::uint64_t>(std::stoull(line.params.at("seed")));
     s.threshold = line.real(line.params, "thr");
+    if (line.params.count("gain") != 0) s.gain = line.real(line.params, "gain");
     return s;
 }
 

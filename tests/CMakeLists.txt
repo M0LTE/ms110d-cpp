@@ -21,6 +21,9 @@ add_executable(ms110d_tests
   framing_test.cpp
   transmitter_test.cpp
   layer1_reference_test.cpp
+  support/eq_scenario.cpp
+  equaliser_test.cpp
+  wn0_receiver_test.cpp
   support/impair.cpp
   preamble_detector_test.cpp)
 target_link_libraries(ms110d_tests PRIVATE m0lte::ms110d Catch2::Catch2WithMain)
@@ -32,12 +35,19 @@ target_include_directories(ms110d_tests PRIVATE support "${PROJECT_SOURCE_DIR}/s
 # absent. Point MS110D_REFERENCE_DIR elsewhere if you generated them into another cache.
 set(MS110D_REFERENCE_DIR "${PROJECT_SOURCE_DIR}/build/_reference/ref" CACHE PATH
   "Directory of C# reference files made by scripts/generate-reference.sh")
+# The Poor channel corpus (scripts/generate-wn0-poor.sh, never committed): <stem>.txt and <stem>.i16le.
+set(MS110D_WN0_POOR_STEM "${PROJECT_SOURCE_DIR}/build/_reference/wn0-poor" CACHE STRING
+  "Path stem of the Poor channel WN 0 corpus made by scripts/generate-wn0-poor.sh")
 target_compile_definitions(ms110d_tests PRIVATE
   MS110D_EXPECTED_VERSION="${PROJECT_VERSION}"
   MS110D_CSHARP_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-tables-0.2.0.txt"
   MS110D_CSHARP_SOFT_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-soft-0.2.0.txt"
   MS110D_CSHARP_DETECT_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-detect-0.2.0.txt"
   MS110D_CSHARP_FRAMING_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-framing-0.2.0.txt"
+  MS110D_CSHARP_WN0_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-wn0-0.2.0.txt"
+  MS110D_CSHARP_WN0_AWGN="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-wn0-awgn-0.2.0.txt"
+  MS110D_WN0_POOR_STEM="${MS110D_WN0_POOR_STEM}"
+  MS110D_CSHARP_DFE_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-dfe-0.2.0.txt"
   MS110D_PIN_FILE="${PROJECT_SOURCE_DIR}/reference/pin.txt")
 ms110d_apply_options(ms110d_tests)
 

@@ -75,6 +75,21 @@ struct PreambleDetection {
     double carrier_omega = 0;
     double carrier_theta_base = 0;
 
+    // The carrier before the final re-fit (after the fit on the matched super-frame only), which
+    // the equaliser path's input level estimate is read with.
+    double cfo_hz_first_fit = 0;
+    double carrier_omega_first_fit = 0;
+    double carrier_theta_base_first_fit = 0;
+    // The C# input level (issue 101 in the C#): the fade-averaged Fixed section correlation
+    // amplitude, |sum y conj(k)| / 32 averaged over the Fixed sections of the last up to eight
+    // super-frames, read with the first-fit carrier. Reported for every waveform.
+    double input_level = 0;
+    // The gain the equaliser path applies to every read from here on (the C# _agcGain): 1.0 unless
+    // the level is below 0.04, then 0.12 / level up to 32. The C# sets it before the final
+    // re-fit and the re-fit here reads with it too, for waveforms 1 and up. The WN0 path does not
+    // use a gain, so for waveform 0 this is 1.0 whatever the level.
+    float agc_gain = 1.0f;
+
     // The normalised matched-filter metric at the accepted peak (0 to 1).
     double peak_metric = 0;
 };
@@ -100,9 +115,11 @@ struct PreambleDetectorConfig {
 
 class PreambleDetector {
 public:
-    // Sizes: the ring of T/2 samples is the lookback the search needs (the longest wait is five
-    // super-frames of 576 chips at 2 samples per chip, plus the walk-back and interpolation).
-    static constexpr std::size_t ring_size = 8192;
+    // The ring of T/2 samples is the lookback the search needs. The longest is the input level
+    // estimate, which reads up to eight super-frames (9216 samples) back from the data start;
+    // the search and the votes need under 5900. Interpolation asserts (debug builds) that every
+    // read is inside the ring.
+    static constexpr std::size_t ring_size = 16384;
     static constexpr int chips_per_fixed = 288;      // 9 Walsh symbols of 32 chips
     static constexpr int chips_per_superframe = 576;
     static constexpr int search_bins = 7;            // -75 to +75 Hz in 25 Hz steps
@@ -154,6 +171,7 @@ private:
     void refine_carrier(int base_chip, const std::uint8_t* known_chips, int chip_count) noexcept;
     static void superframe_chips(int count, int wn, InterleaverKind il, int k, std::uint8_t* out) noexcept;
     void finish_tail() noexcept;
+    double estimate_input_level(std::int64_t data_start_chip) const noexcept;
     ComplexF interpolate(double pos) const noexcept;
     ComplexF read_chip(int chip) const noexcept;
     std::uint8_t read_walsh_symbol(int start_chip, const std::array<std::uint8_t, 256>& pn, int pn_offset) const noexcept;
@@ -192,6 +210,7 @@ private:
     bool count_read_ = false;
     bool tail_pending_ = false;
     int votes_ = 0;
+    float agc_gain_ = 1.0f;  // applied to reads in the equaliser path's re-fit
 
     PreambleDetection event_{};
     PreambleSearchStats stats_{};
