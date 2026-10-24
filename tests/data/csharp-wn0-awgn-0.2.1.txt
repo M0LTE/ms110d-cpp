@@ -1,4 +1,4 @@
-# Dumped from M0LTE.Ms110d 0.2.0 by tools/csharp-vectors (wn0-awgn mode).
+# Dumped from M0LTE.Ms110d 0.2.1 by tools/csharp-vectors (wn0-awgn mode).
 # Base signal: reference case wn0_short_k7_s1_p100 audio (27457 samples) with 2400 zero samples before and 4800 after,
 # plus seeded Gaussian noise: sample = base + (float)(sigma * z), z from SplitMix64 + Box-Muller (see Wn0Dump.cs), seed per trial.
 # SNR is signal power over noise power in 3000 Hz: sigma^2 = P / 10^(snr/10) * 4800 / 3000, P = mean square of the base audio.

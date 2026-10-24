@@ -1,4 +1,4 @@
-# Dumped from M0LTE.Ms110d 0.2.0 by tools/csharp-vectors (dfe mode): the public Dfe driven through scripted receive scenarios. Floats are hex bits.
+# Dumped from M0LTE.Ms110d 0.2.1 by tools/csharp-vectors (dfe mode): the public Dfe driven through scripted receive scenarios. Floats are hex bits.
 scenario name=k48-clean-static source=synthetic k=48 u=48 frames=10 ff=32 fb=22 lead=16 initridge=3f800000 trackridge=41000000 lambda=3f73b646 mu=3d4ccccd noisevar=3f1a36e2eb1c432d seed=11 chan=0 pass=static extras=1 quiet=0 trainlen=192 txhash=a45ad37ada175f48 xhash=87571f865b97e852
 init solved=1 mse=3fc88c64ed555555 ffe=3e8219e7
 probe f=0 solved=1 corr=41457193 411d0b57 err=402607b57b000000 rows=26 mse=3fdb1d2e213b13b1 post=416ff56f 40fdbfca ffe=3e93c22b

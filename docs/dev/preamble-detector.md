@@ -4,7 +4,7 @@
 
 ## The boundary in the C#
 
-Ported from `Ms110dDemodulator` in M0LTE.Ms110d 0.2.0, from the audio input to the burst start state: everything the receiver knows when it is about to demodulate the first data symbol, whichever stage follows (the WN0 Walsh receiver or the equaliser). That is later than the C# lock (the moment the waveform ID is accepted), because the C# finishes the carrier model just before the data. In order:
+Ported from `Ms110dDemodulator` in M0LTE.Ms110d 0.2.1, from the audio input to the burst start state: everything the receiver knows when it is about to demodulate the first data symbol, whichever stage follows (the WN0 Walsh receiver or the equaliser). That is later than the C# lock (the moment the waveform ID is accepted), because the C# finishes the carrier model just before the data. In order:
 
 - the front end in `Process`/`PushT2`: mix down by 1800 Hz, the root-raised-cosine receive filter, decimate by two to the 4800 Hz "T/2" stream, the ring and the running comb energies;
 - `SearchStep`, `Metric`, `AcceptPeak`: the matched filter over the 9 Walsh symbol Fixed subsection on a 7 bin grid (-75 to +75 Hz), peak picking against the 0.32 threshold, earliest-arrival walk-back, parabolic sub-sample timing, fine frequency from the phase progression of the nine segments;
@@ -32,7 +32,7 @@ The receive filter is computed only for the samples that are kept (every second 
 
 ## Tests
 
-`tests/preamble_detector_test.cpp`, against `tests/data/csharp-detect-0.2.0.txt`, which the C# tool writes (`dotnet run -c Release --project tools/csharp-vectors -- detect build/_reference/ref > tests/data/csharp-detect-0.2.0.txt`; regenerate when the pin moves). The tool feeds the real demodulator one sample at a time, stops when its tracking stage has initialised (just after the re-fit) and reads the private carrier and timing fields by reflection.
+`tests/preamble_detector_test.cpp`, against `tests/data/csharp-detect-0.2.1.txt`, which the C# tool writes (`dotnet run -c Release --project tools/csharp-vectors -- detect build/_reference/ref > tests/data/csharp-detect-0.2.1.txt`; regenerate when the pin moves). The tool feeds the real demodulator one sample at a time, stops when its tracking stage has initialised (just after the re-fit) and reads the private carrier and timing fields by reflection.
 
 - every one of the 122 reference cases: decision, parameters, downcount, chip 0, data start, the carrier state after the re-fit and the lock sample equal the C# (and the transmitted parameters; the data start is within half a sample of the true one);
 - 460 impaired scenarios: the reference baseband delayed by a fractional number of samples, put on a carrier 1800 Hz plus a chosen offset (sweep -90 to +90 Hz), with lead-in and seeded noise at stated SNRs (-9 to +12 dB in 3 kHz), weak signals at gains 0.1 to 0.3 so the level gain engages (it does in 18 of them), plus a lower threshold run that exercises the rejection gates;

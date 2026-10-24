@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Thomas Fanning
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //
-// The soft decoders against the C# reference (M0LTE.Ms110d 0.2.0): the tail-biting Viterbi and
+// The soft decoders against the C# reference (M0LTE.Ms110d 0.2.1): the tail-biting Viterbi and
 // SISO decoders, the max-log BCJR and the chain BCJR. The expected values are in
-// tests/data/csharp-soft-0.2.0.txt, made by `dotnet run -c Release --project tools/csharp-vectors
+// tests/data/csharp-soft-0.2.1.txt, made by `dotnet run -c Release --project tools/csharp-vectors
 // -- soft` (see tools/csharp-vectors/SoftDump.cs). Inputs are regenerated here from the same
 // integer generator and checked against an FNV-1a checksum of their bits, so a drifting
 // generator is caught as such. See docs/dev/soft-decoders.md for the tolerances and why.

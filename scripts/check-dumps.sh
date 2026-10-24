@@ -1,6 +1,6 @@
 #!/bin/sh
 # Regenerates every committed dump of the C# reference and fails if any differs from the file in
-# the repo: tests/data/csharp-{tables,framing,dfe,soft}-0.2.0.txt, tests/csharp_vectors.hpp and
+# the repo: tests/data/csharp-{tables,framing,dfe,soft}-0.2.1.txt, tests/csharp_vectors.hpp and
 # tests/fec_vectors.inc. The dumps are made by tools/csharp-vectors from the pinned NuGet package,
 # so a dump that no longer matches means the tool, the pin or the committed file is out of step.
 #
@@ -36,10 +36,10 @@ check() {
     status=1
   fi
 }
-check "$tmp/tables.txt" tests/data/csharp-tables-0.2.0.txt
-check "$tmp/framing.txt" tests/data/csharp-framing-0.2.0.txt
-check "$tmp/dfe.txt" tests/data/csharp-dfe-0.2.0.txt
-check "$tmp/soft.txt" tests/data/csharp-soft-0.2.0.txt
+check "$tmp/tables.txt" tests/data/csharp-tables-0.2.1.txt
+check "$tmp/framing.txt" tests/data/csharp-framing-0.2.1.txt
+check "$tmp/dfe.txt" tests/data/csharp-dfe-0.2.1.txt
+check "$tmp/soft.txt" tests/data/csharp-soft-0.2.1.txt
 check "$tmp/csharp_vectors.hpp" tests/csharp_vectors.hpp
 check "$tmp/fec_vectors.inc" tests/fec_vectors.inc
 exit $status

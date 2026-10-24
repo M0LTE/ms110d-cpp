@@ -3,8 +3,8 @@
 // The WN 0 (Walsh) receiver against the C# demodulator: the same audio and the same burst
 // start in, the same Walsh decisions and soft values out. Clean reference audio (all ten WN 0
 // cases), seeded AWGN and Poor channel bursts (decision error rates), and the C++ transmitter
-// into the C++ receiver. The C# numbers are in tests/data/csharp-wn0*-0.2.0.txt, made by
-// tools/csharp-vectors (wn0, wn0-awgn and wn0-poor modes) from the real 0.2.0 demodulator.
+// into the C++ receiver. The C# numbers are in tests/data/csharp-wn0*-0.2.1.txt, made by
+// tools/csharp-vectors (wn0, wn0-awgn and wn0-poor modes) from the real 0.2.1 demodulator.
 
 #include <m0lte/ms110d/mode.hpp>
 #include <m0lte/ms110d/transmitter.hpp>
