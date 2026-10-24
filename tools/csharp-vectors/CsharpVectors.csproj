@@ -8,6 +8,7 @@
   <ItemGroup>
     <PackageReference Include="M0LTE.Ms110d" Version="[0.2.1]" />
     <PackageReference Include="M0LTE.HfChannel" Version="[0.1.0]" />
+    <PackageReference Include="M0LTE.Il2p" Version="[0.3.0]" />
     <PackageReference Include="M0LTE.Fec" Version="0.3.0" />
   </ItemGroup>
 </Project>
