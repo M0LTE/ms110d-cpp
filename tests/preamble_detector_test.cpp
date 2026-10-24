@@ -79,6 +79,7 @@ bool agrees(const DumpLine& l, const Run& r, Agreement& a, std::string& why) {
     }
     ++a.same_decision;
     bool ok = true;
+    if ((r.stats.locks > 0) != (l.integer(l.result, "locked") != 0)) { why += " locked"; ok = false; }
     if (r.stats.peaks_accepted != l.integer(l.result, "peaks")) { why += " peaks"; ok = false; }
     const std::int64_t rej = r.stats.rejected_count + r.stats.rejected_margin + r.stats.rejected_wid;
     if (rej != l.integer(l.result, "rejects")) { why += " rejects"; ok = false; }
@@ -89,8 +90,10 @@ bool agrees(const DumpLine& l, const Run& r, Agreement& a, std::string& why) {
         if (static_cast<int>(r.e.interleaver) != l.integer(l.result, "il")) { why += " il"; ok = false; }
         if (r.e.constraint_length != l.integer(l.result, "k")) { why += " k"; ok = false; }
         if (r.e.superframes_after != l.integer(l.result, "count")) { why += " count"; ok = false; }
-        if (r.e.detected_at_sample != l.integer(l.result, "at")) { why += " at"; ok = false; }
-        if (r.t2 != l.integer(l.result, "t2")) { why += " t2"; ok = false; }
+        if (r.e.locked_at_sample != l.integer(l.result, "at")) { why += " at"; ok = false; }
+        if (r.e.detected_at_sample < r.e.locked_at_sample) { why += " order"; ok = false; }
+        if (r.e.locked_at_sample / 2 != l.integer(l.result, "t2")) { why += " t2"; ok = false; }
+        if (l.real(l.result, "tau") != 0) { why += " tau"; ok = false; }
         const double dd = std::abs(r.e.data_start_t2 - l.real(l.result, "data"));
         const double dc = std::abs(r.e.cfo_hz - l.real(l.result, "cfo"));
         const double dw = std::abs(r.e.carrier_omega - l.real(l.result, "omega"));
@@ -99,6 +102,7 @@ bool agrees(const DumpLine& l, const Run& r, Agreement& a, std::string& why) {
         a.max_cfo = std::max(a.max_cfo, dc);
         a.max_omega = std::max(a.max_omega, dw);
         a.max_theta = std::max(a.max_theta, dt);
+        if (std::abs(r.e.chip0_t2 - l.real(l.result, "chip0")) > 1e-9) { why += " chip0"; ok = false; }
         if (dd > 1e-6) { why += " data"; ok = false; }
         if (dc > 1e-4) { why += " cfo"; ok = false; }
         if (dw > 1e-8) { why += " omega"; ok = false; }
@@ -278,6 +282,33 @@ TEST_CASE("preamble detector: transmitter audio is identified at every waveform 
         CHECK(std::abs(r.e.data_start_sample - (500.0 + 4.0 * 1728.0 + 32.0)) < 0.5);
         CHECK(std::abs(r.e.cfo_hz) < 0.01);
     }
+}
+
+TEST_CASE("preamble detector: a long preamble waits for the data start before the event", "[preamble-detector]") {
+    TxSettings s;
+    s.waveform_number = 0;
+    s.preamble_superframes = 9;
+    const std::vector<std::uint8_t> bits(40, 1);
+    std::size_t bytes = 0;
+    REQUIRE(Transmitter::storage_bytes(s, bits.size(), bytes) == Status::Ok);
+    std::vector<std::uint8_t> mem(bytes);
+    Transmitter tx;
+    REQUIRE(tx.configure(s, bits.size(), mem) == Status::Ok);
+    std::size_t n = 0;
+    REQUIRE(tx.audio_samples(bits.size(), n) == Status::Ok);
+    std::vector<float> audio(n);
+    REQUIRE(tx.modulate(bits, audio, n) == Status::Ok);
+    auto det = make_detector();
+    const Run r = run_detector(*det, audio, 0.32, 960);
+    REQUIRE(r.det);
+    CHECK(r.e.superframes_after == 8);
+    CHECK(r.e.locked_at_sample < r.e.detected_at_sample);
+    const double data = 4.0 * 9 * 576 + 32.0;
+    CHECK(std::abs(r.e.data_start_sample - data) < 0.5);
+    // The event completes just after the data start (the samples the re-fit needs).
+    CHECK(static_cast<double>(r.e.detected_at_sample) > data - 32.0);
+    CHECK(static_cast<double>(r.e.detected_at_sample) < data + 200.0);
+    CHECK(std::abs(r.e.cfo_hz) < 0.01);
 }
 
 TEST_CASE("preamble detector: state handling", "[preamble-detector]") {

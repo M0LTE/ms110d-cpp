@@ -57,10 +57,15 @@ struct PreambleDetection {
     double data_start_sample = 0;
     // Sub-sample part of the timing: the parabolic fit's correction to the integer T/2 peak.
     double timing_fraction_t2 = 0;
-    // Input samples consumed when the detection completed (the event's own position).
+    // Input samples consumed when the waveform ID was decoded (the C# lock) and when the event
+    // completed, after the final carrier fit (the event's own position; the same as the lock
+    // unless the downcount is above four, when the fit waits for the samples up to the data start).
+    std::int64_t locked_at_sample = 0;
     std::int64_t detected_at_sample = 0;
 
-    // Frequency. cfo_hz is the carrier offset after the fine fit over the known preamble chips;
+    // Frequency. cfo_hz is the carrier offset after the fine fit over the known preamble chips and
+    // then the re-fit over the last (up to four) super-frames before the data, as the C# does it
+    // before handing the burst to its Walsh or equaliser stage;
     // coarse_bin_hz is the search grid bin the peak came from (-75 to +75 in 25 Hz steps).
     double cfo_hz = 0;
     double coarse_bin_hz = 0;
@@ -81,7 +86,8 @@ struct PreambleSearchStats {
     std::int64_t rejected_margin = 0;    // waveform ID vote too mushy
     std::int64_t rejected_count_vote = 0;// joint downcount vote too mushy
     std::int64_t rejected_wid = 0;       // waveform ID failed its checksum or names no defined mode
-    std::int64_t detections = 0;
+    std::int64_t locks = 0;              // waveform ID decoded (the C# lock), before the final carrier fit
+    std::int64_t detections = 0;         // events: the lock plus the final carrier fit
     double peak_search_metric = 0;       // highest metric seen
 };
 
@@ -145,7 +151,9 @@ private:
     void accept_peak() noexcept;
     void try_read_preamble() noexcept;
     void back_to_search() noexcept;
-    void refine_carrier(const std::uint8_t* known_chips, int chip_count) noexcept;
+    void refine_carrier(int base_chip, const std::uint8_t* known_chips, int chip_count) noexcept;
+    static void superframe_chips(int count, int wn, InterleaverKind il, int k, std::uint8_t* out) noexcept;
+    void finish_tail() noexcept;
     ComplexF interpolate(double pos) const noexcept;
     ComplexF read_chip(int chip) const noexcept;
     std::uint8_t read_walsh_symbol(int start_chip, const std::array<std::uint8_t, 256>& pn, int pn_offset) const noexcept;
@@ -182,6 +190,7 @@ private:
     double timing_fraction_ = 0;
     double accepted_metric_ = 0;
     bool count_read_ = false;
+    bool tail_pending_ = false;
     int votes_ = 0;
 
     PreambleDetection event_{};

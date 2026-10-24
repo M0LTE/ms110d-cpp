@@ -125,6 +125,7 @@ void PreambleDetector::reset() noexcept {
     metric_bin_ring_.fill(0);
     state_ = State::Searching;
     count_read_ = false;
+    tail_pending_ = false;
     votes_ = 0;
     event_ = {};
     stats_ = {};
@@ -153,6 +154,7 @@ void PreambleDetector::back_to_search() noexcept {
     best_metric_ = 0;
     best_start_ = -1;
     count_read_ = false;
+    tail_pending_ = false;
 }
 
 std::size_t PreambleDetector::process(std::span<const float> audio) noexcept {
@@ -286,6 +288,7 @@ void PreambleDetector::accept_peak() noexcept {
     timing_fraction_ = delta;
     accepted_metric_ = best_metric_;
     count_read_ = false;
+    tail_pending_ = false;
     votes_ = 0;
     state_ = State::ReadingPreamble;
     best_metric_ = 0;
@@ -367,14 +370,14 @@ void PreambleDetector::accumulate_walsh_mags(int start_chip, const std::array<st
     for (std::size_t s = 0; s < 4; ++s) mags[s] += static_cast<double>(cabs(corr[s]));
 }
 
-void PreambleDetector::refine_carrier(const std::uint8_t* known_chips, int chip_count) noexcept {
+void PreambleDetector::refine_carrier(int base_chip, const std::uint8_t* known_chips, int chip_count) noexcept {
     const int count = chip_count / 32;
-    std::array<ComplexF, 18> groups{};
+    std::array<ComplexF, 72> groups{};
     for (int j = 0; j < count; ++j) {
         ComplexF c{0, 0};
         for (int i = 0; i < 32; ++i) {
             const int chip = (32 * j) + i;
-            c = cadd(c, cmul(read_chip(chip), cconj(psk8(known_chips[chip]))));
+            c = cadd(c, cmul(read_chip(base_chip + chip), cconj(psk8(known_chips[chip]))));
         }
         groups[static_cast<std::size_t>(j)] = c;
     }
@@ -386,7 +389,7 @@ void PreambleDetector::refine_carrier(const std::uint8_t* known_chips, int chip_
     // Anchor the correction at the window midpoint (group j's phase sits at its centre, chip
     // 32 j + 16); the slope converts to rad per T/2 sample by dividing by 64.
     const double mid = (count - 1) / 2.0;
-    const double href = 2.0 * (0 + 16 + (32 * mid));
+    const double href = 2.0 * (base_chip + 16 + (32 * mid));
     const double delta_theta = intercept + (slope * mid);
     const double delta_omega = slope / 64.0;
     omega_ += delta_omega;
@@ -395,6 +398,10 @@ void PreambleDetector::refine_carrier(const std::uint8_t* known_chips, int chip_
 }
 
 void PreambleDetector::try_read_preamble() noexcept {
+    if (tail_pending_) {
+        finish_tail();
+        return;
+    }
     const auto need = [this](int super_frames) {
         return static_cast<std::int64_t>(std::ceil(chip0_ + (2.0 * chips_superframe * super_frames))) + (2 * interp_half) + 2;
     };
@@ -502,14 +509,10 @@ void PreambleDetector::try_read_preamble() noexcept {
         return;
     }
 
-    // Known chips of the matched super-frame (downcount `count`), for the carrier fit. The Fixed
-    // section is always the 9 symbol form, so build them from a two or more super-frame preamble.
-    const int m = std::max(count + 1, 2);
-    const auto preamble = Preamble::make(0, m, wid->wn, wid->interleaver, wid->constraint_length);
+    // Known chips of the matched super-frame (downcount `count`), for the carrier fit.
     std::array<std::uint8_t, chips_superframe> known{};
-    const std::size_t base = static_cast<std::size_t>(m - 1 - count) * chips_superframe;
-    for (std::size_t i = 0; i < known.size(); ++i) known[i] = preamble->chip(base + i);
-    refine_carrier(known.data(), chips_superframe);
+    superframe_chips(count, wid->wn, wid->interleaver, wid->constraint_length, known.data());
+    refine_carrier(0, known.data(), chips_superframe);
 
     const std::int64_t data_start_chip = static_cast<std::int64_t>(chips_superframe) * (count + 1);
     PreambleDetection e;
@@ -521,13 +524,48 @@ void PreambleDetector::try_read_preamble() noexcept {
     e.data_start_t2 = chip0_ + (2.0 * static_cast<double>(data_start_chip));
     e.data_start_sample = (2.0 * e.data_start_t2) + 1.0 - (static_cast<double>(taps_ - 1) / 2.0);
     e.timing_fraction_t2 = timing_fraction_;
-    e.detected_at_sample = used_;
-    e.cfo_hz = cfo_hz_;
+    e.locked_at_sample = used_;
     e.coarse_bin_hz = coarse_bin_hz_;
-    e.carrier_omega = omega_;
-    e.carrier_theta_base = theta_base_;
     e.peak_metric = accepted_metric_;
     event_ = e;
+    ++stats_.locks;
+    tail_pending_ = true;
+    finish_tail();
+}
+
+// Writes the 576 known chips of the super-frame that carries downcount `count`. The Fixed section
+// is always the 9 symbol form, so they come from a preamble of two or more super-frames.
+void PreambleDetector::superframe_chips(int count, int wn, InterleaverKind il, int k, std::uint8_t* out) noexcept {
+    const int m = std::max(count + 1, 2);
+    const auto preamble = Preamble::make(0, m, wn, il, k);
+    const std::size_t base = static_cast<std::size_t>(m - 1 - count) * chips_superframe;
+    for (std::size_t i = 0; i < chips_superframe; ++i) out[i] = preamble->chip(base + i);
+}
+
+// The C# re-fits the carrier over the last preamble super-frames (up to four, about a second)
+// just before the data, because the matched super-frame can be many seconds back and the phase
+// extrapolated from it stale (TrackWalsh and InitializeDfe both do it first). It needs the
+// samples up to the data start, so the event waits for them: at once when the preamble is short,
+// up to the data start when the downcount is above four.
+void PreambleDetector::finish_tail() noexcept {
+    const int count = event_.superframes_after;
+    const std::int64_t data_start_chip = static_cast<std::int64_t>(chips_superframe) * (count + 1);
+    const double last = chip0_ + (2.0 * static_cast<double>(data_start_chip + 2));
+    if (written_ <= static_cast<std::int64_t>(std::ceil(last)) + interp_half + 1) return;
+
+    const int tail = std::clamp(count + 1, 1, 4);
+    std::array<std::uint8_t, 4 * chips_superframe> known{};
+    for (int i = 0; i < tail; ++i) {
+        superframe_chips(tail - 1 - i, event_.waveform, event_.interleaver, event_.constraint_length,
+                         &known[static_cast<std::size_t>(i * chips_superframe)]);
+    }
+    refine_carrier(static_cast<int>(data_start_chip) - (tail * chips_superframe), known.data(), tail * chips_superframe);
+
+    event_.cfo_hz = cfo_hz_;
+    event_.carrier_omega = omega_;
+    event_.carrier_theta_base = theta_base_;
+    event_.detected_at_sample = used_;
+    tail_pending_ = false;
     ++stats_.detections;
     state_ = State::Detected;
 }

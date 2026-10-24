@@ -7,8 +7,8 @@
 //
 // The search is not a public type: it is the first stage of Ms110dDemodulator, which goes on to
 // demodulate the burst. The tool feeds one sample at a time and stops the moment the receiver
-// has locked on a waveform (Lock.WaveformNumber >= 0), so nothing past the preamble is ever
-// processed, then reads the carrier and timing state through reflection on the real private
+// has initialised its tracking stage, which for every waveform begins with the carrier re-fit over
+// the last preamble super-frames (so only a few symbols past the preamble are processed), then reads the carrier and timing state through reflection on the real private
 // fields. FrameDiagnostics (public) is used to count accepted peaks and rejected candidates.
 //
 // Three kinds of line, all "kind name key=value ... -> result":
@@ -149,6 +149,8 @@ static class DetectDump
     static readonly FieldInfo ThetaBase = Field("_thetaBase");
     static readonly FieldInfo DataStartChip = Field("_dataStartChip");
     static readonly FieldInfo Written = Field("_written");
+    static readonly FieldInfo TrackingInitialized = Field("_trackingInitialized");
+    static readonly FieldInfo Tau = Field("_tau");
 
     static FieldInfo Field(string name) =>
         typeof(Ms110dDemodulator).GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)
@@ -165,30 +167,42 @@ static class DetectDump
         };
 
         var one = new float[1];
-        int used = 0;
-        bool locked = false;
+        int used = 0, lockedAt = 0;
+        long lockedT2 = 0;
+        bool locked = false, ready = false;
         for (int i = 0; i < audio.Length; i++)
         {
             one[0] = audio[i];
             demod.Process(one);
-            used = i + 1;
-            if (demod.Lock is { WaveformNumber: >= 0 })
+            if (!locked && demod.Lock is { WaveformNumber: >= 0 })
             {
                 locked = true;
+                lockedAt = i + 1;
+                lockedT2 = (long)Written.GetValue(demod)!;
+            }
+
+            // The receiver is "ready" once its tracking stage has initialised, which for every
+            // waveform starts with the carrier re-fit over the last preamble super-frames.
+            if (locked && (bool)TrackingInitialized.GetValue(demod)!)
+            {
+                ready = true;
+                used = i + 1;
                 break;
             }
         }
 
         string tail = $" peaks={peaks} rejects={rejects} peakmetric={R(demod.PeakSearchMetric)}";
-        if (!locked) return "det=0" + tail;
+        if (!locked) return "locked=0 det=0" + tail;
+        if (!ready) return "locked=1 det=0" + tail;
 
         var lk = demod.Lock!;
         double chip0 = (double)Chip0.GetValue(demod)!;
         long dsc = (long)DataStartChip.GetValue(demod)!;
-        return $"det=1 wn={lk.WaveformNumber} il={(int)lk.Interleaver} k={lk.ConstraintLength}" +
-               $" count={dsc / 576 - 1} at={used} t2={(long)Written.GetValue(demod)!}" +
+        return $"locked=1 det=1 wn={lk.WaveformNumber} il={(int)lk.Interleaver} k={lk.ConstraintLength}" +
+               $" count={dsc / 576 - 1} at={lockedAt} t2={lockedT2}" +
                $" chip0={R(chip0)} data={R(chip0 + (2.0 * dsc))} cfo={R(lk.CfoHz)}" +
-               $" omega={R((double)Omega.GetValue(demod)!)} theta={R((double)ThetaBase.GetValue(demod)!)}" + tail;
+               $" omega={R((double)Omega.GetValue(demod)!)} theta={R((double)ThetaBase.GetValue(demod)!)}" +
+               $" tau={R((double)Tau.GetValue(demod)!)}" + tail;
     }
 
     // ---- files ----------------------------------------------------------------------------
