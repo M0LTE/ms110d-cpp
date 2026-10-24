@@ -163,12 +163,21 @@ if(MS110D_BUILD_C_SHARED)
       endif()
     endif()
     if(_dotnet_ok)
+      set(_dotnet_env "MS110D_NATIVE_LIB=$<TARGET_FILE:ms110d_c>;MS110D_TESTHOOKS_LIB=$<TARGET_FILE:ms110d_testhooks>;MS110D_PIN_FILE=${PROJECT_SOURCE_DIR}/reference/pin.txt;MS110D_EXPECTED_VERSION=${PROJECT_VERSION};DOTNET_NOLOGO=1;DOTNET_CLI_TELEMETRY_OPTOUT=1")
       add_test(NAME dotnet_interop
         COMMAND ${MS110D_DOTNET} run --project "${PROJECT_SOURCE_DIR}/tests/interop" --configuration Release
-          --artifacts-path "${CMAKE_CURRENT_BINARY_DIR}/dotnet")
+          --artifacts-path "${CMAKE_CURRENT_BINARY_DIR}/dotnet" -- -notrait "Category=Layer3")
       set_tests_properties(dotnet_interop PROPERTIES
-        TIMEOUT ${MS110D_DOTNET_TIMEOUT}
-        ENVIRONMENT "MS110D_NATIVE_LIB=$<TARGET_FILE:ms110d_c>;MS110D_TESTHOOKS_LIB=$<TARGET_FILE:ms110d_testhooks>;MS110D_PIN_FILE=${PROJECT_SOURCE_DIR}/reference/pin.txt;MS110D_EXPECTED_VERSION=${PROJECT_VERSION};DOTNET_NOLOGO=1;DOTNET_CLI_TELEMETRY_OPTOUT=1")
+        TIMEOUT ${MS110D_DOTNET_TIMEOUT} RESOURCE_LOCK dotnet
+        ENVIRONMENT "${_dotnet_env}")
+      # Layer 3 cross-decoding (docs/dev/layer3.md): the fast default subset. Results (CSV and markdown)
+      # are written to <build>/layer3-results.
+      add_test(NAME dotnet_layer3
+        COMMAND ${MS110D_DOTNET} run --project "${PROJECT_SOURCE_DIR}/tests/interop" --configuration Release
+          --artifacts-path "${CMAKE_CURRENT_BINARY_DIR}/dotnet" -- -trait "Category=Layer3")
+      set_tests_properties(dotnet_layer3 PROPERTIES
+        TIMEOUT ${MS110D_DOTNET_TIMEOUT} RESOURCE_LOCK dotnet
+        ENVIRONMENT "${_dotnet_env};MS110D_LAYER3_OUT=${CMAKE_BINARY_DIR}/layer3-results")
     elseif(MS110D_DOTNET_TESTS STREQUAL "ON")
       message(FATAL_ERROR "MS110D_DOTNET_TESTS=ON but no .NET 10 SDK was found")
     else()
