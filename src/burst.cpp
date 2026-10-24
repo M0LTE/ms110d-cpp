@@ -6,13 +6,13 @@
 
 namespace m0lte::ms110d {
 
-std::optional<BurstLayout> burst_layout(const BurstConfig& config, std::size_t payload_bits) noexcept {
-    const auto mode = mode_3k(config.wn);
+std::optional<BurstLayout> burst_layout(const TxSettings& config, std::size_t payload_bits) noexcept {
+    const auto mode = mode_3k(config.waveform_number);
     if (!mode) return std::nullopt;
-    const auto il = interleaver_3k(config.wn, config.interleaver);
+    const auto il = interleaver_3k(config.waveform_number, config.interleaver);
     if (!il) return std::nullopt;
     if (config.constraint_length != 7 && config.constraint_length != 9) return std::nullopt;
-    if (config.tlc_blocks < 0 || config.tlc_blocks > 255 || config.superframes < 1 || config.superframes > 32) {
+    if (config.tlc_blocks < 0 || config.tlc_blocks > 255 || config.preamble_superframes < 1 || config.preamble_superframes > 32) {
         return std::nullopt;
     }
 
@@ -24,7 +24,7 @@ std::optional<BurstLayout> burst_layout(const BurstConfig& config, std::size_t p
     l.blocks = framed_block_count(payload_bits, config.append_eom, static_cast<std::size_t>(il->input_bits));
     l.framed_bits = l.blocks * static_cast<std::size_t>(il->input_bits);
     l.wire_bits = l.blocks * static_cast<std::size_t>(il->size_bits);
-    l.preamble_symbols = Preamble::chip_count(config.tlc_blocks, config.superframes);
+    l.preamble_symbols = Preamble::chip_count(config.tlc_blocks, config.preamble_superframes);
     const auto frames = static_cast<std::size_t>(il->frames);
     if (mode->wn == 0) {
         l.initial_probe_symbols = 0;

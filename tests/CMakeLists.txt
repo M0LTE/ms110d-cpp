@@ -16,6 +16,7 @@ add_executable(ms110d_tests
   support/reference_files.cpp
   csharp_tables_test.cpp
   reference_tables_test.cpp
+  modulator_test.cpp
   framing_test.cpp)
 target_link_libraries(ms110d_tests PRIVATE m0lte::ms110d Catch2::Catch2WithMain)
 # The tests also see the library's internal headers (src/tables.hpp); they are not installed.

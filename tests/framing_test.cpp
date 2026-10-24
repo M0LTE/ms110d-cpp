@@ -10,12 +10,15 @@
 #include "alloc_guard.hpp"
 #include "burst.hpp"
 #include "framing.hpp"
+#include "modulator.hpp"
 #include "preamble.hpp"
 #include "reference_files.hpp"
 #include "tables.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <complex>
 #include <cstddef>
 #include <cstdint>
@@ -47,13 +50,13 @@ std::vector<ReferenceCase> load_cases(const fs::path& dir) {
     return cases;
 }
 
-BurstConfig config_of(const Manifest& m) {
-    BurstConfig c;
-    c.wn = static_cast<int>(m.integer("wn"));
+TxSettings config_of(const Manifest& m) {
+    TxSettings c;
+    c.waveform_number = static_cast<int>(m.integer("wn"));
     c.interleaver = kind_from_name(m.str("interleaver"));
     c.constraint_length = static_cast<int>(m.integer("constraint_length"));
     c.tlc_blocks = static_cast<int>(m.integer("tlc_blocks"));
-    c.superframes = static_cast<int>(m.integer("preamble_superframes"));
+    c.preamble_superframes = static_cast<int>(m.integer("preamble_superframes"));
     c.append_eom = m.integer("append_eom") != 0;
     c.append_eot = m.integer("append_eot") != 0;
     return c;
@@ -100,9 +103,9 @@ TEST_CASE("reference preamble symbols match the generator", "[reference]") {
     int checked = 0;
     for (const ReferenceCase& c : load_cases(dir)) {
         INFO("case " << c.name());
-        const BurstConfig cfg = config_of(c.manifest());
+        const TxSettings cfg = config_of(c.manifest());
         const auto preamble =
-            Preamble::make(cfg.tlc_blocks, cfg.superframes, cfg.wn, cfg.interleaver, cfg.constraint_length);
+            Preamble::make(cfg.tlc_blocks, cfg.preamble_superframes, cfg.waveform_number, cfg.interleaver, cfg.constraint_length);
         REQUIRE(preamble.has_value());
         const auto expected = c.bytes("preamble_symbols");
         REQUIRE(preamble->chip_count() == expected.size());
@@ -120,7 +123,7 @@ TEST_CASE("reference whole burst symbol streams and probe values match", "[refer
     for (const ReferenceCase& c : load_cases(dir)) {
         INFO("case " << c.name());
         const Manifest& m = c.manifest();
-        const BurstConfig cfg = config_of(m);
+        const TxSettings cfg = config_of(m);
         const auto payload_bits = static_cast<std::size_t>(m.integer("payload_bits"));
         const auto layout = burst_layout(cfg, payload_bits);
         REQUIRE(layout.has_value());
@@ -130,7 +133,7 @@ TEST_CASE("reference whole burst symbol streams and probe values match", "[refer
         CHECK(layout->total_symbols == static_cast<std::size_t>(m.integer("burst_symbol_count")));
 
         const auto preamble =
-            Preamble::make(cfg.tlc_blocks, cfg.superframes, cfg.wn, cfg.interleaver, cfg.constraint_length);
+            Preamble::make(cfg.tlc_blocks, cfg.preamble_superframes, cfg.waveform_number, cfg.interleaver, cfg.constraint_length);
         REQUIRE(preamble.has_value());
         const auto wire = c.bytes("interleaved_bits");
         REQUIRE(wire.size() == layout->wire_bits);
@@ -169,10 +172,10 @@ TEST_CASE("reference block-at-a-time assembly equals the whole burst", "[referen
         if (m.integer("blocks") < 2) continue;
         ++ran;
         INFO("case " << c.name());
-        const BurstConfig cfg = config_of(m);
+        const TxSettings cfg = config_of(m);
         const auto layout = burst_layout(cfg, static_cast<std::size_t>(m.integer("payload_bits")));
         const auto preamble =
-            Preamble::make(cfg.tlc_blocks, cfg.superframes, cfg.wn, cfg.interleaver, cfg.constraint_length);
+            Preamble::make(cfg.tlc_blocks, cfg.preamble_superframes, cfg.waveform_number, cfg.interleaver, cfg.constraint_length);
         const auto wire = c.bytes("interleaved_bits");
         RecordingSink sink;
         write_head(*layout, *preamble, sink);
@@ -355,8 +358,8 @@ TEST_CASE("standard: WN 0 worked example of D.5.1.4", "[standard]") {
     // so they are the first 32 data chips of a block whose first two fetched bits are 0, 1.
     const std::uint8_t printed[32] = {5, 2, 2, 5, 7, 7, 1, 5, 6, 4, 5, 0, 0, 3, 7, 4,
                                       5, 7, 1, 7, 3, 6, 2, 1, 5, 0, 7, 7, 5, 0, 3, 4};
-    BurstConfig cfg;
-    cfg.wn = 0;
+    TxSettings cfg;
+    cfg.waveform_number = 0;
     cfg.interleaver = InterleaverKind::Short;
     const auto layout = burst_layout(cfg, 0);
     REQUIRE(layout.has_value());
@@ -369,8 +372,8 @@ TEST_CASE("standard: WN 0 worked example of D.5.1.4", "[standard]") {
 }
 
 TEST_CASE("burst assembly does not allocate", "[framing]") {
-    BurstConfig cfg;
-    cfg.wn = 6;
+    TxSettings cfg;
+    cfg.waveform_number = 6;
     const auto layout = burst_layout(cfg, 100);
     REQUIRE(layout.has_value());
     const auto preamble = Preamble::make(0, 3, 6, InterleaverKind::Short, 7);
@@ -425,4 +428,68 @@ TEST_CASE("waveform ID and downcount di-bits match the C# package for every inpu
     }
     CHECK(wids == 14 * 4 * 2);
     CHECK(counts == 32);
+}
+
+namespace {
+
+// Feeds each burst symbol straight into the modulator and collects the audio as it appears.
+struct ModulatorSink {
+    Modulator& mod;
+    std::vector<real>& audio;
+    void push(const tables::Complex32& p) {
+        REQUIRE(mod.push_symbol(p));
+        const std::size_t at = audio.size();
+        audio.resize(at + mod.pending());
+        mod.read(std::span<real>(audio).subspan(at));
+    }
+    void psk(std::uint8_t s) { push(tables::psk8[s]); }
+    void qam(std::uint8_t s) { push(tables::qam16[s]); }
+    void probe(tables::Complex32 v) { push(v); }
+};
+
+}  // namespace
+
+TEST_CASE("reference end to end: framing into the modulator reproduces the reference audio", "[reference][modulator]") {
+    const fs::path dir = ms110d_test::reference_dir_or_skip();
+    constexpr double tolerance = 1e-6;  // the modulator's documented per-sample tolerance
+    std::size_t cases = 0;
+    double worst = 0;
+    Modulator mod;
+    for (const ReferenceCase& c : load_cases(dir)) {
+        INFO("case " << c.name());
+        const Manifest& m = c.manifest();
+        TxSettings cfg = config_of(m);
+        cfg.amplitude = static_cast<float>(m.real("amplitude"));
+        cfg.roll_off = m.real("roll_off");
+        REQUIRE(mod.configure(cfg));
+        const auto layout = burst_layout(cfg, static_cast<std::size_t>(m.integer("payload_bits")));
+        const auto preamble = Preamble::make(cfg.tlc_blocks, cfg.preamble_superframes, cfg.waveform_number,
+                                             cfg.interleaver, cfg.constraint_length);
+        REQUIRE((layout.has_value() && preamble.has_value()));
+
+        // Only the interleaved bits come from the reference files (the FEC stage is not run here).
+        const auto wire = c.bytes("interleaved_bits");
+        std::vector<real> audio;
+        audio.reserve(audio_length(layout->total_symbols, mod.taps()));
+        mod.begin();
+        ModulatorSink sink{mod, audio};
+        REQUIRE(assemble_burst(*layout, *preamble, wire, sink));
+        mod.end_of_symbols();
+        const std::size_t at = audio.size();
+        audio.resize(audio_length(layout->total_symbols, mod.taps()));
+        mod.read(std::span<real>(audio).subspan(at));
+        CHECK(mod.done());
+
+        const auto ref = c.real32("audio_f32le");
+        REQUIRE(audio.size() == ref.size());
+        double err = 0;
+        for (std::size_t i = 0; i < ref.size(); ++i) {
+            err = std::max(err, std::fabs(static_cast<double>(audio[i]) - static_cast<double>(ref[i])));
+        }
+        worst = std::max(worst, err);
+        CHECK(err <= tolerance);
+        ++cases;
+    }
+    CHECK(cases == 122);
+    INFO("worst error " << worst);
 }

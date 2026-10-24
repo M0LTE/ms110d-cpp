@@ -23,6 +23,7 @@
 #include "scrambler.hpp"
 #include "tables.hpp"
 #include "trinomial_scrambler.hpp"
+#include "tx_settings.hpp"
 
 #include <m0lte/ms110d/mode.hpp>
 
@@ -33,16 +34,6 @@
 #include <span>
 
 namespace m0lte::ms110d {
-
-struct BurstConfig {
-    int wn = 6;
-    InterleaverKind interleaver = InterleaverKind::Short;
-    int constraint_length = 7;
-    int tlc_blocks = 0;
-    int superframes = 3;
-    bool append_eom = true;
-    bool append_eot = true;
-};
 
 // Sizes of a burst for a payload length, from the tables alone.
 struct BurstLayout {
@@ -62,7 +53,7 @@ struct BurstLayout {
 
 // Nothing is returned for a waveform or interleaver the library does not define, a constraint
 // length other than 7 or 9, or preamble settings out of range.
-std::optional<BurstLayout> burst_layout(const BurstConfig& config, std::size_t payload_bits) noexcept;
+std::optional<BurstLayout> burst_layout(const TxSettings& config, std::size_t payload_bits) noexcept;
 
 // Whether the probe after frame f of an interleaver block of `frames` frames is the shifted
 // one. This is the C# rule, kept as it is (see issue 16): the probe after the second to last
