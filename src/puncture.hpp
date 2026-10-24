@@ -45,4 +45,10 @@ std::optional<std::size_t> apply_puncture(const PunctureSpec& spec,
                                           std::span<const std::uint8_t> coded,
                                           std::span<std::uint8_t> punctured) noexcept;
 
+// RX: spreads punctured-order soft values back onto the rate 1/2 mother lattice (two per info
+// bit, T1 then T2), summing repeated copies and leaving punctured positions 0, as the C#
+// Ms110dPuncture.Depuncture. `mother` is 2 * info bits long. False if `rx` is not exactly the
+// punctured length for that many info bits (the C# throws); `mother` is then cleared.
+bool depuncture_soft(const PunctureSpec& spec, std::span<const float> rx, std::span<float> mother) noexcept;
+
 }  // namespace m0lte::ms110d

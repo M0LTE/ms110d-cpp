@@ -10,7 +10,7 @@ Nothing is released yet. What is on `main` so far:
 
 - An installable CMake library for PC and Cortex-M7, in single or double precision, with a C interface for other languages and .NET interop tests.
 - Transmit: payload bits in, 9600 Hz audio out, in C++ and C, matching the C# reference audio.
-- Receive building blocks: soft-decision decoders, a decision-feedback equaliser, preamble search and waveform identification, and WN0 receive.
+- Receive building blocks: soft-decision decoders, a decision-feedback equaliser, preamble search and waveform identification, WN0 receive, and the equaliser receive path for WN1 and up (first pass, checked against the C# for WN1 to 5 with the short and ultra-short interleavers).
 - Tests that compare the bits on the wire and the audio with the C# reference.
 
 [Unreleased]: https://github.com/M0LTE/ms110d-cpp/commits/main

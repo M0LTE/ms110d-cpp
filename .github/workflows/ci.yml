@@ -99,7 +99,7 @@ jobs:
   reference:
     name: reference files
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -124,14 +124,32 @@ jobs:
           key: wn0-poor-${{ hashFiles('reference/pin.txt', 'scripts/generate-wn0-poor.sh', 'tools/csharp-vectors/*.cs', 'tools/csharp-vectors/*.csproj') }}
       - name: Generate the Poor channel corpus
         run: scripts/generate-wn0-poor.sh
+      - name: Cache the receive dumps
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/_reference/csharp-rx.txt
+            build/_reference/csharp-rx-awgn.txt
+            build/_reference/rx-dumps.stamp
+          key: rx-dumps-${{ hashFiles('reference/pin.txt', 'scripts/generate-rx-dumps.sh', 'tools/csharp-vectors/*.cs', 'tools/csharp-vectors/*.csproj') }}
+      - name: Generate the receive dumps
+        run: scripts/generate-rx-dumps.sh
       - name: Configure the library and tests
-        run: cmake -S . -B build/tests -DCMAKE_BUILD_TYPE=Release -DMS110D_DOTNET_TESTS=OFF -DMS110D_REFERENCE_DIR="$GITHUB_WORKSPACE/build/_reference/ref" -DMS110D_WN0_POOR_STEM="$GITHUB_WORKSPACE/build/_reference/wn0-poor"
+        run: cmake -S . -B build/tests -DCMAKE_BUILD_TYPE=Release -DMS110D_DOTNET_TESTS=OFF -DMS110D_REFERENCE_DIR="$GITHUB_WORKSPACE/build/_reference/ref" -DMS110D_WN0_POOR_STEM="$GITHUB_WORKSPACE/build/_reference/wn0-poor" -DMS110D_RX_DUMP_DIR="$GITHUB_WORKSPACE/build/_reference"
       - name: Build the tests
         run: cmake --build build/tests -j4
       - name: Run the tests that use the reference files (must not skip)
         env:
           MS110D_REQUIRE_REFERENCE: "1"
         run: ctest --test-dir build/tests --output-on-failure -R "^reference " --no-tests=error
+      - name: Configure the single precision build
+        run: cmake -S . -B build/tests-single -DCMAKE_BUILD_TYPE=Release -DMS110D_PRECISION=single -DMS110D_DOTNET_TESTS=OFF -DMS110D_REFERENCE_DIR="$GITHUB_WORKSPACE/build/_reference/ref" -DMS110D_WN0_POOR_STEM="$GITHUB_WORKSPACE/build/_reference/wn0-poor" -DMS110D_RX_DUMP_DIR="$GITHUB_WORKSPACE/build/_reference"
+      - name: Build the single precision tests
+        run: cmake --build build/tests-single -j4
+      - name: Run the reference tests in single precision (must not skip)
+        env:
+          MS110D_REQUIRE_REFERENCE: "1"
+        run: ctest --test-dir build/tests-single --output-on-failure -R "^reference " --no-tests=error
       - name: Cache the real-audio corpus
         uses: actions/cache@v4
         with:
