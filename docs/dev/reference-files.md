@@ -45,6 +45,12 @@ CI runs the script on every PR and caches `build/_reference` keyed on `reference
 
     dotnet run -c Release --project tools/csharp-vectors -- framing > tests/data/csharp-framing-0.2.0.txt
 
+`tests/equaliser_test.cpp` compares the equaliser with the C# `Dfe` using a third dump of scripted scenarios, including real symbol streams from three reference cases, so it needs the reference directory to regenerate (docs/dev/equaliser.md):
+
+    dotnet run -c Release --project tools/csharp-vectors -- dfe build/_reference/ref > tests/data/csharp-dfe-0.2.0.txt
+
+`scripts/check-dumps.sh [reference-dir]` regenerates all six committed dumps (tables, framing, dfe, soft, `tests/csharp_vectors.hpp`, `tests/fec_vectors.inc`) and fails if any differs from the committed file; the CI reference job runs it.
+
 The tool (`tools/csharp-vectors`) is pinned to the NuGet package `M0LTE.Ms110d` 0.2.0, so bump the version in its project file together with `reference/pin.txt`. The BPSK, QPSK and 8PSK transcode lines come from the C# modulator's private `Transcode`, evaluated for every input through reflection. Without arguments the same tool prints the scrambler and interleaver vectors for `tests/csharp_vectors.hpp` (see `tools/csharp-vectors/make_header.py`).
 
 `tests/wn0_receiver_test.cpp` compares the WN 0 receiver with three more dumps from the same tool (`wn0`, `wn0-awgn`, `wn0-poor`), regenerated when the pin moves; the commands, and `scripts/generate-wn0-poor.sh` for the Poor channel corpus that is not committed, are in docs/dev/wn0-receiver.md.
