@@ -9,7 +9,8 @@ FetchContent_MakeAvailable(Catch2)
 add_executable(ms110d_tests
   support/alloc_guard.cpp
   version_test.cpp
-  alloc_guard_test.cpp)
+  alloc_guard_test.cpp
+  deviation_test.cpp)
 target_link_libraries(ms110d_tests PRIVATE m0lte::ms110d Catch2::Catch2WithMain)
 target_include_directories(ms110d_tests PRIVATE support)
 target_compile_definitions(ms110d_tests PRIVATE
@@ -92,3 +93,20 @@ if(MS110D_BUILD_C_SHARED)
     endif()
   endif()
 endif()
+
+# Accepted deviations list: see docs/dev/deviations.md.
+set(MS110D_DEVIATIONS_DOC "${PROJECT_SOURCE_DIR}/docs/deviations.md")
+add_test(NAME deviations_doc
+  COMMAND ${CMAKE_COMMAND}
+    "-DTEST_EXE=$<TARGET_FILE:ms110d_tests>"
+    "-DDOC=${MS110D_DEVIATIONS_DOC}"
+    "-DACTUAL=${CMAKE_CURRENT_BINARY_DIR}/deviations.actual.md"
+    -P "${PROJECT_SOURCE_DIR}/cmake/DeviationsDoc.cmake")
+add_custom_target(update-deviations
+  COMMAND ${CMAKE_COMMAND}
+    "-DTEST_EXE=$<TARGET_FILE:ms110d_tests>"
+    "-DDOC=${MS110D_DEVIATIONS_DOC}"
+    -DUPDATE=ON
+    -P "${PROJECT_SOURCE_DIR}/cmake/DeviationsDoc.cmake"
+  DEPENDS ms110d_tests
+  COMMENT "Rewriting docs/deviations.md")
