@@ -8,6 +8,8 @@
 
 Probe interface: the equaliser never decides what a probe contains. The caller supplies the known symbols, either row by row (`add_training_row(window, past, desired, weight)`) or as a sweep (`train_on_known(known, first_row, fill, context, weight)`, which is the C# probe-site loop). `known` is the probe plus however many symbols before it the feedback filter needs, `fill` builds the T/2 window for a symbol index, and `first_row` is at least the feedback tap count. Which probe applies at a site, including a probe whose pattern was detected rather than assumed, is the caller's business.
 
+`score_known(known, first_row, fill, context)` is the same sweep as `train_on_known` without adding rows or touching the training state, and callable on a const object: it equalises each known symbol with the current taps and returns the `ProbeStats` (correlation sum of `y * conj(known)`, error energy, rows). It is for scoring a trial probe pattern against the taps without training on it.
+
 `eq_params_for_probe_length(k)` holds the C# demodulator's tap counts and ridges per probe length (K = 48: 32 FF + 22 FB; K = 24: 16 + 6; otherwise 24 + 12), so the later demodulator story can size the block from the mode.
 
 ## Memory
@@ -55,10 +57,15 @@ Regenerate the dump when the C# pin moves:
 - Decisions: exact on every scenario in both builds, including the noisy ones. The noisy scenarios allow 1 in 200 in the test, in case a symbol ever sits within rounding of the slicer on another compiler.
 - Channel shortening: lags and flags exact; coefficients, residuals and the equalised frame bit for bit in double, within 1e-4 in single (the null case differs by 5e-7).
 - Symbol error rate against noise: with the C# seed the C++ makes the same samples, and the error counts are equal at all seven noise levels in both builds (0, 0, 0, 22, 240, 687, 1811 of 19200). With another seed, where there are 20 or more errors, the count stays within five Poisson deviations of the C# count. Single precision is not materially worse: the same counts.
+- Probe statistics (`ProbeStats` from `train_on_known`: correlation, error energy, rows) against the C# probe loop, and `score_known` against `train_on_known`. The tap counts, lead and ridges of `eq_params_for_probe_length` against the parameters every dump scenario ran with.
+- The paths the main scenarios skip, in a `misc` section of the dump: the genie noise power in the seed and the solve, `load_interpolated_taps`, the cap on P (`symmetrize_p` changes the taps afterwards, so it is not vacuous) and the training target energy after a snapshot and restore (through the shortening solve's residuals). Shortening solves also cover acceptance (echo found), rejection when the echo is buried in noise, rejection of a wrong constrained lag, and a channel with no cursor. The monic sign fallback only runs when the floating-gain refit fails, which none of these reach; the accepted coefficient (floating form) is compared with the C# exactly.
+- `scripts/check-dumps.sh` regenerates all five committed dumps and the CI reference job fails on any difference.
 - Memory table, storage checks (too small, odd alignment, out of range), the throwing cases, `train_on_known` against the row loop, and zero allocation across every operation for each tap set (the allocation guard, docs/dev/allocation-guard.md).
 
 ## Differences from the C#
 
+- Not a number in, `false` out. A NaN row in the training accumulation makes `solve_training` and `solve_training_tir` return without installing taps (the C# would install NaN taps: its Cholesky guard `sum.Re <= 0` is false for NaN, and `Math.Max(0, NaN)` passes the NaN into the residual). The guards are `!(x > 0)`, `solve_training` refuses a non-finite solution, and `rls_update` skips a NaN gain denominator. This is a deliberate robustness difference, not an accepted deviation: on finite inputs the behaviour is identical, which the dump proves (the double build still matches it bit for bit on every scenario).
+- The object is not movable (it points into the caller's block; a second object must never share that block).
 - Block storage supplied by the caller instead of arrays allocated in the constructor and on first use (`SnapshotTraining`, `BeginRls`); everything exists from `configure`.
 - The seed Gram of `seed_rls_from_training` shares the subset scratch (the two are never live together), saving one matrix.
 - No exceptions: `false` for the C# `InvalidOperationException` cases, and `configure` returns `false` for tap counts the C# constructor rejects (and for more than 64 taps, where the C# fails later in `RlsUpdate`).

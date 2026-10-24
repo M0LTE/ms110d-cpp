@@ -57,6 +57,8 @@ const std::vector<std::vector<double>>& channels() {
         {0.0, 0.0, 0.0, 0.0, 1.0, 0.0},
         {0.0, 0.0, 0.0, 0.0, 0.15, 0.0, 0.1, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
          0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, -0.3},
+        {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, -0.3},
     };
     return c;
 }
@@ -277,18 +279,18 @@ EqResult run_eq_scenario(const EqScenario& s, const fs::path& ref_dir) {
         for (int i = 0; i < k; i++) probe[static_cast<std::size_t>(i)] = b.tx[static_cast<std::size_t>(probe_at + i)];
 
         dfe.snapshot_taps(start_taps);
-        Sample probe_phase{};
-        double mse = 0;
-        int rows = 0;
-        for (int i = fb; i < k; i++) {
-            make_window(x, probe_at + i, s.lead, window);
-            for (int j = 0; j < fb; j++) past[static_cast<std::size_t>(j)] = probe[static_cast<std::size_t>(i - 1 - j)];
-            const Sample y = dfe.equalise(window, past);
-            probe_phase = cadd(probe_phase, cmul(y, cconj(probe[static_cast<std::size_t>(i)])));
-            mse += static_cast<double>(mag2(csub(y, probe[static_cast<std::size_t>(i)])));
-            rows++;
-            dfe.add_training_row(window, past, probe[static_cast<std::size_t>(i)], 6.0f);
-        }
+        struct ProbeCtx {
+            const std::vector<Sample>* x;
+            int lead, at;
+        } pctx{&x, s.lead, probe_at};
+        const WindowFill probe_fill = +[](void* c, int i, std::span<Sample> w) noexcept {
+            const auto& pc = *static_cast<ProbeCtx*>(c);
+            make_window(*pc.x, pc.at + i, pc.lead, w);
+        };
+        const ProbeStats ps = dfe.train_on_known(probe, fb, probe_fill, &pctx, 6.0f);
+        const Sample probe_phase = ps.correlation;
+        const double mse = static_cast<double>(ps.error_energy);
+        const int rows = ps.rows;
 
         if (s.extras && f == 1) {
             dfe.snapshot_training();
@@ -325,6 +327,8 @@ EqResult run_eq_scenario(const EqScenario& s, const fs::path& ref_dir) {
         pr.solved = solved;
         pr.corr = probe_phase;
         pr.mse = mse / rows;
+        pr.error_energy = mse;
+        pr.rows = rows;
         pr.post = post_phase;
         pr.ffe = dfe.ff_energy();
         r.probes.push_back(pr);
@@ -461,7 +465,7 @@ TirResult run_tir_scenario(const TirScenario& t) {
     Dfe dfe;
     dfe.configure(s.ff, s.fb, storage);
     std::vector<Sample> window(static_cast<std::size_t>(s.ff)), hist(static_cast<std::size_t>(s.fb));
-    for (int pass = 0; pass < (t.use_only_lag ? 2 : 1); pass++) {
+    for (int pass = 0; pass < (t.second_only_lag > 0 ? 2 : 1); pass++) {
         dfe.begin_training();
         for (int f = 0; f < 4; f++) {
             const int frame_at = b.start + (f * (s.u + s.k));
@@ -471,7 +475,7 @@ TirResult run_tir_scenario(const TirScenario& t) {
                 dfe.add_training_row(window, hist, b.tx[static_cast<std::size_t>(frame_at + i)], 1.0f);
             }
         }
-        const int only = pass == 1 ? 8 : 0;
+        const int only = pass == 1 ? t.second_only_lag : 0;
         TirResult::Pass p;
         p.t = dfe.solve_training_tir(1e-3f, 0.0f, std::min(s.fb, s.u / 2), t.allow_pair, only);
         p.ffe = dfe.ff_energy();
@@ -484,6 +488,108 @@ TirResult run_tir_scenario(const TirScenario& t) {
         res.y.push_back(dfe.equalise(window, zero));
     }
     return res;
+}
+
+namespace {
+
+void misc_rows(Dfe& dfe, const Burst& b, const std::vector<Sample>& x, int lead, int ff, int fb, int from, int to, float w) {
+    std::vector<Sample> window(static_cast<std::size_t>(ff)), past(static_cast<std::size_t>(fb));
+    for (int n = from; n < to; n++) {
+        make_window(x, n, lead, window);
+        for (int j = 0; j < fb; j++) past[static_cast<std::size_t>(j)] = b.tx[static_cast<std::size_t>(n - 1 - j)];
+        dfe.add_training_row(window, past, b.tx[static_cast<std::size_t>(n)], w);
+    }
+}
+
+void misc_updates(Dfe& dfe, const Burst& b, const std::vector<Sample>& x, int lead, int ff, int fb, int from, int to) {
+    std::vector<Sample> window(static_cast<std::size_t>(ff)), past(static_cast<std::size_t>(fb));
+    for (int n = from; n < to; n++) {
+        make_window(x, n, lead, window);
+        for (int j = 0; j < fb; j++) past[static_cast<std::size_t>(j)] = b.tx[static_cast<std::size_t>(n - 1 - j)];
+        dfe.rls_update(window, past, b.tx[static_cast<std::size_t>(n)], 1.0f);
+    }
+}
+
+void push_taps(std::vector<MiscLine>& out, const char* label, const Dfe& dfe) {
+    std::vector<Sample> taps(static_cast<std::size_t>(dfe.ff_taps() + dfe.fb_taps()));
+    dfe.snapshot_taps(taps);
+    MiscLine l{label, {}};
+    for (const Sample& t : taps) {
+        l.values.push_back(t.real());
+        l.values.push_back(t.imag());
+    }
+    out.push_back(std::move(l));
+}
+
+}  // namespace
+
+std::vector<MiscLine> run_misc_scenario(std::uint64_t& xhash) {
+    EqScenario s;
+    s.name = "misc";
+    s.k = 32;
+    s.u = 64;
+    s.frames = 4;
+    s.ff = 12;
+    s.fb = 4;
+    s.lead = 7;
+    s.noise_var = 0.05;
+    s.seed = 91;
+    s.chan = 0;
+    s.train_len = 192;
+    const Burst b = make_burst(s, {});
+    const std::vector<Sample> x = make_samples(s, b);
+    xhash = fnv(x);
+    const int ff = s.ff, fb = s.fb, lead = s.lead;
+    std::vector<MiscLine> out;
+
+    auto st = eq_storage(ff, fb);
+    Dfe dfe;
+    dfe.configure(ff, fb, st);
+    dfe.begin_training();
+    misc_rows(dfe, b, x, lead, ff, fb, 64, 224, 1.0f);
+    dfe.begin_rls(0.98f, 50.0f);
+    dfe.seed_rls_from_training(1e-3f, 1.0f, 0.05f);
+    const bool ok = dfe.solve_training(1e-3f, false, 0.05f);
+    out.push_back({"noisesolve-ok", {ok ? 1.0f : 0.0f, 0.0f}});
+    std::vector<Sample> a(static_cast<std::size_t>(ff + fb)), c2(static_cast<std::size_t>(ff + fb));
+    dfe.snapshot_taps(a);
+    push_taps(out, "noisesolve", dfe);
+    misc_updates(dfe, b, x, lead, ff, fb, 230, 270);
+    dfe.snapshot_taps(c2);
+    push_taps(out, "rls", dfe);
+    dfe.load_interpolated_taps(a, c2, 0.3f);
+    push_taps(out, "interp", dfe);
+
+    for (int variant = 0; variant < 2; variant++) {
+        auto sd = eq_storage(ff, fb);
+        Dfe d;
+        d.configure(ff, fb, sd);
+        d.begin_training();
+        misc_rows(d, b, x, lead, ff, fb, 100, 116, 1.0f);
+        d.begin_rls(0.98f, 1.0f);
+        d.seed_rls_from_training(1e-6f, 1.0f, 0.0f);
+        misc_updates(d, b, x, lead, ff, fb, 130, 140);
+        if (variant == 1) d.symmetrize_p(10.0f);
+        misc_updates(d, b, x, lead, ff, fb, 140, 150);
+        push_taps(out, variant == 0 ? "p-uncapped" : "p-capped", d);
+    }
+
+    auto stt = eq_storage(ff, fb);
+    Dfe t;
+    t.configure(ff, fb, stt);
+    t.begin_training();
+    misc_rows(t, b, x, lead, ff, fb, 64, 128, 1.0f);
+    t.snapshot_training();
+    t.begin_training();
+    misc_rows(t, b, x, lead, ff, fb, 128, 140, 3.0f);
+    t.restore_training();
+    misc_rows(t, b, x, lead, ff, fb, 200, 230, 1.0f);
+    const TirSolve r = t.solve_training_tir(1e-3f, 0.05f, 4, true, 0);
+    out.push_back({"tir-after-restore",
+                   {r.solved ? 1.0f : 0.0f, static_cast<float>(r.lag), r.coefficient.real(), r.coefficient.imag(),
+                    static_cast<float>(r.lag2), 0.0f, r.coefficient2.real(), r.coefficient2.imag(), r.sse_null, r.sse_tir,
+                    t.ff_energy(), 0.0f}});
+    return out;
 }
 
 }  // namespace ms110d_test

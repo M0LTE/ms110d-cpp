@@ -22,6 +22,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <limits>
+#include <type_traits>
 #include <span>
 #include <map>
 #include <sstream>
@@ -98,6 +100,14 @@ std::uint64_t u64(const std::string& hex) { return std::strtoull(hex.c_str(), nu
 
 Sample cx_at(const Tokens& t, std::size_t i) { return Sample{f32(t[i]), f32(t[i + 1])}; }
 
+// A complex value written "key=RE IM": the token after the one that starts with key=.
+Sample cx_kv(const Line& l, const std::string& key) {
+    for (std::size_t i = 0; i + 1 < l.tok.size(); i++) {
+        if (l.tok[i].rfind(key + "=", 0) == 0) return Sample{f32(l.tok[i].substr(key.size() + 1)), f32(l.tok[i + 1])};
+    }
+    return Sample{};
+}
+
 EqScenario scenario_of(const Line& l) {
     const auto& kv = l.kv;
     EqScenario s;
@@ -128,6 +138,8 @@ struct Agreement {
     double max_y = 0;          // largest |y_cpp - y_cs| over every equalised symbol
     double max_tap = 0;        // largest |tap_cpp - tap_cs| / max |tap_cs| at the end
     double max_probe_mse = 0;  // largest relative difference of the per-probe MSE
+    double max_stats = 0;      // largest relative difference of the probe statistics (correlation, error energy)
+    bool rows_match = true;
     long symbols = 0;
     long decision_mismatches = 0;
     long y_exact = 0;          // symbols whose bits are identical
@@ -150,6 +162,14 @@ Agreement compare(const Block& b, const EqResult& r) {
             if (f < r.probes.size()) {
                 const double m = f64(l.kv.at("mse"));
                 a.max_probe_mse = std::max(a.max_probe_mse, std::fabs(r.probes[f].mse - m) / std::max(m, 1e-30));
+                // ProbeStats from train_on_known against the C# loop: correlation, error energy, rows.
+                const double e = f64(l.kv.at("err"));
+                a.max_stats = std::max(a.max_stats, std::fabs(r.probes[f].error_energy - e) / std::max(e, 1e-30));
+                const Sample corr = cx_kv(l, "corr");
+                const double cd = std::hypot(static_cast<double>(r.probes[f].corr.real() - corr.real()),
+                                             static_cast<double>(r.probes[f].corr.imag() - corr.imag()));
+                a.max_stats = std::max(a.max_stats, cd / std::max(1.0, static_cast<double>(std::hypot(corr.real(), corr.imag()))));
+                a.rows_match = a.rows_match && r.probes[f].rows == std::atoi(l.kv.at("rows").c_str());
             }
         } else if (l.head == "y") {
             const auto f = static_cast<std::size_t>(std::atoi(l.kv.at("f").c_str()));
@@ -201,9 +221,11 @@ constexpr const char* precision_name = "double";
 // a small multiple of float rounding times the conditioning of the solve. These bounds were set
 // above the measured worst case and are tight enough to catch a real error (see the doc).
 #ifdef MS110D_SINGLE_PRECISION
+constexpr double tol_stats = 1e-5;
 constexpr double tol_y_clean = 1e-5;
 constexpr double tol_y_noisy = 1e-5;
 #else
+constexpr double tol_stats = 0.0;
 constexpr double tol_y_clean = 0.0;
 constexpr double tol_y_noisy = 0.0;
 #endif
@@ -215,9 +237,19 @@ void run_block(const Block& b, const std::filesystem::path& ref_dir) {
     const Agreement a = compare(b, r);
     CHECK(a.inputs_match);
     const bool noisy = s.name.find("noisy") != std::string::npos;
-    std::printf("AGREEMENT %s %s: symbols=%ld exact=%ld max|dy|=%.3g decision_mismatches=%ld max_tap_rel=%.3g max_probe_mse_rel=%.3g errors cpp=%ld cs=%s\n",
+    std::printf("AGREEMENT %s %s: symbols=%ld exact=%ld max|dy|=%.3g decision_mismatches=%ld max_tap_rel=%.3g max_probe_mse_rel=%.3g max_stats_rel=%.3g errors cpp=%ld cs=%s\n",
                 precision_name, s.name.c_str(), a.symbols, a.y_exact, a.max_y, a.decision_mismatches, a.max_tap,
-                a.max_probe_mse, r.errors, b.lines.back().kv.at("errors").c_str());
+                a.max_probe_mse, a.max_stats, r.errors, b.lines.back().kv.at("errors").c_str());
+    CHECK(a.rows_match);
+    CHECK(a.max_stats <= tol_stats);
+    // The tap counts, lead and ridges the scenario ran with are the ones the demodulator uses for
+    // this probe length (the dump holds the C# parameters; a typo in the table would show here).
+    const EqParams params = eq_params_for_probe_length(s.k);
+    CHECK(params.ff_taps == s.ff);
+    CHECK(params.fb_taps == s.fb);
+    CHECK(params.lead == s.lead);
+    CHECK(params.init_ridge == s.init_ridge);
+    CHECK(params.track_ridge == s.track_ridge);
     CHECK(a.max_y <= (noisy ? tol_y_noisy : tol_y_clean));
     // Decisions must match exactly on clean and moderate inputs; on the noisy ones a symbol sitting
     // within rounding of the slicer could flip, so up to 1 in 200 is allowed (none was seen).
@@ -274,7 +306,7 @@ TEST_CASE("equaliser: target impulse response solves agree with the C#", "[equal
             t.chan = std::atoi(b.head.kv.at("chan").c_str());
             t.noise_var = f64(b.head.kv.at("noisevar"));
             t.allow_pair = b.head.kv.at("pair") == "1";
-            t.use_only_lag = b.head.kv.at("onlylag") == "1";
+            t.second_only_lag = std::atoi(b.head.kv.at("onlylag").c_str());
             const TirResult r = run_tir_scenario(t);
             CHECK(r.xhash == u64(b.head.kv.at("xhash")));
             std::size_t pass = 0;
@@ -312,7 +344,7 @@ TEST_CASE("equaliser: target impulse response solves agree with the C#", "[equal
         }
         ran++;
     }
-    CHECK(ran == 3);
+    CHECK(ran == 6);
 }
 
 namespace {
@@ -509,4 +541,159 @@ TEST_CASE("equaliser: nothing allocates after configure", "[equaliser][alloc]") 
         CHECK(seen == 0);
         CHECK(t.solved);
     }
+}
+
+TEST_CASE("equaliser: genie noise power, interpolated taps, the cap on P and training energy after a restore agree with the C#", "[equaliser][misc]") {
+    std::uint64_t xhash = 0;
+    const std::vector<MiscLine> mine = run_misc_scenario(xhash);
+    const Block* block = nullptr;
+    for (const Block& b : dump()) {
+        if (b.head.head == "misc-header") block = &b;
+    }
+    // misc-header is not a block head (only scenario and tir are), so its lines hang off the last
+    // block; find them by scanning every line of the file instead.
+    std::ifstream in(MS110D_CSHARP_DFE_DUMP);
+    std::string text;
+    std::vector<Line> theirs;
+    std::uint64_t their_hash = 0;
+    while (std::getline(in, text)) {
+        Line l = parse_line(text);
+        if (l.head == "misc-header") their_hash = u64(l.kv.at("xhash"));
+        if (l.head == "misc") theirs.push_back(std::move(l));
+    }
+    (void)block;
+    CHECK(xhash == their_hash);
+    REQUIRE(theirs.size() == mine.size());
+#ifdef MS110D_SINGLE_PRECISION
+    constexpr double tol = 1e-5;
+#else
+    constexpr double tol = 0.0;
+#endif
+    for (std::size_t i = 0; i < mine.size(); i++) {
+        const Line& l = theirs[i];
+        REQUIRE(l.tok[0] == mine[i].label);
+        REQUIRE(l.tok.size() == mine[i].values.size() + 1);
+        double worst = 0;
+        for (std::size_t j = 0; j < mine[i].values.size(); j++) {
+            const float ref = f32(l.tok[j + 1]);
+            const double scale = std::max(1.0, std::fabs(static_cast<double>(ref)));
+            worst = std::max(worst, std::fabs(static_cast<double>(mine[i].values[j]) - static_cast<double>(ref)) / scale);
+        }
+        std::printf("MISC %s %s: worst_rel=%.3g\n", precision_name, mine[i].label.c_str(), worst);
+        CHECK(worst <= tol);
+    }
+    // The cap on P changes the taps (it bites), so the comparison above is not vacuous.
+    const auto find = [&](const char* label) -> const MiscLine& {
+        for (const MiscLine& m : mine) {
+            if (m.label == label) return m;
+        }
+        FAIL("missing " << label);
+        return mine[0];
+    };
+    CHECK(find("p-uncapped").values != find("p-capped").values);
+    // Interpolation lands between the two snapshots, not on either.
+    CHECK(find("interp").values != find("noisesolve").values);
+    CHECK(find("interp").values != find("rls").values);
+}
+
+namespace {
+
+struct ScoreCtx {
+    const std::vector<Sample>* k;
+};
+void score_fill(void* c, int i, std::span<Sample> window) noexcept {
+    const auto& k = *static_cast<ScoreCtx*>(c)->k;
+    for (std::size_t j = 0; j < window.size(); j++) {
+        const std::size_t at = (static_cast<std::size_t>(i) + j) % k.size();
+        window[j] = Sample{k[at].real() * 0.6f + 0.05f * static_cast<float>(j), k[at].imag() * 0.6f};
+    }
+}
+
+}  // namespace
+
+TEST_CASE("equaliser: score_known measures without training", "[equaliser]") {
+    auto st1 = eq_storage(6, 3), st2 = eq_storage(6, 3);
+    Dfe a, b;
+    REQUIRE(a.configure(6, 3, st1));
+    REQUIRE(b.configure(6, 3, st2));
+    std::vector<Sample> known;
+    for (int i = 0; i < 30; i++) known.push_back(Sample{static_cast<float>(i * 7 % 5) - 2.0f, static_cast<float>(i * 3 % 4) - 1.5f});
+    ScoreCtx ctx{&known};
+    // Give both some taps.
+    for (Dfe* d : {&a, &b}) {
+        d->begin_training();
+        d->train_on_known(known, 3, score_fill, &ctx, 1.0f);
+        REQUIRE(d->solve_training(1e-3f, false, 0.0f));
+    }
+    std::vector<Sample> before(9), after(9);
+    a.snapshot_taps(before);
+    const Dfe& view = a;  // callable on a const object
+    const ProbeStats scored = view.score_known(known, 3, score_fill, &ctx);
+    a.snapshot_taps(after);
+    CHECK(before == after);
+    CHECK(scored.rows == 27);
+    // Not begun: scoring still works, and a following add_training_row still refuses.
+    CHECK_FALSE(a.add_training_row(std::vector<Sample>(6), std::vector<Sample>(3), Sample{}));
+    CHECK(view.score_known(known, 3, score_fill, &ctx).rows == 27);
+    // Same numbers as the training sweep reports for the same taps.
+    b.begin_training();
+    const ProbeStats trained = b.train_on_known(known, 3, score_fill, &ctx, 1.0f);
+    CHECK(trained.rows == scored.rows);
+    CHECK(trained.error_energy == scored.error_energy);
+    CHECK(trained.correlation == scored.correlation);
+    // And the error energy is what the equalise loop gives (guards against a doubled or dropped term).
+    double expect = 0;
+    std::vector<Sample> w(6), p(3);
+    for (int i = 3; i < 30; i++) {
+        score_fill(&ctx, i, w);
+        for (int j = 0; j < 3; j++) p[static_cast<std::size_t>(j)] = known[static_cast<std::size_t>(i - 1 - j)];
+        const Sample y = a.equalise(w, p);
+        const Sample d{y.real() - known[static_cast<std::size_t>(i)].real(), y.imag() - known[static_cast<std::size_t>(i)].imag()};
+        expect += static_cast<double>(d.real() * d.real() + d.imag() * d.imag());
+    }
+    CHECK(std::fabs(static_cast<double>(scored.error_energy) - expect) <= 1e-4 * expect);
+    CHECK(view.score_known(known, 2, score_fill, &ctx).rows == 0);
+}
+
+TEST_CASE("equaliser: not a number in, false out and taps untouched", "[equaliser][nan]") {
+    auto st = eq_storage(6, 3);
+    Dfe d;
+    REQUIRE(d.configure(6, 3, st));
+    std::vector<Sample> known;
+    for (int i = 0; i < 40; i++) known.push_back(Sample{static_cast<float>(i * 7 % 5) - 2.0f, static_cast<float>(i * 3 % 4) - 1.5f});
+    ScoreCtx ctx{&known};
+    d.begin_training();
+    d.train_on_known(known, 3, score_fill, &ctx, 1.0f);
+    REQUIRE(d.solve_training(1e-3f, false, 0.0f));
+    std::vector<Sample> good(9), now(9);
+    d.snapshot_taps(good);
+
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    std::vector<Sample> w(6, Sample{1, 0}), p(3, Sample{1, 0});
+    // A NaN row poisons the accumulation: the solve refuses.
+    d.begin_training();
+    d.train_on_known(known, 3, score_fill, &ctx, 1.0f);
+    d.add_training_row(w, p, Sample{nan, 0}, 1.0f);
+    CHECK_FALSE(d.solve_training(1e-3f, true, 0.0f));
+    d.snapshot_taps(now);
+    CHECK(now == good);
+    // Same for the channel-shortening solve.
+    d.begin_training();
+    d.train_on_known(known, 3, score_fill, &ctx, 1.0f);
+    d.add_training_row(w, p, Sample{nan, 0}, 1.0f);
+    CHECK_FALSE(d.solve_training_tir(1e-3f, 0.0f, 3, true, 0).solved);
+    d.snapshot_taps(now);
+    CHECK(now == good);
+    // A NaN sample does not reach the taps through the RLS update either.
+    d.begin_rls(0.98f, 1.0f);
+    d.rls_update(std::vector<Sample>(6, Sample{nan, 0}), p, Sample{1, 0}, 1.0f);
+    d.snapshot_taps(now);
+    CHECK(now == good);
+}
+
+TEST_CASE("equaliser: the object is not movable", "[equaliser][memory]") {
+    static_assert(!std::is_move_constructible_v<Dfe>);
+    static_assert(!std::is_move_assignable_v<Dfe>);
+    static_assert(!std::is_copy_constructible_v<Dfe>);
+    SUCCEED();
 }

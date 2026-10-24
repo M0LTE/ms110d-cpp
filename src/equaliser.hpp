@@ -113,8 +113,9 @@ public:
     Dfe() noexcept = default;
     Dfe(const Dfe&) = delete;
     Dfe& operator=(const Dfe&) = delete;
-    Dfe(Dfe&&) noexcept = default;
-    Dfe& operator=(Dfe&&) noexcept = default;
+    // Not movable: the object points into the caller's block, and two objects must never share one.
+    Dfe(Dfe&&) = delete;
+    Dfe& operator=(Dfe&&) = delete;
 
     // Bytes of storage configure() needs for these tap counts, or 0 if they are out of range
     // (ff_taps at least 1, fb_taps at least 0, together at most eq_max_taps).
@@ -174,6 +175,11 @@ public:
     // feedback tap count and training begun; otherwise adds nothing and returns rows == 0.
     ProbeStats train_on_known(std::span<const EqSample> known, int first_row, WindowFill fill, void* context,
                               float weight) noexcept;
+    // The same sweep without adding rows or touching the training state: equalises each known
+    // symbol with the current taps and returns the statistics (correlation sum of y * conj(known)
+    // and error energy). For scoring a trial probe pattern against the taps without training on it.
+    // Does not need training to have begun. Rows == 0 if first_row is below the feedback tap count.
+    ProbeStats score_known(std::span<const EqSample> known, int first_row, WindowFill fill, void* context) const noexcept;
 
     // Solves the accumulated regularised normal equations and installs the taps; false (taps
     // unchanged) if degenerate or too few rows. The accumulation is consumed either way.
@@ -201,6 +207,8 @@ public:
 private:
     using Cx = eq_detail::Cx;
 
+    ProbeStats sweep_known(std::span<const EqSample> known, int first_row, WindowFill fill, void* context,
+                           float weight, bool add_rows) noexcept;
     bool cholesky_factor(const Cx* a, int n) noexcept;
     void cholesky_substitute(const Cx* b, Cx* x, int n) noexcept;
     float solve_subset(std::span<const int> fb_indices, float regularization, float ff_noise_power, Cx* sol) noexcept;

@@ -39,6 +39,8 @@ struct EqProbe {
     bool solved = false;
     Sample corr, post;
     double mse = 0;
+    double error_energy = 0;  // the sum behind mse, as train_on_known reports it
+    int rows = 0;
     float ffe = 0;
 };
 
@@ -65,7 +67,7 @@ struct TirScenario {
     int chan = 0;
     double noise_var = 0.1;
     bool allow_pair = true;
-    bool use_only_lag = false;
+    int second_only_lag = 0;  // if above 0, a second pass constrained to this lag
 };
 
 struct TirResult {
@@ -80,8 +82,16 @@ struct TirResult {
 
 TirResult run_tir_scenario(const TirScenario& s);
 
+// The paths the scenarios skip (genie noise power, interpolated taps, the cap on P, training
+// target energy after a restore): the C# dump's "misc" lines, as labelled lists of floats.
+struct MiscLine {
+    std::string label;
+    std::vector<float> values;
+};
+std::vector<MiscLine> run_misc_scenario(std::uint64_t& xhash);
+
 // Number of T/2 channel taps defined (chan index range).
-inline constexpr int eq_channel_count = 4;
+inline constexpr int eq_channel_count = 5;
 
 // Memory the equaliser block needs for a tap pair, in a std::vector, for convenience.
 std::vector<std::uint8_t> eq_storage(int ff, int fb);

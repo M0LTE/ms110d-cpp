@@ -45,6 +45,10 @@ inline Cx conj(Cx a) noexcept { return Cx{a.re, -a.im}; }
 inline float mag2(Cx a) noexcept { return (a.re * a.re) + (a.im * a.im); }
 inline constexpr Cx zero{0.0f, 0.0f};
 
+// max(0, v) that passes a NaN through, as Math.Max does in the C# (std::max would return 0 for a NaN
+// and hide it from the callers' NaN checks).
+inline real nonneg(real v) noexcept { return v != v ? v : (v > 0 ? v : static_cast<real>(0)); }
+
 
 // Layout of the block, in elements, in order. Everything is 4 byte aligned (floats).
 struct Layout {
@@ -247,10 +251,10 @@ bool Dfe::add_training_row(std::span<const EqSample> window, std::span<const EqS
     return true;
 }
 
-ProbeStats Dfe::train_on_known(std::span<const EqSample> known, int first_row, WindowFill fill, void* context,
-                               float weight) noexcept {
+ProbeStats Dfe::sweep_known(std::span<const EqSample> known, int first_row, WindowFill fill, void* context,
+                            float weight, bool add_rows) noexcept {
     ProbeStats stats;
-    if (!gram_active_ || first_row < nfb_) return stats;
+    if (first_row < nfb_ || (add_rows && !gram_active_)) return stats;
     Cx correlation = zero;
     real err = 0;
     const std::span<EqSample> window{win_, ssz(nff_)};
@@ -262,12 +266,22 @@ ProbeStats Dfe::train_on_known(std::span<const EqSample> known, int first_row, W
         const Cx k = cx(known[ssz(i)]);
         correlation += y * conj(k);
         err += static_cast<real>(mag2(y - k));
-        add_training_row(window, past, known[ssz(i)], weight);
+        if (add_rows) add_training_row(window, past, known[ssz(i)], weight);
         ++stats.rows;
     }
     stats.correlation = out(correlation);
     stats.error_energy = err;
     return stats;
+}
+
+ProbeStats Dfe::train_on_known(std::span<const EqSample> known, int first_row, WindowFill fill, void* context,
+                               float weight) noexcept {
+    return sweep_known(known, first_row, fill, context, weight, true);
+}
+
+ProbeStats Dfe::score_known(std::span<const EqSample> known, int first_row, WindowFill fill, void* context) const noexcept {
+    // Reads the taps and writes only the window scratch, which is not part of the equaliser's state.
+    return const_cast<Dfe*>(this)->sweep_known(known, first_row, fill, context, 0.0f, false);
 }
 
 bool Dfe::cholesky_factor(const Cx* a, int n) noexcept {
@@ -278,7 +292,7 @@ bool Dfe::cholesky_factor(const Cx* a, int n) noexcept {
             Cx sum = a[ssz(i) * ld + ssz(j)];
             for (int k = 0; k < j; ++k) sum -= l[ssz(i) * ld + ssz(k)] * conj(l[ssz(j) * ld + ssz(k)]);
             if (i == j) {
-                if (sum.re <= 0) return false;
+                if (!(sum.re > 0)) return false;
                 l[ssz(i) * ld + ssz(j)] = cx(std::sqrt(sum.re), 0.0f);
             } else {
                 const float inv = 1.0f / l[ssz(j) * ld + ssz(j)].re;
@@ -332,6 +346,14 @@ bool Dfe::solve_training(float regularization, bool anchor_to_current_taps, floa
         return false;
     }
     cholesky_substitute(rhs_, solution_, n);
+    // A NaN or infinity in the data reaches the solution through the right-hand side without upsetting
+    // the factorisation; refuse it rather than install it. Finite data is unaffected.
+    for (int i = 0; i < n; ++i) {
+        if (!std::isfinite(solution_[i].re) || !std::isfinite(solution_[i].im)) {
+            gram_active_ = false;
+            return false;
+        }
+    }
     std::copy_n(solution_, nff_, ff_);
     std::copy_n(solution_ + nff_, nfb_, fb_);
     gram_active_ = false;
@@ -385,7 +407,7 @@ float Dfe::solve_subset(std::span<const int> fb_indices, float regularization, f
     }
     const real sse = static_cast<real>(training_target_energy_) + quad - (2 * lin) -
                      (static_cast<real>(lambda) * nrm) - (static_cast<real>(noise_diag) * nrm_ff);
-    return static_cast<float>(std::max(static_cast<real>(0), sse));
+    return static_cast<float>(nonneg(sse));
 }
 
 bool Dfe::prepare_floating_tir(float regularization, float ff_noise_power) noexcept {
@@ -467,7 +489,7 @@ float Dfe::solve_floating_candidate(std::span<const int> fb_indices, Cx* sol, Cx
                 if (i == j) sum += cx(eps, 0.0f);
                 for (int c = 0; c < j; ++c) sum -= l[i * 3 + c] * conj(l[j * 3 + c]);
                 if (i == j) {
-                    if (sum.re <= 0) {
+                    if (!(sum.re > 0)) {
                         factored = false;
                         break;
                     }
@@ -534,7 +556,7 @@ float Dfe::solve_floating_candidate(std::span<const int> fb_indices, Cx* sol, Cx
         quad += static_cast<real>((conj(sol[i]) * acc).re);
     }
     const real sse = dt - (2 * lin) + quad;
-    return static_cast<float>(std::max(static_cast<real>(0), sse));
+    return static_cast<float>(nonneg(sse));
 }
 
 TirSolve Dfe::solve_training_tir(float regularization, float ff_noise_power, int max_lag, bool allow_pair,
@@ -710,7 +732,7 @@ EqSample Dfe::rls_update(std::span<const EqSample> window, std::span<const EqSam
     for (int j = 0; j < n; ++j) u_px += u[j] * px_[j];
 
     const float denom = lambda_ + (weight * u_px.re);
-    if (denom <= 1e-12f) return out(y);
+    if (!(denom > 1e-12f)) return out(y);
     const float inv_denom = 1.0f / denom;
 
     const Cx error = cx(desired) - y;

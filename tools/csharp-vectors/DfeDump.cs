@@ -65,6 +65,10 @@ static class DfeDump
         // case channel shortening is for): T/2 taps 2 and 3 are weak, tap 18 is strong
         [0.0, 0.0, 0.0, 0.0, 0.15, 0.0, 0.1, 0.05, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
          0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, -0.3],
+        // 4: no cursor at all, only the echo 8 symbols later (the cursor gain of the shortening
+        // solve collapses)
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+         0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, -0.3],
     ];
 
     // Rotation per T/2 sample as a literal (no trig): about 0.002 rad.
@@ -464,7 +468,8 @@ static class DfeDump
             if (!s.Quiet)
             {
                 sb.Append("probe f=").Append(f).Append(" solved=").Append(solved ? 1 : 0)
-                    .Append(" corr=").Append(C(probePhase)).Append(" mse=").Append(D(mse / rows))
+                    .Append(" corr=").Append(C(probePhase)).Append(" err=").Append(D(mse)).Append(" rows=").Append(rows)
+                    .Append(" mse=").Append(D(mse / rows))
                     .Append(" post=").Append(C(postPhase)).Append(" ffe=").Append(F(dfe.FfEnergy)).Append('\n');
             }
 
@@ -653,7 +658,7 @@ static class DfeDump
 
     // ------------------------------------------------------------------ target impulse response
 
-    static void RunTir(string name, int chan, double noiseVar, bool allowPair, bool useOnlyLag, StringBuilder sb)
+    static void RunTir(string name, int chan, double noiseVar, bool allowPair, int secondOnlyLag, StringBuilder sb)
     {
         var s = new Scenario
         {
@@ -663,12 +668,12 @@ static class DfeDump
         Burst b = MakeBurst(s, "");
         Complex32[] x = MakeSamples(s, b);
         sb.Append("tir name=").Append(name).Append(" chan=").Append(chan).Append(" noisevar=").Append(D(noiseVar))
-            .Append(" pair=").Append(allowPair ? 1 : 0).Append(" onlylag=").Append(useOnlyLag ? 1 : 0)
+            .Append(" pair=").Append(allowPair ? 1 : 0).Append(" onlylag=").Append(secondOnlyLag)
             .Append(" xhash=").Append(Fnv(x).ToString("x16", CultureInfo.InvariantCulture)).Append('\n');
         var dfe = new Dfe(s.Ff, s.Fb);
         var window = new Complex32[s.Ff];
         var hist = new Complex32[s.Fb];
-        for (int pass = 0; pass < (useOnlyLag ? 2 : 1); pass++)
+        for (int pass = 0; pass < (secondOnlyLag > 0 ? 2 : 1); pass++)
         {
             dfe.BeginTraining();
             // Rows over the whole span of four frames (the turbo pass re-trains on the decided
@@ -688,7 +693,7 @@ static class DfeDump
                 }
             }
 
-            int only = pass == 1 ? 8 : 0;
+            int only = pass == 1 ? secondOnlyLag : 0;
             Dfe.TirSolve t = dfe.SolveTrainingTir(1e-3f, 0f, Math.Min(s.Fb, s.U / 2), allowPair, only);
             sb.Append("tirsolve pass=").Append(pass).Append(" solved=").Append(t.Solved ? 1 : 0).Append(" lag=").Append(t.Lag)
                 .Append(" c1=").Append(C(t.Coefficient)).Append(" lag2=").Append(t.Lag2).Append(" c2=").Append(C(t.Coefficient2))
@@ -707,6 +712,117 @@ static class DfeDump
         }
 
         sb.Append('\n');
+    }
+
+    // ------------------------------------------------------------------ paths the scenarios skip
+
+    static void Toks(StringBuilder sb, string label, IEnumerable<Complex32> v)
+    {
+        sb.Append("misc ").Append(label);
+        foreach (Complex32 c in v)
+        {
+            sb.Append(' ').Append(C(c));
+        }
+
+        sb.Append('\n');
+    }
+
+    static void MiscRows(Dfe dfe, Burst b, Complex32[] x, int lead, int ff, int fb, int from, int to, float w)
+    {
+        var window = new Complex32[ff];
+        var past = new Complex32[fb];
+        for (int n = from; n < to; n++)
+        {
+            Window(x, n, lead, window);
+            for (int j = 0; j < fb; j++)
+            {
+                past[j] = b.Tx[n - 1 - j];
+            }
+
+            dfe.AddTrainingRow(window, past, b.Tx[n], w);
+        }
+    }
+
+    static void MiscUpdates(Dfe dfe, Burst b, Complex32[] x, int lead, int ff, int fb, int from, int to)
+    {
+        var window = new Complex32[ff];
+        var past = new Complex32[fb];
+        for (int n = from; n < to; n++)
+        {
+            Window(x, n, lead, window);
+            for (int j = 0; j < fb; j++)
+            {
+                past[j] = b.Tx[n - 1 - j];
+            }
+
+            dfe.RlsUpdate(window, past, b.Tx[n], 1f);
+        }
+    }
+
+    // Genie noise power in the solves, interpolated taps, the cap on P, and the training target
+    // energy after a snapshot and restore (seen through the shortening solve's residuals).
+    static void RunMisc(StringBuilder sb)
+    {
+        var s = new Scenario
+        {
+            Name = "misc", K = 32, U = 64, Frames = 4, Ff = 12, Fb = 4, Lead = 7, NoiseVar = 0.05, Seed = 91, Chan = 0, TrainLen = 192,
+        };
+        Burst b = MakeBurst(s, "");
+        Complex32[] x = MakeSamples(s, b);
+        sb.Append("misc-header xhash=").Append(Fnv(x).ToString("x16", CultureInfo.InvariantCulture)).Append('\n');
+        int ff = s.Ff, fb = s.Fb, lead = s.Lead;
+
+        // Noise power (the genie term) in the seed and the solve.
+        var dfe = new Dfe(ff, fb);
+        dfe.BeginTraining();
+        MiscRows(dfe, b, x, lead, ff, fb, 64, 224, 1f);
+        dfe.BeginRls(0.98f, 50f);
+        dfe.SeedRlsFromTraining(1e-3f, 1f, 0.05f);
+        bool ok = dfe.SolveTraining(1e-3f, false, 0.05f);
+        Toks(sb, "noisesolve-ok", [new Complex32(ok ? 1f : 0f, 0f)]);
+        Complex32[] a = dfe.SnapshotTaps();
+        Toks(sb, "noisesolve", a);
+        MiscUpdates(dfe, b, x, lead, ff, fb, 230, 270);
+        Complex32[] c2 = dfe.SnapshotTaps();
+        Toks(sb, "rls", c2);
+
+        // Interpolation between the two snapshots.
+        dfe.LoadInterpolatedTaps(a, c2, 0.3f);
+        Toks(sb, "interp", dfe.SnapshotTaps());
+
+        // The cap on P: a rank-deficient seed makes P large, so SymmetrizeP(10) bites.
+        for (int variant = 0; variant < 2; variant++)
+        {
+            var d = new Dfe(ff, fb);
+            d.BeginTraining();
+            MiscRows(d, b, x, lead, ff, fb, 100, 116, 1f);
+            d.BeginRls(0.98f, 1f);
+            d.SeedRlsFromTraining(1e-6f, 1f, 0f);
+            MiscUpdates(d, b, x, lead, ff, fb, 130, 140);
+            if (variant == 1)
+            {
+                d.SymmetrizeP(10f);
+            }
+
+            MiscUpdates(d, b, x, lead, ff, fb, 140, 150);
+            Toks(sb, variant == 0 ? "p-uncapped" : "p-capped", d.SnapshotTaps());
+        }
+
+        // Target energy after a restore: rows, snapshot, nested rows, restore, more rows, shortening solve.
+        var t = new Dfe(ff, fb);
+        t.BeginTraining();
+        MiscRows(t, b, x, lead, ff, fb, 64, 128, 1f);
+        t.SnapshotTraining();
+        t.BeginTraining();
+        MiscRows(t, b, x, lead, ff, fb, 128, 140, 3f);
+        t.RestoreTraining();
+        MiscRows(t, b, x, lead, ff, fb, 200, 230, 1f);
+        Dfe.TirSolve r = t.SolveTrainingTir(1e-3f, 0.05f, 4, true, 0);
+        Toks(sb, "tir-after-restore",
+        [
+            new Complex32(r.Solved ? 1f : 0f, r.Lag), r.Coefficient, new Complex32(r.Lag2, 0f), r.Coefficient2,
+            new Complex32(r.SseNull, r.SseTir), new Complex32(t.FfEnergy, 0f),
+        ]);
     }
 
     // ------------------------------------------------------------------ the list
@@ -753,9 +869,15 @@ static class DfeDump
 
         // Target impulse response: an echo-free channel, a channel with the echo (pair allowed, pair
         // suppressed, constrained to a lag).
-        RunTir("tir-null", 0, 0.02, true, false, sb);
-        RunTir("tir-echo-pair", 3, 0.1, true, false, sb);
-        RunTir("tir-echo-single", 3, 0.1, false, true, sb);
+        RunTir("tir-null", 0, 0.02, true, 0, sb);
+        RunTir("tir-echo-pair", 3, 0.1, true, 0, sb);
+        RunTir("tir-echo-single", 3, 0.1, false, 8, sb);
+        // Acceptance threshold: the same echo buried in noise is rejected; a constrained lag that is
+        // not the echo's is rejected; with no cursor the gain of the shortening solve collapses.
+        RunTir("tir-echo-buried", 3, 6.0, true, 0, sb);
+        RunTir("tir-echo-wronglag", 3, 0.1, true, 5, sb);
+        RunTir("tir-echo-only", 4, 0.1, true, 8, sb);
+        RunMisc(sb);
 
         // Symbol error curve on the multipath channel: K = 32 class, fading pass, many frames.
         double[] ladder = [0.02, 0.05, 0.1, 0.2, 0.35, 0.5, 0.8];

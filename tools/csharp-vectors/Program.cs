@@ -26,6 +26,13 @@ if (args.Length > 0 && args[0] == "fec")
     return;
 }
 
+// "soft" mode: Viterbi, SISO and BCJR vectors for tests/data/csharp-soft-0.2.0.txt (see SoftDump.cs).
+if (args.Length > 0 && args[0] == "soft")
+{
+    Console.Out.Write(SoftDump.Run());
+    return;
+}
+
 // "framing" mode: waveform ID and downcount di-bits for tests/data/csharp-framing-0.2.0.txt (see FramingDump.cs).
 if (args.Length > 0 && args[0] == "framing")
 {

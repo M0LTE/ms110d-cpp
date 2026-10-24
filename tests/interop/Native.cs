@@ -11,6 +11,7 @@ namespace Ms110dInterop.Tests;
 internal static class Native
 {
     private const string Lib = "ms110d_c";
+    private const string HooksLib = "ms110d_testhooks";
 
     /// <summary>MS110D_ABI_VERSION in the header this project was written against.</summary>
     public const uint ExpectedAbiVersion = 1;
@@ -28,11 +29,26 @@ internal static class Native
 
     private static IntPtr Resolve(string name, Assembly assembly, DllImportSearchPath? path)
     {
-        if (name != Lib)
+        if (name == Lib)
         {
-            return IntPtr.Zero;
+            return NativeLibrary.Load(LibraryPath());
         }
-        return NativeLibrary.Load(LibraryPath());
+        if (name == HooksLib)
+        {
+            return NativeLibrary.Load(TestHooksPath());
+        }
+        return IntPtr.Zero;
+    }
+
+    /// <summary>The test-only hooks library (tests/testhooks), from MS110D_TESTHOOKS_LIB (set by ctest).</summary>
+    public static string TestHooksPath()
+    {
+        string? p = Environment.GetEnvironmentVariable("MS110D_TESTHOOKS_LIB");
+        if (string.IsNullOrEmpty(p) || !File.Exists(p))
+        {
+            throw new InvalidOperationException("MS110D_TESTHOOKS_LIB is not set to a file; run these tests through ctest, or point it at libms110d_testhooks.");
+        }
+        return p;
     }
 
     /// <summary>The shared library under test, from MS110D_NATIVE_LIB (set by ctest).</summary>
@@ -110,4 +126,48 @@ internal static class Native
     public static extern int TxModulate(IntPtr tx, byte[] bits, uint bitCount, float[] audio, uint capacity, out uint written);
 
     public static string StatusString(int status) => Marshal.PtrToStringAnsi(StatusStringPtr(status))!;
+
+    // ---- Test-only stage hooks (tests/testhooks/ms110d_testhooks.h). Not part of the C interface. ----
+
+    [DllImport(HooksLib, EntryPoint = "ms110d_th_encode")]
+    public static extern unsafe int ThEncode(int constraintLength, byte* info, uint infoLen, byte* coded, uint codedCapacity, out uint codedLen);
+
+    [DllImport(HooksLib, EntryPoint = "ms110d_th_puncture")]
+    public static extern unsafe int ThPuncture(int constraintLength, int rateNum, int rateDen, byte* coded, uint codedLen, byte* output, uint outCapacity, out uint outLen);
+
+    [DllImport(HooksLib, EntryPoint = "ms110d_th_interleave")]
+    public static extern unsafe int ThInterleave(uint sizeBits, uint increment, byte* input, uint inLen, byte* output, uint outCapacity);
+
+    [DllImport(HooksLib, EntryPoint = "ms110d_th_transcode")]
+    public static extern unsafe int ThTranscode(int wn, byte* bits, uint inLen, byte* symbols, uint symbolsCapacity, out uint symbolsLen);
+
+    [DllImport(HooksLib, EntryPoint = "ms110d_th_scramble")]
+    public static extern unsafe int ThScramble(int wn, uint frameSymbols, byte* symbols, uint symbolsLen, byte* output, uint outCapacity);
+
+    [DllImport(HooksLib, EntryPoint = "ms110d_th_trinomial")]
+    public static extern unsafe int ThTrinomial(uint blockSymbols, uint count, byte* output, uint outCapacity);
+
+    [DllImport(HooksLib, EntryPoint = "ms110d_th_frame")]
+    public static extern unsafe int ThFrame(byte* payload, uint payloadLen, int appendEom, uint inputBits, byte* output, uint outCapacity, out uint outLen);
+
+    [DllImport(HooksLib, EntryPoint = "ms110d_th_preamble")]
+    public static extern unsafe int ThPreamble(int tlcBlocks, int superframes, int wn, int interleaverKind, int constraintLength, byte* chips, uint capacity, out uint chipsLen);
+
+    /// <summary>
+    /// Binds every hook once, on the calling thread, with arguments the hooks reject. Lazy binding of
+    /// a P/Invoke from several threads at once (through the resolver above) crashed the runtime
+    /// intermittently, so tests that use worker threads call this first.
+    /// </summary>
+    public static unsafe void BindAll()
+    {
+        _ = StatusString(Ok);
+        _ = ThEncode(0, null, 0, null, 0, out _);
+        _ = ThPuncture(0, 0, 0, null, 0, null, 0, out _);
+        _ = ThInterleave(0, 0, null, 0, null, 0);
+        _ = ThTranscode(0, null, 0, null, 0, out _);
+        _ = ThScramble(0, 0, null, 0, null, 0);
+        _ = ThTrinomial(0, 0, null, 0);
+        _ = ThFrame(null, 0, 0, 0, null, 0, out _);
+        _ = ThPreamble(0, 0, 0, 0, 0, null, 0, out _);
+    }
 }
