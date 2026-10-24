@@ -25,6 +25,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -560,4 +561,43 @@ TEST_CASE("BCJR equalisers: argument checks and no allocation", "[soft]") {
     CHECK_FALSE(chain.equalize(bad, llrs_c));
     ms110d::ChainBcjr small(10, 8);
     CHECK_FALSE(small.equalize(in, llrs_c));                       // longer than the constructor allows
+}
+
+TEST_CASE("decoders survive infinite and NaN LLRs", "[soft]") {
+    // An infinite or NaN LLR must not be undefined behaviour (the sanitizer build checks); the
+    // outputs are whatever the arithmetic gives.
+    const float inf = std::numeric_limits<float>::infinity();
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    for (const auto* code : {&fec::k7_133_171, &fec::k9_561_753}) {
+        const std::size_t n = 40;
+        Rng rng(9);
+        const Block b = make_block(*code, n, 0.7, rng);
+        fec::TailBitingViterbiDecoder vit(*code, n);
+        fec::TailBitingSisoDecoder siso(*code, n);
+        for (float bad : {inf, -inf, nan}) {
+            std::vector<float> llr = b.llr;
+            llr[3] = bad;
+            llr[10] = -bad;
+            llr[11] = bad;
+            std::vector<std::uint8_t> bits(n);
+            std::vector<float> post(2 * n);
+            CHECK(vit.decode(llr, bits));
+            CHECK(siso.decode(llr, post));
+        }
+    }
+}
+
+TEST_CASE("Viterbi on a block long enough to renormalise", "[soft]") {
+    // 1100 + 2 * 42 steps passes the metric renormalisation at step 1023. With float metrics
+    // and LLRs of this size the metrics would not overflow without it, so a mutation that
+    // removes the renormalisation cannot be made to fail here; this checks the path runs and
+    // decodes correctly (high SNR, so the block must come back exactly).
+    const fec::ConvolutionalCode& code = fec::k7_133_171;
+    const std::size_t n = 1100;
+    Rng rng(31);
+    const Block b = make_block(code, n, 0.4, rng);
+    fec::TailBitingViterbiDecoder vit(code, n);
+    std::vector<std::uint8_t> bits(n);
+    REQUIRE(vit.decode(b.llr, bits));
+    CHECK(bits == b.info);
 }

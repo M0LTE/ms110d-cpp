@@ -54,7 +54,8 @@ float TailBitingSisoDecoder::max_star(float a, float b) const noexcept {
     if (std::isinf(m) && m < 0.0f) {
         return m;
     }
-    if (d >= static_cast<float>(corr_entries) * corr_step) {
+    // Not (d < 8) rather than (d >= 8): an infinite or NaN d must not reach the table index.
+    if (!(d < static_cast<float>(corr_entries) * corr_step)) {
         return m;
     }
     return m + corr_[static_cast<std::size_t>(d * (1.0f / corr_step))];
