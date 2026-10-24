@@ -25,6 +25,7 @@
 #include <bit>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <map>
@@ -129,6 +130,14 @@ struct CsCase {
     long long payload = 0, end_at = 0;
 };
 
+// A receive dump made by scripts/generate-rx-dumps.sh: skipped when absent, a failure when
+// MS110D_REQUIRE_REFERENCE is set (the CI reference job).
+void require_dump(const char* path) {
+    if (std::ifstream(path).good()) return;
+    if (std::getenv("MS110D_REQUIRE_REFERENCE") != nullptr) FAIL("the receive dump is missing: " << path);
+    SKIP("no receive dump at " << path << " (run scripts/generate-rx-dumps.sh)");
+}
+
 std::vector<CsCase> load_clean_dump() {
     std::ifstream in(MS110D_CSHARP_RX_DUMP);
     REQUIRE(in.good());
@@ -190,6 +199,7 @@ struct Worst {
 TEST_CASE("reference demodulator: every WN 1 to 5 ultra-short and short case against the C# frame by frame",
           "[dfe_receiver]") {
     const fs::path dir = ms110d_test::reference_dir_or_skip();
+    require_dump(MS110D_CSHARP_RX_DUMP);
     const std::vector<CsCase> cases = load_clean_dump();
     REQUIRE(cases.size() == 41);
     ms110d_test::RxDriver driver(InterleaverKind::Short);
@@ -289,6 +299,7 @@ TEST_CASE("reference demodulator: every WN 1 to 5 ultra-short and short case aga
 TEST_CASE("reference demodulator: seeded AWGN and cut bursts on WN 1 to 5 against the C#, decisions exact",
           "[dfe_receiver]") {
     const fs::path dir = ms110d_test::reference_dir_or_skip();
+    require_dump(MS110D_CSHARP_RX_AWGN);
     std::ifstream in(MS110D_CSHARP_RX_AWGN);
     REQUIRE(in.good());
     ms110d_test::RxDriver driver(InterleaverKind::Short);
@@ -507,8 +518,12 @@ TEST_CASE("dfe receiver: the C++ transmitter's bursts decode, WN 1 to 5, ultra-s
                 const std::size_t n_in = static_cast<std::size_t>(ip->input_bits);
                 TxRig rig(s, 3 * n_in);
                 // Block edges: one bit, an EOM ending exactly on a block end, a payload that fills
-                // a block (EOM in the next), and more than two blocks.
-                for (const std::size_t bits : {std::size_t{1}, n_in > 32 ? n_in - 32 : n_in + 1, n_in, 2 * n_in + 7}) {
+                // a block (EOM in the next), more than two blocks, and an EOM split one bit over
+                // a block boundary.
+                // The last: only the EOM's final bit falls in the next block.
+                const std::size_t eom_edge = (((31 / n_in) + 1) * n_in) - 31;
+                for (const std::size_t bits :
+                     {std::size_t{1}, n_in > 32 ? n_in - 32 : n_in + 1, n_in, 2 * n_in + 7, eom_edge}) {
                     INFO("wn " << wn << " il " << static_cast<int>(il) << " k " << k << " bits " << bits);
                     const auto payload = random_bits(rng, bits);
                     const ms110d_test::RxRun r = driver.run(on_air(rig.burst(payload), std::nan(""), 0));
@@ -523,7 +538,7 @@ TEST_CASE("dfe receiver: the C++ transmitter's bursts decode, WN 1 to 5, ultra-s
             }
         }
     }
-    CHECK(bursts == 80);
+    CHECK(bursts == 100);
 }
 
 TEST_CASE("dfe receiver: the C++ transmitter's bursts decode in noise", "[dfe_receiver]") {
