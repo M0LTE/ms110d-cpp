@@ -10,6 +10,7 @@ add_executable(ms110d_tests
   support/alloc_guard.cpp
   version_test.cpp
   alloc_guard_test.cpp
+  fec_test.cpp
   deviation_test.cpp)
 target_link_libraries(ms110d_tests PRIVATE m0lte::ms110d Catch2::Catch2WithMain)
 target_include_directories(ms110d_tests PRIVATE support)
