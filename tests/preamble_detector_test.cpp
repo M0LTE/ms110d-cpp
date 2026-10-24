@@ -497,9 +497,9 @@ TEST_CASE("preamble detector: the waveform ID check bits and defined pairs are e
     }
 
     // A valid checksum on a pair the tables do not define (WN 0 has no ultra-short row) is
-    // rejected too, and so is a waveform number the library does not implement (WN 9).
+    // rejected too, and so are a waveform number the library does not implement (WN 9) and a reserved one (WN 14).
     for (const auto& wid : {*encode_wid(0, InterleaverKind::UltraShort, 7), *encode_wid(9, InterleaverKind::Short, 7),
-                            *encode_wid(14, InterleaverKind::Short, 7)}) {
+                            std::array<std::uint8_t, 5>{3, 2, 1, 1, 3}}) {  // the last: WN 14, reserved, with a valid checksum
         const Run r = run_detector(*det, preamble_audio(wid, 3), 0.32, 960);
         CHECK_FALSE(r.det);
         CHECK(r.stats.rejected_wid >= 1);
