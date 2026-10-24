@@ -27,7 +27,7 @@ The C# uses `float` for samples, chips, correlations and gains, and `double` for
 
 ## Agreement with the C#
 
-Tests are in `tests/wn0_receiver_test.cpp`, against numbers dumped from the real 0.2.0 demodulator by `tools/csharp-vectors` (modes `wn0`, `wn0-awgn`, `wn0-poor`; the burst start is read from its private fields by reflection at the first Walsh symbol, the soft values from `FirstPassBlockLlrs`, the decoded bits from `BlockDecoded`, the end of the burst from `BurstCompleted`, and the decisions and gains from `FrameDiagnostics`). The clean and AWGN dumps are committed; regenerate them when the pin moves, from the repo root, with the reference files in `<ref>`:
+Tests are in `tests/wn0_receiver_test.cpp`, against numbers dumped from the real 0.2.0 demodulator by `tools/csharp-vectors` (modes `wn0`, `wn0-awgn`, `wn0-poor`; the burst start is read from its private fields by reflection at the first Walsh symbol, the soft values from `FirstPassBlockLlrs`, the decoded bits from `BlockDecoded`, the end of the burst from `BurstCompleted`, and the decisions and gains from `FrameDiagnostics`). The clean and AWGN dumps are committed (not part of scripts/check-dumps.sh: they hold the C#'s float results, which differ in the last digits between machines, so they are not byte-reproducible; the tests compare decisions exactly and values with a tolerance); regenerate them when the pin moves, from the repo root, with the reference files in `<ref>`:
 
     dotnet run -c Release --project tools/csharp-vectors -- wn0 <ref> > tests/data/csharp-wn0-0.2.0.txt
     dotnet run -c Release --project tools/csharp-vectors -- wn0-awgn <ref> > tests/data/csharp-wn0-awgn-0.2.0.txt

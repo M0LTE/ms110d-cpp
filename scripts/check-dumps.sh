@@ -1,12 +1,12 @@
 #!/bin/sh
 # Regenerates every committed dump of the C# reference and fails if any differs from the file in
-# the repo: tests/data/csharp-{tables,framing,dfe,soft,wn0,wn0-awgn}-0.2.0.txt, tests/csharp_vectors.hpp and
+# the repo: tests/data/csharp-{tables,framing,dfe,soft}-0.2.0.txt, tests/csharp_vectors.hpp and
 # tests/fec_vectors.inc. The dumps are made by tools/csharp-vectors from the pinned NuGet package,
 # so a dump that no longer matches means the tool, the pin or the committed file is out of step.
 #
 # Usage: scripts/check-dumps.sh [reference-dir]
 # The reference directory (default build/_reference/ref, from scripts/generate-reference.sh) supplies
-# the real symbol streams of the dfe dump and the audio of the wn0 dumps. Needs a .NET 10 SDK and python3.
+# the real symbol streams of the dfe dump. Needs a .NET 10 SDK and python3.
 set -eu
 
 src=$(cd "$(dirname "$0")/.." && pwd)
@@ -21,8 +21,6 @@ $tool tables > "$tmp/tables.txt"
 $tool framing > "$tmp/framing.txt"
 $tool dfe "$ref" > "$tmp/dfe.txt"
 $tool soft > "$tmp/soft.txt"
-$tool wn0 "$ref" > "$tmp/wn0.txt"
-$tool wn0-awgn "$ref" > "$tmp/wn0-awgn.txt"
 $tool > "$tmp/vectors.txt"
 python3 tools/csharp-vectors/make_header.py "$tmp/vectors.txt" > "$tmp/csharp_vectors.hpp"
 $tool fec > "$tmp/fec.txt"
@@ -42,8 +40,6 @@ check "$tmp/tables.txt" tests/data/csharp-tables-0.2.0.txt
 check "$tmp/framing.txt" tests/data/csharp-framing-0.2.0.txt
 check "$tmp/dfe.txt" tests/data/csharp-dfe-0.2.0.txt
 check "$tmp/soft.txt" tests/data/csharp-soft-0.2.0.txt
-check "$tmp/wn0.txt" tests/data/csharp-wn0-0.2.0.txt
-check "$tmp/wn0-awgn.txt" tests/data/csharp-wn0-awgn-0.2.0.txt
 check "$tmp/csharp_vectors.hpp" tests/csharp_vectors.hpp
 check "$tmp/fec_vectors.inc" tests/fec_vectors.inc
 exit $status
