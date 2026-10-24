@@ -92,7 +92,7 @@ double tap_energy(const DfeFrameTrace& t) {
     double e = 0;
     for (int i = 0; i < t.tap_count; ++i) {
         const auto v = t.taps[static_cast<std::size_t>(i)];
-        const double re = v.real(), im = v.imag();
+        const double re = static_cast<double>(v.real()), im = static_cast<double>(v.imag());
         e += (re * re) + (im * im);
     }
     return e;
@@ -248,8 +248,8 @@ TEST_CASE("reference demodulator: every WN 1 to 5 ultra-short and short case aga
             CHECK(r.blocks[b].info == c.blocks[b].turbo);  // clean: the turbo pass changes nothing
             REQUIRE(r.blocks[b].llrs.size() == c.blocks[b].llrs.size());
             for (std::size_t i = 0; i < c.blocks[b].llrs.size(); ++i) {
-                const double a = r.blocks[b].llrs[i];
-                const double e = c.blocks[b].llrs[i];
+                const double a = static_cast<double>(r.blocks[b].llrs[i]);
+                const double e = static_cast<double>(c.blocks[b].llrs[i]);
                 w.llr = std::max(w.llr, rel(a, e));
             }
         }
