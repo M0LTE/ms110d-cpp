@@ -75,6 +75,9 @@ static class Wn0Dump
         public List<float[]> Blocks = [];
         public List<int> Dibits = [];
         public List<string> Gains = [];
+        public List<string> Info = [];       // decoded info bits of each block, as 0/1 text
+        public string Reason = "None";       // why the C# ended the burst, if it did
+        public int Symbols;                  // Walsh symbols the C# processed in all
     }
 
     static T Field<T>(object o, string name) =>
@@ -104,10 +107,13 @@ static class Wn0Dump
                 run.IlBits = Field<Ms110dInterleaverParams>(demod, "_il").SizeBits;
             }
 
+            run.Symbols++;
             run.Dibits.Add(int.Parse(m.Groups[2].Value, Inv));
             run.Gains.Add(m.Groups[3].Value);
         };
         demod.FirstPassBlockLlrs += (_, llrs) => run.Blocks.Add((float[])llrs.Clone());
+        demod.BlockDecoded += b => run.Info.Add(string.Concat(b.Bits));
+        demod.BurstCompleted += bu => run.Reason = bu.Reason.ToString();
         const int chunk = 2400;
         for (int i = 0; i < audio.Length; i += chunk)
         {
@@ -157,6 +163,7 @@ static class Wn0Dump
             }
 
             StartLine(sb, r);
+            sb.Append("info ").Append(string.Concat(r.Info.Take(blocks))).Append('\n');
             int g = 0;
             for (int b = 0; b < blocks; b++)
             {
@@ -180,8 +187,25 @@ static class Wn0Dump
 
     static readonly (string Name, double SnrDb)[] AwgnPoints = [("a", -8), ("b", -10)];
     const int AwgnTrials = 100;
+    const int AwgnCutTrials = 30;
     const int LeadIn = 2400;
     const int LeadOut = 4800;
+    const int CutLeadOut = 30000;  // noise after a cut burst: long enough for the signal-lost exit
+    const int DataStartSample = 4 * 1728;
+    const int BlockSamples = 4 * 32 * 40;  // one short-interleaver WN 0 block
+
+    static void TrialLines(StringBuilder sb, Run r, int blocks, bool start = true)
+    {
+        if (start)
+        {
+            StartLine(sb, r);
+        }
+
+        sb.Append("dibits ").Append(string.Concat(r.Dibits)).Append('\n');
+        sb.Append("bits ").Append(string.Concat(r.Blocks.Take(blocks).SelectMany(b => b).Select(l => l < 0 ? '1' : '0'))).Append('\n');
+        sb.Append("info ").Append(string.Concat(r.Info.Take(blocks))).Append('\n');
+        sb.Append($"end {r.Reason} {r.Symbols}\n");
+    }
 
     public static string Awgn(string refDir)
     {
@@ -193,33 +217,41 @@ static class Wn0Dump
         sb.Append($"# Base signal: reference case {name} audio ({baseAudio.Length} samples) with {LeadIn} zero samples before and {LeadOut} after,\n");
         sb.Append("# plus seeded Gaussian noise: sample = base + (float)(sigma * z), z from SplitMix64 + Box-Muller (see Wn0Dump.cs), seed per trial.\n");
         sb.Append("# SNR is signal power over noise power in 3000 Hz: sigma^2 = P / 10^(snr/10) * 4800 / 3000, P = mean square of the base audio.\n");
-        sb.Append($"base {name} {baseAudio.Length} leadin {LeadIn} leadout {LeadOut}\n");
-        foreach (var (label, snr) in AwgnPoints)
+        sb.Append($"# A cut trial has the signal ended after its first K blocks (the samples after are zero before the noise is added) and {CutLeadOut} samples of\n");
+        sb.Append("# noise after, so the C# receiver runs on until its signal-lost exit. end: the C# burst end reason and Walsh symbols processed.\n");
+        sb.Append($"base {name} {baseAudio.Length} leadin {LeadIn} leadout {LeadOut} cutleadout {CutLeadOut}\n");
+        for (int p = 0; p < AwgnPoints.Length; p++)
         {
+            var (label, snr) = AwgnPoints[p];
             double sigma = Math.Sqrt(power / Math.Pow(10, snr / 10) * 4800.0 / 3000.0);
-            sb.Append($"point {label} snr_db {R(snr)} sigma {R(sigma)} trials {AwgnTrials}\n");
-            for (int t = 0; t < AwgnTrials; t++)
+            sb.Append($"point {label} snr_db {R(snr)} sigma {R(sigma)} trials {AwgnTrials} cut_trials {AwgnCutTrials}\n");
+            for (int t = 0; t < AwgnTrials + AwgnCutTrials; t++)
             {
-                ulong seed = (ulong)(1000 * (1 + Array.IndexOf(AwgnPoints, (label, snr))) + t);
+                bool cut = t >= AwgnTrials;
+                int cutBlocks = cut ? 1 + (t % 2) : 0;
+                ulong seed = (ulong)(1000 * (1 + p) + t);
+                int cutSample = DataStartSample + (BlockSamples * cutBlocks);
+                int total = LeadIn + baseAudio.Length + (cut ? CutLeadOut : LeadOut);
                 var noise = new SharedNoise(seed);
-                var audio = new float[LeadIn + baseAudio.Length + LeadOut];
+                var audio = new float[total];
                 for (int i = 0; i < audio.Length; i++)
                 {
-                    float b = i >= LeadIn && i < LeadIn + baseAudio.Length ? baseAudio[i - LeadIn] : 0f;
-                    audio[i] = b + (float)(sigma * noise.Next());
+                    int k = i - LeadIn;
+                    float b = k >= 0 && k < baseAudio.Length && (!cut || k < cutSample) ? baseAudio[k] : 0f;
+                    // After a cut the "signal" is a clean 1950 Hz tone (150 Hz off the carrier, no noise): strong but nothing like a Walsh
+                    // symbol, which is what the C# signal-lost test looks for (noise alone never fires it).
+                    float tone = cut && k >= cutSample ? (float)(0.5 * Math.Cos(2.0 * Math.PI * 1950.0 * k / 9600.0)) : 0f;
+                    float nz = (float)(sigma * noise.Next());
+                    audio[i] = b + tone + (cut && k >= cutSample ? 0f : nz);
                 }
 
                 Run r = Demodulate(audio, 4800);
-                bool ok = r.Locked && r.Blocks.Count >= 4;
-                sb.Append($"trial {label} {seed} locked {(ok ? 1 : 0)}\n");
-                if (!ok)
+                bool ok = r.Locked && r.Blocks.Count >= (cut ? cutBlocks : 4);
+                sb.Append($"trial {label} {seed} locked {(ok ? 1 : 0)} cut {cutBlocks}\n");
+                if (ok)
                 {
-                    continue;
+                    TrialLines(sb, r, cut ? cutBlocks : 4);
                 }
-
-                StartLine(sb, r);
-                sb.Append("dibits ").Append(string.Concat(r.Dibits.Take(4 * r.IlBits / 2))).Append('\n');
-                sb.Append("bits ").Append(string.Concat(r.Blocks.Take(4).SelectMany(b => b).Select(l => l < 0 ? '1' : '0'))).Append('\n');
             }
         }
 
@@ -235,27 +267,29 @@ static class Wn0Dump
     public static void Poor(string stem)
     {
         var il = Ms110dInterleaverParams.Get3k(0, Ms110dInterleaverKind.Short);
-        var settings = new Ms110dTxSettings { WaveformNumber = 0, Interleaver = Ms110dInterleaverKind.Short };
+        // No EOM: the burst is exactly two blocks and the receiver then runs on into the noise after
+        // it, until its signal-lost exit.
+        var settings = new Ms110dTxSettings { WaveformNumber = 0, Interleaver = Ms110dInterleaverKind.Short, AppendEom = false };
         var tx = new Ms110dModulator(settings);
         var code = ConvolutionalCode.K7;
         var puncture = Ms110dPuncture.Get(code, tx.Mode.CodeRate);
         var interleaver = new Ms110dInterleaver(il.SizeBits, il.Increment);
-        const int payloadBits = (2 * 40) - 32;  // two blocks with the EOM
+        const int payloadBits = 2 * 40;
 
         var text = new StringBuilder();
-        text.Append("# Dumped from M0LTE.Ms110d 0.2.0 by tools/csharp-vectors (wn0-poor mode): WN 0 short interleaver K7 bursts of two blocks through\n");
-        text.Append("# M0LTE.HfChannel 0.1.0 WattersonChannel.Poor (2 equal Rayleigh paths, 2 ms, 1 Hz), 2400 samples of noise either side, SNR in 3000 Hz.\n");
-        text.Append("# The audio is stored as 16 bit little-endian samples (1.0 = 8192) in the .i16le file, trimmed to the data plus a margin; the C#\n");
-        text.Append("# was run on the same quantised audio. start is relative to the trimmed audio. wire: the transmitted fetched bits; dibits: what the\n");
-        text.Append("# C# decided per symbol; llrs: its first-pass soft values.\n");
+        text.Append("# Generated from M0LTE.Ms110d 0.2.0 by tools/csharp-vectors (wn0-poor mode): WN 0 short interleaver K7 bursts of two blocks (no EOM) through\n");
+        text.Append($"# M0LTE.HfChannel 0.1.0 WattersonChannel.Poor (2 equal Rayleigh paths, 2 ms, 1 Hz), {LeadIn} samples of noise before and {CutLeadOut} after, SNR in 3000 Hz.\n");
+        text.Append("# The audio is stored as 16 bit little-endian samples (1.0 = 8192) in the .i16le file, from before the data to the end; the C#\n");
+        text.Append("# was run on the same quantised audio. start is relative to the stored audio. wire: the transmitted fetched bits.\n");
         using var bin = new FileStream(stem + ".i16le", FileMode.Create);
         long byteOffset = 0;
-        foreach (var (label, snr) in PoorPoints)
+        for (int p = 0; p < PoorPoints.Length; p++)
         {
+            var (label, snr) = PoorPoints[p];
             text.Append($"point {label} snr_db {R(snr)} bursts {PoorBursts}\n");
             for (int n = 0; n < PoorBursts; n++)
             {
-                int seed = 7000 + (100 * Array.IndexOf(PoorPoints, (label, snr))) + n;
+                int seed = 7000 + (100 * p) + n;
                 var rng = new Random(seed);
                 var payload = new byte[payloadBits];
                 for (int i = 0; i < payload.Length; i++)
@@ -265,7 +299,7 @@ static class Wn0Dump
 
                 float[] audio = tx.Modulate(payload);
                 var channel = new WattersonChannel(9600, seed + 1, WattersonChannel.Poor);
-                float[] rx = channel.Apply(audio, snr, leadInSamples: LeadIn, leadOutSamples: LeadIn);
+                float[] rx = channel.Apply(audio, snr, leadInSamples: LeadIn, leadOutSamples: CutLeadOut);
                 var q = new short[rx.Length];
                 var quantised = new float[rx.Length];
                 for (int i = 0; i < rx.Length; i++)
@@ -282,26 +316,22 @@ static class Wn0Dump
                     continue;
                 }
 
-                // Trim: from before the first sample the first symbol reads (a multiple of 16
-                // audio samples so the mixer phase and the half-chip pairing are unchanged)
-                // to after the last one.
-                int symbols = 2 * il.SizeBits / 2;
+                // Store from before the first sample the first symbol reads, on a multiple of 16
+                // audio samples so the mixer phase and the half-chip pairing are unchanged.
                 double firstPos = r.Chip0 + (2.0 * (r.DataStart - 6)) + r.Tau - 4;
-                double lastPos = r.Chip0 + (2.0 * (r.DataStart + (32L * symbols) + 40)) + r.Tau + 8;
                 int off = Math.Max(0, ((int)Math.Floor((2 * firstPos) - 400)) / 16 * 16);
-                int end = Math.Min(rx.Length, (int)Math.Ceiling((2 * lastPos) + 400));
                 var bytes = new byte[2];
-                for (int i = off; i < end; i++)
+                for (int i = off; i < rx.Length; i++)
                 {
                     BitConverter.TryWriteBytes(bytes, q[i]);
                     bin.Write(bytes);
                 }
 
-                text.Append($"audio offset {byteOffset} samples {end - off}\n");
-                byteOffset += 2L * (end - off);
+                text.Append($"audio offset {byteOffset} samples {rx.Length - off}\n");
+                byteOffset += 2L * (rx.Length - off);
                 text.Append($"start chip0 {R(r.Chip0 - (off / 2.0))} tau {R(r.Tau)} omega {R(r.Omega)} theta {R(r.Theta)} " +
                             $"data_start {r.DataStart} il_bits {r.IlBits}\n");
-                byte[] txBits = Ms110dFraming.BuildTxBits(payload, appendEom: true, il.InputBits);
+                byte[] txBits = Ms110dFraming.BuildTxBits(payload, appendEom: false, il.InputBits);
                 var wire = new StringBuilder();
                 for (int b = 0; b < txBits.Length / il.InputBits; b++)
                 {
@@ -311,8 +341,8 @@ static class Wn0Dump
                 }
 
                 text.Append("wire ").Append(wire).Append('\n');
-                text.Append("dibits ").Append(string.Concat(r.Dibits.Take(symbols))).Append('\n');
                 text.Append("llrs ").Append(string.Join(' ', r.Blocks.Take(2).SelectMany(b => b).Select(R))).Append('\n');
+                TrialLines(text, r, 2, start: false);
             }
         }
 

@@ -111,8 +111,18 @@ jobs:
           key: reference-${{ hashFiles('reference/pin.txt', 'scripts/generate-reference.sh') }}
       - name: Generate and verify
         run: scripts/generate-reference.sh
+      - name: Cache the Poor channel corpus
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/_reference/wn0-poor.txt
+            build/_reference/wn0-poor.i16le
+            build/_reference/wn0-poor.stamp
+          key: wn0-poor-${{ hashFiles('reference/pin.txt', 'scripts/generate-wn0-poor.sh', 'tools/csharp-vectors/*.cs', 'tools/csharp-vectors/*.csproj') }}
+      - name: Generate the Poor channel corpus
+        run: scripts/generate-wn0-poor.sh
       - name: Configure the library and tests
-        run: cmake -S . -B build/tests -DCMAKE_BUILD_TYPE=Release -DMS110D_DOTNET_TESTS=OFF -DMS110D_REFERENCE_DIR="$GITHUB_WORKSPACE/build/_reference/ref"
+        run: cmake -S . -B build/tests -DCMAKE_BUILD_TYPE=Release -DMS110D_DOTNET_TESTS=OFF -DMS110D_REFERENCE_DIR="$GITHUB_WORKSPACE/build/_reference/ref" -DMS110D_WN0_POOR_STEM="$GITHUB_WORKSPACE/build/_reference/wn0-poor"
       - name: Build the tests
         run: cmake --build build/tests -j4
       - name: Run the tests that use the reference files (must not skip)

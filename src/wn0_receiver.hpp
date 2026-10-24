@@ -12,13 +12,14 @@
 // are other stories): where the burst's chips sit in the audio, the residual carrier (phase
 // and frequency), and where the data starts. What comes out is, per interleaver block, one
 // max-log soft value per fetched (wire order) bit, positive for bit 0, plus the per-symbol
-// Walsh decisions; deinterleaved_block() puts a block into code order, ready for the soft
-// decoder (not on main yet; that is the hook).
+// Walsh decisions; deinterleaved_block() puts a block into code order and decode_block() runs
+// the tail-biting Viterbi decoder (src/fec) on it.
 //
 // No allocation, no exceptions; every buffer is in the object or given by the caller.
 
 #include <m0lte/ms110d/config.hpp>
 
+#include "fec/tail_biting_viterbi.hpp"
 #include "interleaver.hpp"
 #include "modulator.hpp"
 #include "tables.hpp"
@@ -70,6 +71,7 @@ struct Wn0Symbol {
     real llr[2] = {0, 0};       // max-log soft values for the two bits, positive means 0
     Cx combined{};              // sum of conj(finger gain) * winner correlation (RAKE output)
     double max_finger_abs = 0;  // largest finger |winner correlation|
+    double chip_sum = 0;        // sum of the symbol's own 32 chip magnitudes (the signal-lost yardstick)
     std::uint32_t index = 0;    // symbol number within its interleaver block
 };
 
@@ -78,7 +80,8 @@ enum class Wn0Step {
     NeedMoreAudio,  // the samples this symbol needs are not all here yet
     Symbol,         // one symbol done, block not yet complete
     BlockComplete,  // one symbol done and it was the last of its block: block_llrs is full
-    SignalLost,     // the signal-lost discriminator fired (90 weak symbols in a row); idle now
+    SignalLost,     // the signal-lost discriminator fired (90 weak symbols in a row); idle now. This
+                    // symbol was demodulated like any other (last() is valid), as in the C#
 };
 
 class Wn0Receiver {
@@ -132,6 +135,15 @@ public:
     // puncturing). out must be exactly the block size; false otherwise.
     bool deinterleaved_block(std::span<real> out) const noexcept;
 
+    // Decodes the block just completed: deinterleaves it, converts the soft values to float
+    // (the decoder's input type; a copy in the build's precision, into a buffer inside the
+    // object, so nothing is allocated) and runs the tail-biting Viterbi decoder, as the C#
+    // Ms110dFraming.DecodeBlock does for WN 0 (rate 1/2, so no depuncturing). `decoder` is the
+    // caller's, built for the burst's constraint length and at least this block's info bits
+    // (size_bits / 2); `info` receives size_bits / 2 hard bits, one per byte. False, writing
+    // nothing, if no block is held or `info` or the decoder do not fit.
+    bool decode_block(fec::TailBitingViterbiDecoder& decoder, std::span<std::uint8_t> info) noexcept;
+
     // Magnitude of the current DD gain of finger k (diagnostic), 0 outside 0..fingers-1.
     real gain_magnitude(int k) const noexcept;
 
@@ -145,6 +157,8 @@ private:
     bool have_samples_for_chip(double chip) const noexcept;
 
     static constexpr std::size_t ring_mask = ring_size - 1;
+    // The longest WN 0 interleaver (Table D-XXXVII, long): 1152 bits.
+    static constexpr std::size_t max_block_bits = 1152;
 
     // Front end.
     std::array<float, max_pulse_taps> pulse_{};
@@ -176,6 +190,7 @@ private:
     int phase_count_ = 0;
     Interleaver interleaver_{0, 0};
     std::span<real> block_{};
+    std::array<float, max_block_bits> soft_{};  // deinterleaved block as float, for the decoder
     Wn0Symbol last_{};
 };
 

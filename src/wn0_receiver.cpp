@@ -274,6 +274,7 @@ Wn0Step Wn0Receiver::step() noexcept {
     // the -6 dB mask point but about 0.23 on noise alone. Weak only when ALL fingers are weak.
     double sum_mag = 0;
     for (std::size_t i = 0; i < chips_per_symbol; ++i) sum_mag += static_cast<double>(mag(chips[neg_fingers + i]));
+    last_.chip_sum = sum_mag;
     if (max_finger_abs < 0.35 * sum_mag) {
         if (++weak_symbols_ >= k_weak_limit) {
             active_ = false;
@@ -305,6 +306,20 @@ bool Wn0Receiver::deinterleaved_block(std::span<real> out) const noexcept {
     if (out.size() != block_.size()) return false;
     interleaver_.deinterleave(block_.data(), out.data());
     return true;
+}
+
+bool Wn0Receiver::decode_block(fec::TailBitingViterbiDecoder& decoder, std::span<std::uint8_t> info) noexcept {
+    const std::size_t n = block_.size();
+    if (n == 0 || n > max_block_bits || info.size() != n / 2) return false;
+    // Fetched order to code order, as Interleaver::deinterleave, converting as it goes.
+    std::uint32_t loc = 0;
+    const std::uint32_t size = interleaver_.size_bits();
+    for (std::size_t i = 0; i < n; ++i) {
+        soft_[i] = static_cast<float>(block_[loc]);
+        loc += interleaver_.increment();
+        if (loc >= size) loc -= size;
+    }
+    return decoder.decode(std::span<const float>(soft_.data(), n), info);
 }
 
 real Wn0Receiver::gain_magnitude(int k) const noexcept {
