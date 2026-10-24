@@ -69,27 +69,28 @@ private:
     std::vector<real> beta_;
 };
 
-// Chain decomposed exact BCJR for the same channel. Because y[t] couples x[t] only to
-// x[t - d], the symbol dependency graph splits into d independent memory 1 chains
+// Chain decomposed exact BCJR for the same channel, in single or double precision (T).
+// Because y[t] couples x[t] only to x[t - d], the symbol dependency graph splits into d independent memory 1 chains
 // {c, c + d, c + 2d, ...}; each chain's BCJR carries M states (M = constellation size)
 // instead of M^delay, so the cost is O(n M^2) whatever the delay. Exact MAP under the two
 // tap model: true log-sum-exp. The d symbols before the block enter as known constants in
 // each chain's first branch metric; data symbols in the final d positions get no echo
 // observation from beyond the block.
-class ChainBcjr {
+template <class T>
+class BasicChainBcjr {
 public:
     // `max_symbols` is the longest block and `max_constellation` the largest M that
     // equalize() will be given. Scratch is (max_symbols * M + 3 * M + max_symbols) reals.
-    ChainBcjr(std::size_t max_symbols, std::size_t max_constellation);
+    BasicChainBcjr(std::size_t max_symbols, std::size_t max_constellation);
 
     struct Input {
         // One entry per symbol (rx, h1, h2): received samples in the equalised and
         // descrambled domain, main tap gain, echo tap gain.
-        std::span<const std::complex<real>> rx;
-        std::span<const std::complex<real>> h1;
-        std::span<const std::complex<real>> h2;
+        std::span<const std::complex<T>> rx;
+        std::span<const std::complex<T>> h1;
+        std::span<const std::complex<T>> h2;
         int delay = 1;       // echo delay in symbols, d >= 1
-        real noise_var = 0;  // noise variance per complex dimension
+        T noise_var = 0;     // noise variance per complex dimension
         // The M candidate symbols (descrambled domain).
         std::span<const tables::Complex32> constellation;
         // Per symbol index bit label, MSB first (bit b of symbol s is
@@ -102,26 +103,32 @@ public:
         // Optional per symbol log priors, log P(x[t] = constellation[s]) at [t * M + s] up
         // to a per symbol constant; empty runs prior free. Each prior enters its branch
         // metric once, so the outputs are full posteriors.
-        std::span<const real> symbol_log_priors;
+        std::span<const T> symbol_log_priors;
         // Optional per position noise variance (length rx.size()) overriding noise_var;
         // any other length (including empty) broadcasts the scalar, as the C# does.
-        std::span<const real> noise_var_per_symbol;
+        std::span<const T> noise_var_per_symbol;
     };
 
     // Writes rx.size() * bits_per_symbol LLRs to `llrs`, bit b of symbol t at
     // [t * bits_per_symbol + b], positive meaning bit 0. Returns false, writing nothing,
     // on any size or range violation (including more symbols or a larger constellation
     // than the constructor was given).
-    bool equalize(const Input& in, std::span<real> llrs) noexcept;
+    bool equalize(const Input& in, std::span<T> llrs) noexcept;
 
 private:
     std::size_t max_n_;
     std::size_t max_m_;
-    std::vector<real> inv2_;
-    std::vector<real> alpha_;
-    std::vector<real> beta_;
-    std::vector<real> post_;
+    std::vector<T> inv2_;
+    std::vector<T> alpha_;
+    std::vector<T> beta_;
+    std::vector<T> post_;
 };
+
+// The chain BCJR in the build's precision (docs/dev/soft-decoders.md). The receiver's turbo stage
+// uses BasicChainBcjr<float>, the C#'s own precision, in both builds (docs/dev/dfe-receiver.md).
+using ChainBcjr = BasicChainBcjr<real>;
+extern template class BasicChainBcjr<float>;
+extern template class BasicChainBcjr<double>;
 
 }  // inline namespace
 

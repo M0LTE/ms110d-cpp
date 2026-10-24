@@ -86,6 +86,19 @@ if (args.Length > 1 && args[0] == "rx-awgn")
     return;
 }
 
+// "rx-turbo" and "rx-corpus": whole bursts through the shipped receiver, see TurboDump.cs.
+if (args.Length > 1 && args[0] == "rx-turbo")
+{
+    Console.Out.Write(TurboDump.Clean(args[1]));
+    return;
+}
+
+if (args.Length > 1 && args[0] == "rx-corpus")
+{
+    TurboDump.Corpus(args[1]);
+    return;
+}
+
 // "dfe" mode: the equaliser driven through scripted scenarios for tests/data/csharp-dfe-0.2.1.txt (see DfeDump.cs).
 if (args.Length > 0 && args[0] == "dfe")
 {

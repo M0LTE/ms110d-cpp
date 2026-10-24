@@ -159,4 +159,24 @@ bool depuncture_soft(const PunctureSpec& spec, std::span<const float> rx, std::s
     return j == rx.size();
 }
 
+std::optional<std::size_t> apply_puncture_soft(const PunctureSpec& spec, std::span<const float> mother,
+                                               std::span<float> punctured) noexcept {
+    if (spec.columns == 0 || spec.repeat == 0) return std::nullopt;
+    const std::size_t pairs = mother.size() / 2 * spec.repeat;
+    std::size_t o = 0;
+    for (std::size_t p = 0; p < pairs; ++p) {
+        const std::size_t n = p / spec.repeat;
+        const std::size_t col = p % spec.columns;
+        if ((spec.keep_t1 >> col) & 1u) {
+            if (o >= punctured.size()) return std::nullopt;
+            punctured[o++] = mother[2 * n];
+        }
+        if ((spec.keep_t2 >> col) & 1u) {
+            if (o >= punctured.size()) return std::nullopt;
+            punctured[o++] = mother[(2 * n) + 1];
+        }
+    }
+    return o;
+}
+
 }  // namespace m0lte::ms110d

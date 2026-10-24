@@ -137,6 +137,9 @@ jobs:
           path: |
             build/_reference/csharp-rx.txt
             build/_reference/csharp-rx-awgn.txt
+            build/_reference/csharp-rx-turbo.txt
+            build/_reference/rx-corpus.txt
+            build/_reference/rx-corpus.i16le
             build/_reference/rx-dumps.stamp
           key: rx-dumps-${{ hashFiles('reference/pin.txt', 'scripts/generate-rx-dumps.sh', 'tools/csharp-vectors/*.cs', 'tools/csharp-vectors/*.csproj') }}
       - name: Generate the receive dumps

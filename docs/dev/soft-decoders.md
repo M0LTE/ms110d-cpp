@@ -7,7 +7,7 @@ Four ports from the C# package, all internal (headers in `src/`, not installed, 
 | `fec::TailBitingViterbiDecoder` | `M0LTE.Fec.TailBitingViterbiDecoder` | `src/fec/tail_biting_viterbi.{hpp,cpp}` |
 | `fec::TailBitingSisoDecoder` | `M0LTE.Ms110d.Fec.TailBitingSisoDecoder` | `src/fec/tail_biting_siso.{hpp,cpp}` |
 | `ms110d::Bcjr` | `Ms110dBcjr` (max-log, shift register trellis) | `src/bcjr.{hpp,cpp}` |
-| `ms110d::ChainBcjr` | `Ms110dChainBcjr` (exact, one chain per echo residue class) | `src/bcjr.{hpp,cpp}` |
+| `ms110d::ChainBcjr` (`BasicChainBcjr<real>`) | `Ms110dChainBcjr` (exact, one chain per echo residue class) | `src/bcjr.{hpp,cpp}` |
 
 The two FEC decoders are in `m0lte::fec` and know nothing of MS110D. The BCJRs are in `m0lte::ms110d`, in the precision keyed inline namespace.
 
@@ -23,7 +23,7 @@ The two FEC decoders are in `m0lte::fec` and know nothing of MS110D. The BCJRs a
 ## Where float and where `real`
 
 - **Viterbi and SISO: always float**, in both precision builds, like the C#. The module is independent of the modem's `real`. The metrics are sums of a handful of LLRs, and the SISO's max* uses a 128 entry correction table with a worst case error of 0.04, which dwarfs float rounding, so double would improve nothing while doubling the SISO's alpha store. The interface is float spans: the caller scales its LLRs.
-- **Max-log BCJR and chain BCJR: `real`.** The C# is float, but these run on channel estimates and samples that will be `real` (the demodulator's equaliser output), and their metrics are squared distances divided by a noise variance, which spread over a wide range. In the single build this is the C# arithmetic exactly; in the default double build it is more precise than the C# and the LLRs differ only by the rounding the C# carries. The constellation and the preceding symbols are float tables (`tables::Complex32`, widened on use), as in the C#. Complex products are written out on real and imaginary parts, in the C# order, so no library NaN recovery runs.
+- **Max-log BCJR and chain BCJR: `real`.** (The chain BCJR is a template on its scalar, `BasicChainBcjr<T>`, instantiated for float and double; `ChainBcjr` is the `real` one. The receiver's turbo stage uses the float one in both builds, the C#'s precision exactly, so that its decisions are the C#'s: docs/dev/dfe-receiver.md.) The C# is float, but these run on channel estimates and samples that will be `real` (the demodulator's equaliser output), and their metrics are squared distances divided by a noise variance, which spread over a wide range. In the single build this is the C# arithmetic exactly; in the default double build it is more precise than the C# and the LLRs differ only by the rounding the C# carries. The constellation and the preceding symbols are float tables (`tables::Complex32`, widened on use), as in the C#. Complex products are written out on real and imaginary parts, in the C# order, so no library NaN recovery runs.
 - The sentinel for an impossible path is the C# `-1e30f`, and the SISO's initial norm is `FLT_LOWEST` (the C# `float.MinValue`).
 
 ## Tests and tolerances

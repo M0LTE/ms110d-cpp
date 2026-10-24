@@ -16,30 +16,35 @@
 //                   probe-anchored tap trajectory (fading) or the QAM path, soft values,
 //                   probe timing, the probe presence statistic and the signal-lost and
 //                   signal-absent exits;
-//   FinishBlock     deinterleave, depuncture, tail-biting Viterbi, the EOM scan and the block
-//                   limit. The turbo re-equalisation (and the MFB decoder) are not here yet; they
-//                   save and restore every piece of tracking state, so the first pass, and so
-//                   everything above, is the same with or without them.
+//   FinishBlock     deinterleave, depuncture, tail-biting Viterbi, then the turbo stage
+//                   (dfe_turbo.cpp: the turbo re-equalisation loop, the 8PSK salvage rungs and
+//                   per-block MFB ensemble; the MFB block decoder for QAM16, mfb_block_decoder.*),
+//                   the EOM scan and the block limit. The turbo stage saves and restores every piece
+//                   of tracking state it touches, so the first pass is the same with it on or off.
 //
 // Not here: the preamble search (preamble_detector.hpp, whose detection is the input), the WN 0
-// path (wn0_receiver.hpp), the C#'s diagnostic instruments (genie, oracle, truth injection),
-// which never run in normal use and leave the shipped path bit-identical, and the terminate
+// path (wn0_receiver.hpp), the C#'s diagnostic instruments (genie, oracle, truth injection and the
+// rest), which are off in normal use and leave the shipped path bit-identical, and the terminate
 // command (a later story, with the public receive API).
 //
 // Precision: exactly the C#'s, in both builds. Samples, the equaliser, decisions and soft values
 // are single precision (the C# Complex32 and float); the carrier and timing model, the probe
-// statistics, the fading and presence statistics are double. The only `real` is inside the
-// equaliser (docs/dev/equaliser.md). See docs/dev/dfe-receiver.md.
+// statistics, the fading and presence statistics are double. The turbo stage's chain BCJR is
+// float and the MFB decoder double, as the C#'s. The only `real` is inside the equaliser
+// (docs/dev/equaliser.md). See docs/dev/dfe-receiver.md.
 //
 // Memory: one block of caller storage (storage_bytes()), sized at configure from the longest
-// interleaver the receiver is to accept, plus the object (about 60 KB). No allocation after
-// configure, no exceptions. The tail-biting Viterbi decoders are the caller's.
+// interleaver the receiver is to accept, plus the object (about 125 KB). No allocation after
+// configure, no exceptions. The decoders (Viterbi, SISO, chain BCJR) are the caller's.
 
 #include <m0lte/ms110d/mode.hpp>
 
 #include "dsp/complex_f.hpp"
 #include "equaliser.hpp"
+#include "bcjr.hpp"
+#include "fec/tail_biting_siso.hpp"
 #include "fec/tail_biting_viterbi.hpp"
+#include "mfb_block_decoder.hpp"
 #include "interleaver.hpp"
 #include "probe_pattern.hpp"
 #include "puncture.hpp"
@@ -47,6 +52,7 @@
 #include "scrambler.hpp"
 
 #include <array>
+#include <complex>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -70,6 +76,21 @@ struct DfeReceiverConfig {
     // Stop after this many input-data blocks, 0 for no limit (D.5.4.5.3, the C#
     // MaxInputDataBlocks).
     int max_input_data_blocks = 0;
+    // The turbo re-equalisation and the MFB block decoder after each block's first decode (the
+    // C# DisableTurbo, inverted). Off decodes from the first-pass soft values alone.
+    bool turbo = true;
+};
+
+// The decoders the receiver uses, the caller's (each allocates its tables when constructed):
+// tail-biting Viterbi and SISO for K = 7 and K = 9, built for at least max_input_bits_for() info
+// bits, and the chain BCJR, built for at least max_frame_symbols symbols and 16 points. The chain
+// BCJR is single precision in both builds, the C#'s own (docs/dev/dfe-receiver.md).
+struct DfeDecoders {
+    fec::TailBitingViterbiDecoder* viterbi_k7 = nullptr;
+    fec::TailBitingViterbiDecoder* viterbi_k9 = nullptr;
+    fec::TailBitingSisoDecoder* siso_k7 = nullptr;
+    fec::TailBitingSisoDecoder* siso_k9 = nullptr;
+    BasicChainBcjr<float>* chain = nullptr;
 };
 
 // Where a burst is and what it is, as the preamble detector leaves it (from_detection()).
@@ -102,6 +123,7 @@ struct DfeFrameTrace {
     double tap_change = 0;
     double fade_floor = 0;
     double omega = 0;
+    double omega_acquired = 0;       // the carrier at the data start: the trim's clamp centre
     double theta_base = 0;
     double tau = 0;
     double presence = 0;
@@ -112,6 +134,7 @@ struct DfeFrameTrace {
     bool fresh_solve = false;
     bool shifted_probe = false;
     int bad_probes = 0;
+    int frames_since_excursion = 0;  // the fading detector's counter
     float ff_energy = 0;
     std::array<EqSample, eq_max_taps> taps{};  // the taps after the frame (feed-forward then feedback)
     int tap_count = 0;
@@ -119,12 +142,29 @@ struct DfeFrameTrace {
 
 using DfeFrameTraceFn = void (*)(void* context, const DfeFrameTrace& trace) noexcept;
 
+// What the turbo stage did with a block (the C# TurboConverged, Reverted and so on).
+enum class DfeTurbo {
+    Skipped,    // not run: turbo off, a partial block, or samples no longer resident
+    Converged,  // reached a decode fixed point (the decode is the fixed point)
+    Salvaged,   // 8PSK: no fixed point, but the frozen-probe salvage found one
+    Reverted,   // no fixed point: the first-pass decode stands
+    Aborted,    // the samples ran out part way through: the decode before it stands
+};
+
 // A decoded block, valid from the event until the receiver is pushed again.
 struct DfeBlock {
     int index = 0;                         // block number within the burst, from 0
     std::int64_t at_t2 = 0;                // T/2 samples received when it was decoded
     std::span<const std::uint8_t> info;    // the decoded info bits, one per byte
     std::span<const float> llrs;           // the first-pass soft values, wire (fetched) order
+    DfeTurbo turbo = DfeTurbo::Skipped;
+    // The last turbo iterate's soft values (the C# TurboBlockLlrs), empty when the turbo loop
+    // did not run or was aborted.
+    std::span<const float> turbo_llrs;
+    bool mfb_offered = false;              // 8PSK: the MFB decode converged and was weighed
+    bool mfb_selected = false;             // ... and kept over the chain path's
+    int relock_offers = 0;                 // 8PSK salvage: frames offered the late-lock geometry
+    int relock_adopted = 0;                // ... and frames that took it
 };
 
 struct DfeBurstEnd {
@@ -141,6 +181,13 @@ struct DfeReceiverStats {
     std::int64_t collapse_resolves = 0;
     std::int64_t signal_absent_releases = 0;
     std::int64_t frames = 0;
+    std::int64_t turbo_converged = 0;   // includes the salvaged ones, as the C#
+    std::int64_t turbo_reverted = 0;
+    std::int64_t turbo_salvaged = 0;
+    std::int64_t turbo_aborted = 0;
+    std::int64_t turbo_skipped = 0;
+    std::int64_t mfb_offered = 0;
+    std::int64_t mfb_selected = 0;
 };
 
 class DfeReceiver {
@@ -153,14 +200,15 @@ public:
     static std::size_t storage_bytes(const DfeReceiverConfig& config) noexcept;
     // T/2 samples kept for a configuration (a power of two).
     static std::size_t ring_size_for(InterleaverKind max_interleaver) noexcept;
-    // Info bits of the longest block accepted: what the caller's Viterbi decoders must hold.
+    // Info bits of the longest block accepted: what the caller's Viterbi and SISO decoders must hold.
     static std::size_t max_input_bits_for(InterleaverKind max_interleaver) noexcept;
+    // Data symbols in the longest frame (the chain BCJR's block): 256.
+    static constexpr std::size_t max_frame_symbols = 256;
 
     // Sets up in `storage` (at least storage_bytes(), kept in place and used by nothing else) with
-    // the caller's decoders for K = 7 and K = 9, each built for at least the longest block's info
-    // bits. False, unconfigured, if anything does not fit.
+    // the caller's decoders. False, unconfigured, if anything is missing or does not fit.
     bool configure(const DfeReceiverConfig& config, std::span<std::uint8_t> storage,
-                   fec::TailBitingViterbiDecoder* k7, fec::TailBitingViterbiDecoder* k9) noexcept;
+                   const DfeDecoders& decoders) noexcept;
     bool configured() const noexcept { return ring_ != nullptr; }
 
     // Back to the start of a stream: front end and ring cleared, the sample count restarts at 0,
@@ -229,13 +277,24 @@ private:
     void add_llr(float llr) noexcept;
     void push_decision(ComplexF wire_symbol) noexcept;
     void finish_block() noexcept;
+    void decode_block(const float* llrs, std::uint8_t* info) noexcept;
+    void encode_block(const std::uint8_t* info, std::uint8_t* fetched) noexcept;
+    bool block_samples_resident() const noexcept;
+    void turbo_reequalize(const std::uint8_t* info) noexcept;
+    void turbo_reequalize_soft() noexcept;
+    void turbo_core(const ComplexF* expected_all, const float* symbol_var, const float* wire_ext, bool allow_pair) noexcept;
+    void turbo_frozen_probe_pass() noexcept;
+    int frozen_probe_rows(int f, int shift) noexcept;
+    bool try_salvage_revert(std::uint8_t* info, std::uint8_t* prev_info) noexcept;
+    bool try_salvage_relock(std::uint8_t* info, std::uint8_t* prev_info) noexcept;
+    bool run_turbo_loop(std::uint8_t* info, std::uint8_t* prev_info, bool& aborted) noexcept;
+    friend class MfbBlockDecoder;
     void end_burst(DfeEndReason reason, std::int64_t payload_bits) noexcept;
 
     // Configuration.
     DfeReceiverConfig config_{};
     RxFrontEnd front_end_{};
-    fec::TailBitingViterbiDecoder* viterbi_k7_ = nullptr;
-    fec::TailBitingViterbiDecoder* viterbi_k9_ = nullptr;
+    DfeDecoders decoders_{};
 
     // Storage carved from the caller's block.
     ComplexF* ring_ = nullptr;
@@ -245,6 +304,27 @@ private:
     float* deinterleaved_ = nullptr;
     float* mother_ = nullptr;
     std::uint8_t* info_ = nullptr;
+    // Turbo stage (sized for the longest block).
+    float* first_pass_llrs_ = nullptr;
+    float* turbo_llrs_ = nullptr;
+    float* soft_punctured_ = nullptr;
+    float* soft_mother_ = nullptr;
+    float* soft_mother_post_ = nullptr;
+    float* soft_wire_llrs_ = nullptr;
+    float* soft_wire_ext_ = nullptr;
+    float* soft_var_ = nullptr;
+    ComplexF* soft_expected_ = nullptr;
+    ComplexF* turbo_expected_ = nullptr;
+    std::uint8_t* first_info_ = nullptr;
+    std::uint8_t* prev_info_ = nullptr;
+    std::uint8_t* mfb_info_ = nullptr;
+    std::uint8_t* fetched_ = nullptr;
+    std::uint8_t* fetched2_ = nullptr;
+    std::uint8_t* coded_ = nullptr;
+    std::uint8_t* punctured_bits_ = nullptr;
+    std::size_t max_block_symbols_ = 0;
+    MfbBlockDecoder mfb_{};
+    bool mfb_ready_ = false;  // built for this burst (the C# lazy _mfb)
     std::size_t max_size_bits_ = 0;
     std::size_t max_input_bits_ = 0;
     double* presence_dft_re_ = nullptr;
@@ -263,6 +343,9 @@ private:
     Interleaver interleaver_{0, 0};
     const PunctureSpec* puncture_ = nullptr;
     fec::TailBitingViterbiDecoder* viterbi_ = nullptr;
+    fec::TailBitingSisoDecoder* siso_ = nullptr;
+    const fec::ConvolutionalCode* code_ = nullptr;
+    bool frozen_relock_active_ = false;
     double chip0_ = 0;
     double tau_ = 0;
     double omega_ = 0;
@@ -336,6 +419,30 @@ private:
     std::array<EqSample, eq_max_taps> frame_start_decisions_{};
     std::array<ComplexF, max_u> pass1_{};
     std::array<ComplexF, max_u> pass2_{};
+    // Turbo per-frame scratch.
+    std::array<ComplexF, max_u> rotors_{};
+    std::array<int, max_u> nibbles_{};
+    std::array<float, max_u> x2_{};
+    std::array<ComplexF, max_u> rx_wire_{};
+    std::array<ComplexF, max_u> rx_alt_{};
+    std::array<ComplexF, max_u> rx_desc_{};
+    std::array<ComplexF, max_u> h1_span_{};
+    std::array<ComplexF, max_u> h2_span_{};
+    std::array<float, max_u> nv_span_{};
+    std::array<float, max_u> past_var_{};
+    std::array<float, 4 * max_u> frame_llrs_{};
+    std::array<float, 16 * max_u> log_priors_{};
+    std::array<ComplexF, max_k> preceding_{};
+    std::array<EqSample, eq_max_taps> turbo_saved_taps_{};
+    std::array<EqSample, eq_max_taps> causal_taps_{};
+    std::array<ComplexF, 2 * max_k> probe_y_{};
+    std::array<int, 2 * max_k> probe_idx_{};
+    // The same as the chain BCJR takes them (std::complex<float>; the values are copied, not rounded).
+    std::array<std::complex<float>, max_u> bcjr_rx_{};
+    std::array<std::complex<float>, max_u> bcjr_h1_{};
+    std::array<std::complex<float>, max_u> bcjr_h2_{};
+    std::array<float, 4 * max_u> bcjr_llrs_{};
+    std::array<tables::Complex32, max_k> bcjr_preceding_{};
 
     // Events.
     bool pending_block_ = false;
