@@ -99,4 +99,10 @@ internal static class Native
 
     [DllImport(HooksLib, EntryPoint = "ms110d_th_trinomial")]
     public static extern unsafe int ThTrinomial(uint blockSymbols, uint count, byte* output, uint outCapacity);
+
+    [DllImport(HooksLib, EntryPoint = "ms110d_th_frame")]
+    public static extern unsafe int ThFrame(byte* payload, uint payloadLen, int appendEom, uint inputBits, byte* output, uint outCapacity, out uint outLen);
+
+    [DllImport(HooksLib, EntryPoint = "ms110d_th_preamble")]
+    public static extern unsafe int ThPreamble(int tlcBlocks, int superframes, int wn, int interleaverKind, int constraintLength, byte* chips, uint capacity, out uint chipsLen);
 }

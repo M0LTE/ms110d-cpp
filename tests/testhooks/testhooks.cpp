@@ -9,6 +9,8 @@
 #include <m0lte/ms110d/mode.hpp>
 
 #include "fec/convolutional.hpp"
+#include "framing.hpp"
+#include "preamble.hpp"
 #include "interleaver.hpp"
 #include "puncture.hpp"
 #include "scrambler.hpp"
@@ -34,6 +36,34 @@ const fec::ConvolutionalCode* code_for(int32_t constraint_length) {
 }  // namespace
 
 extern "C" {
+
+int32_t ms110d_th_frame(const uint8_t* payload, uint32_t payload_len, int32_t append_eom, uint32_t input_bits,
+                        uint8_t* out, uint32_t out_capacity, uint32_t* out_len) {
+    if (payload == nullptr || out == nullptr || out_len == nullptr || input_bits == 0) return MS110D_ERR_INVALID_ARGUMENT;
+    const std::size_t need = framed_block_count(payload_len, append_eom != 0, input_bits) * input_bits;
+    *out_len = static_cast<uint32_t>(need);
+    if (out_capacity < need) return MS110D_ERR_BUFFER_TOO_SMALL;
+    if (!build_tx_bits(std::span<const uint8_t>(payload, payload_len), append_eom != 0, input_bits,
+                       std::span<uint8_t>(out, need))) {
+        return MS110D_ERR_INTERNAL;
+    }
+    return MS110D_OK;
+}
+
+int32_t ms110d_th_preamble(int32_t tlc_blocks, int32_t superframes, int32_t wn, int32_t interleaver_kind,
+                           int32_t constraint_length, uint8_t* chips, uint32_t capacity, uint32_t* chips_len) {
+    if (chips == nullptr || chips_len == nullptr || interleaver_kind < 0 || interleaver_kind > 3) {
+        return MS110D_ERR_INVALID_ARGUMENT;
+    }
+    const auto p = Preamble::make(tlc_blocks, superframes, wn, static_cast<InterleaverKind>(interleaver_kind),
+                                  constraint_length);
+    if (!p) return MS110D_ERR_INVALID_ARGUMENT;
+    const std::size_t n = p->chip_count();
+    *chips_len = static_cast<uint32_t>(n);
+    if (capacity < n) return MS110D_ERR_BUFFER_TOO_SMALL;
+    for (std::size_t i = 0; i < n; ++i) chips[i] = static_cast<uint8_t>(p->chip(i));
+    return MS110D_OK;
+}
 
 int32_t ms110d_th_encode(int32_t constraint_length, const uint8_t* info, uint32_t info_len, uint8_t* coded,
                          uint32_t coded_capacity, uint32_t* coded_len) {

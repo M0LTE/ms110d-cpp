@@ -31,6 +31,18 @@ extern "C" {
 #define MS110D_TH_API
 #endif
 
+/* Stage: framing (D.5.4.3): the payload bits, the 32 bit EOM when append_eom is non-zero, then
+ * zeros to a whole number of blocks of input_bits (at least one). Writes
+ * framed_block_count * input_bits bits; *out_len is set even on MS110D_ERR_BUFFER_TOO_SMALL. */
+MS110D_TH_API int32_t ms110d_th_frame(const uint8_t* payload, uint32_t payload_len, int32_t append_eom,
+                                      uint32_t input_bits, uint8_t* out, uint32_t out_capacity, uint32_t* out_len);
+
+/* Stage: the preamble's 8PSK chips (D.5.2.1) for tlc_blocks (0 to 255) and superframes (1 to
+ * 32). interleaver_kind is 0 ultra-short, 1 short, 2 medium, 3 long. */
+MS110D_TH_API int32_t ms110d_th_preamble(int32_t tlc_blocks, int32_t superframes, int32_t wn,
+                                         int32_t interleaver_kind, int32_t constraint_length, uint8_t* chips,
+                                         uint32_t capacity, uint32_t* chips_len);
+
 /* Stage: tail-biting convolutional encode. constraint_length is 7 or 9. Writes
  * 2 * info_len bits (T1 then T2 per input bit). */
 MS110D_TH_API int32_t ms110d_th_encode(int32_t constraint_length, const uint8_t* info, uint32_t info_len,

@@ -37,6 +37,23 @@ int main(void) {
     EXPECT(ms110d_th_puncture(7, 1, 2, coded, 32, out, 8, &len) == MS110D_ERR_BUFFER_TOO_SMALL);
     EXPECT(ms110d_th_puncture(7, 0, 2, coded, 32, out, 64, &len) == MS110D_ERR_INVALID_ARGUMENT);
 
+    {
+        const uint8_t payload[3] = {1, 0, 1};
+        EXPECT(ms110d_th_frame(payload, 3, 0, 8, out, 64, &len) == MS110D_OK && len == 8);
+        EXPECT(out[0] == 1 && out[1] == 0 && out[2] == 1 && out[3] == 0);
+        EXPECT(ms110d_th_frame(payload, 3, 1, 8, out, 64, &len) == MS110D_OK && len == 40);
+        EXPECT(ms110d_th_frame(payload, 3, 1, 8, out, 8, &len) == MS110D_ERR_BUFFER_TOO_SMALL && len == 40);
+        EXPECT(ms110d_th_frame(payload, 3, 0, 0, out, 64, &len) == MS110D_ERR_INVALID_ARGUMENT);
+    }
+
+    {
+        uint8_t chips[2048];
+        EXPECT(ms110d_th_preamble(0, 1, 6, 1, 7, chips, 2048, &len) == MS110D_OK && len == 320);
+        EXPECT(ms110d_th_preamble(0, 1, 6, 1, 7, chips, 10, &len) == MS110D_ERR_BUFFER_TOO_SMALL && len == 320);
+        EXPECT(ms110d_th_preamble(0, 0, 6, 1, 7, chips, 2048, &len) == MS110D_ERR_INVALID_ARGUMENT);
+        EXPECT(ms110d_th_preamble(0, 1, 6, 4, 7, chips, 2048, &len) == MS110D_ERR_INVALID_ARGUMENT);
+    }
+
     /* Increment 3 on 8 bits: bit n lands at (3n) mod 8. */
     {
         const uint8_t in[8] = {0, 1, 2, 3, 4, 5, 6, 7};

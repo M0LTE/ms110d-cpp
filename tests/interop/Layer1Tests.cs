@@ -84,24 +84,52 @@ public class Layer1Tests
         Assert.True(failure == null, failure);
     }
 
-    // ---- The stages. EXTENSION POINT (issue #17, framing in #16): the stages run in the order of
-    // ---- this method. Framing (Ms110dFraming.BuildTxBits: payload to framed bits, EOM, padding) goes
-    // ---- BEFORE "encode", producing the per-block info bits; the burst symbol stream (preamble,
-    // ---- mini-probes, EOT, Ms110dModulator.BuildSymbols) goes AFTER "scramble". Add a hook in
-    // ---- tests/testhooks for each, a Stage call here, and a frame count of whole bursts.
+    // ---- The stages, in pipeline order. A frame is a random payload (1 to about two interleaver
+    // ---- blocks long) with random EOM and preamble settings, so framing, preamble and block
+    // ---- stages all see varied input. Not here: the whole-burst symbol stream. The C# builds it
+    // ---- in a non-public method (Ms110dModulator.BuildSymbols), and its public Modulate returns
+    // ---- audio, which is layer 2; the burst symbols are checked against the reference files in
+    // ---- tests/layer1_reference_test.cpp and tests/framing_test.cpp. When the C# exposes them,
+    // ---- add a hook in tests/testhooks and a Stage_Burst after the block loop.
 
     private static string? CheckFrame(Context c, int frame)
     {
         ulong seed = Mix(c.Combo.Seed, (ulong)frame);
-        c.FillInfo(seed);
+        c.NewFrame(seed);
 
-        string? d =
-            Stage_Encode(c) ??
-            Stage_Puncture(c) ??
-            Stage_Interleave(c) ??
-            Stage_EncodeBlock(c) ??
-            Stage_Scramble(c);
+        string? d = Stage_Frame(c) ?? Stage_Preamble(c);
+        for (int b = 0; d == null && b < c.Blocks; b++)
+        {
+            c.LoadBlock(b);
+            d = Stage_Encode(c) ??
+                Stage_Puncture(c) ??
+                Stage_Interleave(c) ??
+                Stage_EncodeBlock(c) ??
+                Stage_Scramble(c);
+            if (d != null)
+            {
+                d += $" in block {b} of {c.Blocks}";
+            }
+        }
         return d == null ? null : $"layer 1: first stage that differs is '{d}' ({c.Combo.Name}, frame {frame}, seed 0x{seed:x16})";
+    }
+
+    // Payload to framed bits: EOM and zero fill to whole blocks.
+    private static string? Stage_Frame(Context c)
+    {
+        byte[] expected = Ms110dFraming.BuildTxBits(c.Payload, c.AppendEom, c.Il.InputBits);
+        c.Framed = expected;
+        int st = c.NativeFrame();
+        return Compare("frame", expected, c.NatFramed, st);
+    }
+
+    // The preamble chips (TLC, count-down, waveform ID, Walsh sections).
+    private static string? Stage_Preamble(Context c)
+    {
+        byte[] expected = new PreambleGenerator(c.Tlc, c.Superframes).Generate(c.Combo.Wn, c.Combo.Kind, c.Combo.K);
+        byte[] actual = new byte[expected.Length];
+        int st = c.NativePreamble(actual);
+        return Compare("preamble", expected, actual, st);
     }
 
     private static string? Stage_Encode(Context c)
@@ -236,6 +264,9 @@ public class Layer1Tests
         public readonly PunctureSpec Spec;
         public readonly Ms110dInterleaver CsInterleaver;
         public readonly int RateNum, RateDen, Symbols, TrinomialCount;
+        public byte[] Payload = [], Framed = [], NatFramed = [];
+        public bool AppendEom;
+        public int Tlc, Superframes, Blocks;
         public readonly byte[] Info, CsCoded, NatCoded, CsPunctured, NatPunctured, CsInterleaved, NatInterleaved;
         public readonly byte[] NatSymbols, CsScrambled, NatScrambled, CsTrinomial, NatTrinomial;
 
@@ -272,17 +303,45 @@ public class Layer1Tests
             NatTrinomial = new byte[TrinomialCount];
         }
 
-        public void FillInfo(ulong seed)
+        // A random payload of 1 to 2 * InputBits bits, random EOM and preamble settings.
+        public void NewFrame(ulong seed)
         {
-            ulong x = seed;
+            ulong x = Mix(seed, 2);
+            int len = 1 + (int)(x % (ulong)(2 * Il.InputBits));
+            AppendEom = ((x >> 40) & 1) != 0;
+            Tlc = (int)((x >> 44) % 4);
+            Superframes = 1 + (int)((x >> 52) % 5);
+            Payload = new byte[len];
+            ulong y = seed;
             int i = 0;
-            while (i < Info.Length)
+            while (i < len)
             {
-                x = Mix(x, 1);
-                for (int b = 0; b < 64 && i < Info.Length; b++)
+                y = Mix(y, 1);
+                for (int b = 0; b < 64 && i < len; b++)
                 {
-                    Info[i++] = (byte)((x >> b) & 1);
+                    Payload[i++] = (byte)((y >> b) & 1);
                 }
+            }
+        }
+
+        public void LoadBlock(int block) => Array.Copy(Framed, block * Il.InputBits, Info, 0, Il.InputBits);
+
+        public int NativeFrame()
+        {
+            // Once per frame; the buffer is sized for the block count the C# produced.
+            NatFramed = new byte[Framed.Length];
+            Blocks = Framed.Length / Il.InputBits;
+            fixed (byte* p = Payload) fixed (byte* o = NatFramed)
+            {
+                return Native.ThFrame(p, (uint)Payload.Length, AppendEom ? 1 : 0, (uint)Il.InputBits, o, (uint)NatFramed.Length, out _);
+            }
+        }
+
+        public int NativePreamble(byte[] actual)
+        {
+            fixed (byte* o = actual)
+            {
+                return Native.ThPreamble(Tlc, Superframes, Combo.Wn, (int)Combo.Kind, Combo.K, o, (uint)actual.Length, out _);
             }
         }
 

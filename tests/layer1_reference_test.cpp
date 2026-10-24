@@ -6,15 +6,19 @@
 // is checked in reference_tables_test.cpp and is not repeated here. Skipped when the files
 // have not been generated.
 //
-// EXTENSION POINT (issue #17, framing in #16): the stage list in first_differing_stage()
-// runs in order. Framing (payload to framed bits, EOM, padding) is the stage before
-// "encode", and the burst symbol stream (preamble, mini-probes, EOT) the stage after
-// "scramble". Add each as one more block in that function.
+// The stages run in pipeline order in first_differing_stage(): frame, preamble, encode,
+// puncture, interleave, scramble, then burst (the whole symbol stream from the interleaved
+// bits, with the probe values). A stage added to the pipeline is one more block there.
+// framing_test.cpp holds further checks of the same files (block-at-a-time assembly, the
+// waveform ID and downcount fields, values printed in the standard).
 
 #include <m0lte/ms110d/mode.hpp>
 
+#include "burst.hpp"
 #include "fec/convolutional.hpp"
+#include "framing.hpp"
 #include "interleaver.hpp"
+#include "preamble.hpp"
 #include "puncture.hpp"
 #include "reference_files.hpp"
 #include "scrambler.hpp"
@@ -22,6 +26,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <complex>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -61,6 +66,18 @@ std::string diff(const Bytes& expected, const Bytes& actual) {
     return {};
 }
 
+// The reference files' form of the symbol stream: symbol bytes, 255 for a probe symbol.
+struct RecordingSink {
+    Bytes symbols;
+    std::vector<std::complex<float>> probes;
+    void psk(std::uint8_t s) { symbols.push_back(s); }
+    void qam(std::uint8_t s) { symbols.push_back(s); }
+    void probe(tables::Complex32 v) {
+        symbols.push_back(255);
+        probes.push_back(v);
+    }
+};
+
 // "stage (detail)" for the first stage that differs, or "" when every stage matches.
 std::string first_differing_stage(const ReferenceCase& c) {
     const Manifest& m = c.manifest();
@@ -72,6 +89,26 @@ std::string first_differing_stage(const ReferenceCase& c) {
     const std::size_t blocks = static_cast<std::size_t>(m.integer("blocks"));
     const std::size_t in_bits = static_cast<std::size_t>(il->input_bits);
     const std::size_t size = static_cast<std::size_t>(il->size_bits);
+
+    // frame: payload -> framed bits (EOM and zero fill).
+    {
+        const Bytes payload = c.bytes("payload_bits");
+        Bytes out(blocks * in_bits);
+        if (framed_block_count(payload.size(), m.integer("append_eom") != 0, in_bits) != blocks) return "frame (block count)";
+        if (!build_tx_bits(payload, m.integer("append_eom") != 0, in_bits, out)) return "frame (rejected)";
+        if (auto d = diff(c.bytes("framed_bits"), out); !d.empty()) return "frame (" + d + ")";
+    }
+
+    // preamble: the 8PSK chips.
+    const auto preamble = Preamble::make(static_cast<int>(m.integer("tlc_blocks")),
+                                         static_cast<int>(m.integer("preamble_superframes")), wn,
+                                         kind_of(m.str("interleaver")), static_cast<int>(m.integer("constraint_length")));
+    if (!preamble) return "preamble (rejected)";
+    {
+        Bytes out(preamble->chip_count());
+        for (std::size_t i = 0; i < out.size(); ++i) out[i] = preamble->chip(i);
+        if (auto d = diff(c.bytes("preamble_symbols"), out); !d.empty()) return "preamble (" + d + ")";
+    }
 
     // encode: framed bits -> encoded bits, block by block.
     {
@@ -143,6 +180,30 @@ std::string first_differing_stage(const ReferenceCase& c) {
         }
         if (auto d = diff(want_seq, seq); !d.empty()) return "scramble sequence (" + d + ")";
         if (auto d = diff(c.bytes("data_symbols"), data); !d.empty()) return "scramble data (" + d + ")";
+    }
+
+    // burst: the whole symbol stream from the interleaved bits, and the mini-probe values.
+    {
+        TxSettings cfg;
+        cfg.waveform_number = wn;
+        cfg.interleaver = kind_of(m.str("interleaver"));
+        cfg.constraint_length = static_cast<int>(m.integer("constraint_length"));
+        cfg.tlc_blocks = static_cast<int>(m.integer("tlc_blocks"));
+        cfg.preamble_superframes = static_cast<int>(m.integer("preamble_superframes"));
+        cfg.append_eom = m.integer("append_eom") != 0;
+        cfg.append_eot = m.integer("append_eot") != 0;
+        const auto layout = burst_layout(cfg, static_cast<std::size_t>(m.integer("payload_bits")));
+        if (!layout) return "burst (no layout)";
+        RecordingSink sink;
+        if (!assemble_burst(*layout, *preamble, c.bytes("interleaved_bits"), sink)) return "burst (rejected)";
+        if (auto d = diff(c.bytes("burst_symbols"), sink.symbols); !d.empty()) return "burst symbols (" + d + ")";
+        const auto probes = c.complex32("probe_values_cf32le");
+        if (probes.size() != sink.probes.size()) return "burst probes (count)";
+        for (std::size_t i = 0; i < probes.size(); ++i) {
+            if (probes[i].real() != sink.probes[i].real() || probes[i].imag() != sink.probes[i].imag()) {
+                return "burst probes (index " + std::to_string(i) + ")";
+            }
+        }
     }
 
     return {};
