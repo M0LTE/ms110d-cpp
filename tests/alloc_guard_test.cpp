@@ -19,8 +19,7 @@ TEST_CASE("the allocation counter sees heap use", "[alloc]") {
 
 TEST_CASE("version() does not allocate", "[alloc][version]") {
     const ms110d_test::AllocationScope scope;
-    const auto v = m0lte::ms110d::version();
+    (void)m0lte::ms110d::version();
     const std::size_t seen = scope.allocations();
     CHECK(seen == 0);
-    CHECK(v.major >= 0);
 }

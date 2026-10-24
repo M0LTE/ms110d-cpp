@@ -1,0 +1,7 @@
+<Project>
+  <!-- The C# reference version comes from reference/pin.txt, the single pin for this repo. -->
+  <PropertyGroup>
+    <Ms110dPin>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)../../reference/pin.txt'))</Ms110dPin>
+    <Ms110dReferenceVersion>$([System.Text.RegularExpressions.Regex]::Match($(Ms110dPin), '(?m)^nuget_version=([^\r\n]+)').Groups[1].Value.Trim())</Ms110dReferenceVersion>
+  </PropertyGroup>
+</Project>

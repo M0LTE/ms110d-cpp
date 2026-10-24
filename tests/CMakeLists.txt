@@ -36,3 +36,54 @@ add_custom_target(update-api-lock
     -DUPDATE=ON
     -P "${PROJECT_SOURCE_DIR}/cmake/ApiLock.cmake"
   COMMENT "Rewriting the public API snapshot")
+
+# C interface. Compiled as C99 (not C++) so the header is proven to be valid C.
+if(MS110D_BUILD_C_SHARED)
+  enable_language(C)
+  add_executable(ms110d_c_test c_api_test.c)
+  set_target_properties(ms110d_c_test PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+  target_link_libraries(ms110d_c_test PRIVATE ms110d_c)
+  target_compile_definitions(ms110d_c_test PRIVATE MS110D_EXPECTED_VERSION="${PROJECT_VERSION}")
+  if(MS110D_PRECISION STREQUAL "single")
+    target_compile_definitions(ms110d_c_test PRIVATE MS110D_EXPECT_SINGLE)
+  endif()
+  if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(ms110d_c_test PRIVATE -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wstrict-prototypes)
+  endif()
+  add_test(NAME c_api COMMAND ms110d_c_test)
+
+  # Only the C functions are exported from the shared library (Linux and macOS check).
+  if(CMAKE_NM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME c_exports
+      COMMAND ${CMAKE_COMMAND}
+        "-DNM=${CMAKE_NM}" "-DLIB=$<TARGET_FILE:ms110d_c>"
+        -P "${PROJECT_SOURCE_DIR}/cmake/CheckExports.cmake")
+  endif()
+
+  # Side-by-side .NET tests: see docs/dev/dotnet-interop.md. AUTO runs them when a
+  # .NET 10 SDK is on the PATH; ON insists on one; OFF never builds them.
+  set(MS110D_DOTNET_TESTS "AUTO" CACHE STRING "Run the .NET interop tests under ctest: AUTO, ON or OFF")
+  set_property(CACHE MS110D_DOTNET_TESTS PROPERTY STRINGS AUTO ON OFF)
+  if(NOT MS110D_DOTNET_TESTS STREQUAL "OFF")
+    find_program(MS110D_DOTNET dotnet)
+    set(_dotnet_ok OFF)
+    if(MS110D_DOTNET)
+      execute_process(COMMAND ${MS110D_DOTNET} --list-sdks OUTPUT_VARIABLE _sdks ERROR_QUIET)
+      if(_sdks MATCHES "(^|\n)1[0-9]\\.")
+        set(_dotnet_ok ON)
+      endif()
+    endif()
+    if(_dotnet_ok)
+      add_test(NAME dotnet_interop
+        COMMAND ${MS110D_DOTNET} run --project "${PROJECT_SOURCE_DIR}/tests/interop" --configuration Release
+          --artifacts-path "${CMAKE_CURRENT_BINARY_DIR}/dotnet")
+      set_tests_properties(dotnet_interop PROPERTIES
+        TIMEOUT 900
+        ENVIRONMENT "MS110D_NATIVE_LIB=$<TARGET_FILE:ms110d_c>;MS110D_EXPECTED_VERSION=${PROJECT_VERSION};DOTNET_NOLOGO=1;DOTNET_CLI_TELEMETRY_OPTOUT=1")
+    elseif(MS110D_DOTNET_TESTS STREQUAL "ON")
+      message(FATAL_ERROR "MS110D_DOTNET_TESTS=ON but no .NET 10 SDK was found")
+    else()
+      message(STATUS "No .NET 10 SDK found: the dotnet_interop test is not registered")
+    endif()
+  endif()
+endif()

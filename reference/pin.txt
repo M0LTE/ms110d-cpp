@@ -1,0 +1,11 @@
+# The C# reference this repo is tested against. One file, two values; see docs/dev/reference-files.md.
+# Read by scripts/generate-reference.sh, by tests/interop (MSBuild) and by CI.
+#
+# nuget_version  the M0LTE.Ms110d NuGet package the .NET tests load
+# git_ref        the M0LTE/M0LTE.Ms110d commit the reference files are generated from
+#
+# Rule: from the first C# release that contains RefGen, git_ref is that release tag (vX.Y.Z)
+# and nuget_version is X.Y.Z. After that, never change one without the other.
+# For now RefGen is only on main (merged after 0.1.0), so git_ref is a commit SHA.
+nuget_version=0.1.0
+git_ref=cf4565f7830e76de706d7a27c444e4f9ff5a7ee4

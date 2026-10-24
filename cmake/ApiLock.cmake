@@ -1,5 +1,5 @@
 # Public API lock. Run with cmake -P.
-#   SOURCE_INCLUDE, GENERATED_INCLUDE  the two include roots to scan for *.hpp
+#   SOURCE_INCLUDE, GENERATED_INCLUDE  the two include roots to scan for *.hpp and *.h
 #   SNAPSHOT     the checked-in snapshot file
 #   ACTUAL       where to write the current dump when it differs (check mode)
 #   UPDATE       ON to rewrite SNAPSHOT instead of comparing
@@ -10,7 +10,7 @@
 set(_dump "")
 set(_files "")
 foreach(_dir "${SOURCE_INCLUDE}" "${GENERATED_INCLUDE}")
-  file(GLOB_RECURSE _found RELATIVE "${_dir}" "${_dir}/*.hpp")
+  file(GLOB_RECURSE _found RELATIVE "${_dir}" "${_dir}/*.hpp" "${_dir}/*.h")
   foreach(_rel IN LISTS _found)
     list(APPEND _files "${_dir}|${_rel}")
   endforeach()
