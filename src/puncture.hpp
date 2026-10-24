@@ -51,4 +51,10 @@ std::optional<std::size_t> apply_puncture(const PunctureSpec& spec,
 // punctured length for that many info bits (the C# throws); `mother` is then cleared.
 bool depuncture_soft(const PunctureSpec& spec, std::span<const float> rx, std::span<float> mother) noexcept;
 
+// The soft mirror of apply_puncture (the C# Ms110dPuncture.Apply over floats): walks mother
+// lattice values through the same repeat and mask schedule. Returns the number written, or
+// nothing if `punctured` is too short.
+std::optional<std::size_t> apply_puncture_soft(const PunctureSpec& spec, std::span<const float> mother,
+                                               std::span<float> punctured) noexcept;
+
 }  // namespace m0lte::ms110d

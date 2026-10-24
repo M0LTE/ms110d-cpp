@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #include "dfe_receiver.hpp"
 
+#include "dfe_common.hpp"
+
 #include "preamble.hpp"
 #include "preamble_detector.hpp"
 #include "tables.hpp"
@@ -45,19 +47,11 @@ constexpr int presence_max_carriers = 4;
 constexpr double presence_carrier_over_noise = 1.5;
 constexpr double presence_carrier_over_signal = 4.0;
 
-inline ComplexF cf(EqSample v) noexcept { return {v.real(), v.imag()}; }
-inline EqSample eq(ComplexF v) noexcept { return {v.re, v.im}; }
-inline ComplexF psk8(int symbol) noexcept { return cf(tables::psk8[static_cast<std::size_t>(symbol)]); }
-
-// Math.Clamp: min if below, max if above (the arguments here always have min <= max).
-inline double clamp(double v, double lo, double hi) noexcept { return v < lo ? lo : (v > hi ? hi : v); }
-
-// Ring symbol -> tribit, the inverse of the 8PSK transcoding (the C# SymbolToTribit8).
-constexpr std::array<std::uint8_t, 8> symbol_to_tribit8 = [] {
-    std::array<std::uint8_t, 8> inv{};
-    for (std::uint8_t t = 0; t < 8; ++t) inv[tables::transcode_8psk[t]] = t;
-    return inv;
-}();
+using dfe_detail::cf;
+using dfe_detail::clamp;
+using dfe_detail::eq;
+using dfe_detail::psk8;
+using dfe_detail::symbol_to_tribit8;
 
 // Squared decision-confidence radius per modulation (the C# DdGateRadius).
 float dd_gate_radius(Modulation m) noexcept {
@@ -143,6 +137,7 @@ std::size_t next_pow2(std::size_t n) noexcept {
 }
 
 struct Sizes {
+    std::size_t symbols = 0;  // data symbols in the longest block
     std::size_t ring = 0;
     std::size_t dfe = 0;
     std::size_t size_bits = 0;
@@ -164,6 +159,7 @@ Sizes sizes_for(InterleaverKind max_kind) noexcept {
             if (!il) continue;
             s.size_bits = std::max(s.size_bits, static_cast<std::size_t>(il->size_bits));
             s.input_bits = std::max(s.input_bits, static_cast<std::size_t>(il->input_bits));
+            s.symbols = std::max(s.symbols, static_cast<std::size_t>(il->frames) * static_cast<std::size_t>(m.u));
             // A whole block (the turbo pass re-reads it at the block's end), the probe after it,
             // the last preamble super-frame (the initial solve) and the reads around them.
             const std::size_t symbols = static_cast<std::size_t>(il->frames) * static_cast<std::size_t>(m.u + m.k) +
@@ -187,6 +183,51 @@ struct Carver {
         return p;
     }
 };
+
+// Where every piece of the caller's block goes. carve_all lays them out in one order, for sizing
+// (a null base) and for carving.
+struct Layout {
+    ComplexF* ring;
+    std::uint8_t* dfe;
+    float *block_llrs, *deinterleaved, *mother;
+    std::uint8_t* info;
+    double *dft_re, *dft_im;
+    float *first_pass_llrs, *turbo_llrs, *soft_punctured, *soft_mother, *soft_mother_post, *soft_wire_llrs,
+        *soft_wire_ext, *soft_var;
+    ComplexF *soft_expected, *turbo_expected;
+    std::uint8_t *first_info, *prev_info, *mfb_info, *fetched, *fetched2, *coded, *punctured_bits, *mfb;
+};
+
+Layout carve_all(Carver& c, const Sizes& s, std::size_t mfb_bytes) noexcept {
+    Layout l{};
+    l.ring = c.take<ComplexF>(s.ring);
+    l.dfe = c.take<std::uint8_t>(s.dfe);
+    l.block_llrs = c.take<float>(s.size_bits);
+    l.deinterleaved = c.take<float>(s.size_bits);
+    l.mother = c.take<float>(2 * s.input_bits);
+    l.info = c.take<std::uint8_t>(s.input_bits);
+    l.dft_re = c.take<double>(s.dft);
+    l.dft_im = c.take<double>(s.dft);
+    l.first_pass_llrs = c.take<float>(s.size_bits);
+    l.turbo_llrs = c.take<float>(s.size_bits);
+    l.soft_punctured = c.take<float>(s.size_bits);
+    l.soft_mother = c.take<float>(2 * s.input_bits);
+    l.soft_mother_post = c.take<float>(2 * s.input_bits);
+    l.soft_wire_llrs = c.take<float>(s.size_bits);
+    l.soft_wire_ext = c.take<float>(s.size_bits);
+    l.soft_var = c.take<float>(s.symbols);
+    l.soft_expected = c.take<ComplexF>(s.symbols);
+    l.turbo_expected = c.take<ComplexF>(s.symbols);
+    l.first_info = c.take<std::uint8_t>(s.input_bits);
+    l.prev_info = c.take<std::uint8_t>(s.input_bits);
+    l.mfb_info = c.take<std::uint8_t>(s.input_bits);
+    l.fetched = c.take<std::uint8_t>(s.size_bits);
+    l.fetched2 = c.take<std::uint8_t>(s.size_bits);
+    l.coded = c.take<std::uint8_t>(2 * s.input_bits);
+    l.punctured_bits = c.take<std::uint8_t>(s.size_bits);
+    l.mfb = c.take<std::uint8_t>(mfb_bytes);
+    return l;
+}
 
 }  // namespace
 
@@ -213,25 +254,20 @@ std::size_t DfeReceiver::max_input_bits_for(InterleaverKind max_interleaver) noe
 
 std::size_t DfeReceiver::storage_bytes(const DfeReceiverConfig& config) noexcept {
     if (static_cast<int>(config.max_interleaver) < 0 || static_cast<int>(config.max_interleaver) > 3) return 0;
-    const Sizes s = sizes_for(config.max_interleaver);
     Carver c{nullptr};
-    c.take<ComplexF>(s.ring);
-    c.take<std::uint8_t>(s.dfe);
-    c.take<float>(s.size_bits);
-    c.take<float>(s.size_bits);
-    c.take<float>(2 * s.input_bits);
-    c.take<std::uint8_t>(s.input_bits);
-    c.take<double>(s.dft);
-    c.take<double>(s.dft);
+    carve_all(c, sizes_for(config.max_interleaver), MfbBlockDecoder::storage_bytes(config.max_interleaver));
     return c.at + alignof(double);  // room to align the start
 }
 
 bool DfeReceiver::configure(const DfeReceiverConfig& config, std::span<std::uint8_t> storage,
-                            fec::TailBitingViterbiDecoder* k7, fec::TailBitingViterbiDecoder* k9) noexcept {
+                            const DfeDecoders& decoders) noexcept {
     ring_ = nullptr;
     active_ = false;
     const std::size_t need = storage_bytes(config);
-    if (need == 0 || storage.size() < need || k7 == nullptr || k9 == nullptr || !k7->valid() || !k9->valid()) {
+    const DfeDecoders& d = decoders;
+    if (need == 0 || storage.size() < need || d.viterbi_k7 == nullptr || d.viterbi_k9 == nullptr ||
+        d.siso_k7 == nullptr || d.siso_k9 == nullptr || d.chain == nullptr || !d.viterbi_k7->valid() ||
+        !d.viterbi_k9->valid() || !d.siso_k7->valid() || !d.siso_k9->valid()) {
         return false;
     }
     if (config.max_input_data_blocks < 0) return false;
@@ -241,21 +277,40 @@ bool DfeReceiver::configure(const DfeReceiverConfig& config, std::span<std::uint
     std::size_t space = storage.size();
     if (std::align(alignof(double), need - alignof(double), where, space) == nullptr) return false;
     Carver c{static_cast<std::uint8_t*>(where)};
-    ComplexF* ring = c.take<ComplexF>(s.ring);
-    dfe_storage_ = {c.take<std::uint8_t>(s.dfe), s.dfe};
-    block_llrs_ = c.take<float>(s.size_bits);
-    deinterleaved_ = c.take<float>(s.size_bits);
-    mother_ = c.take<float>(2 * s.input_bits);
-    info_ = c.take<std::uint8_t>(s.input_bits);
-    presence_dft_re_ = c.take<double>(s.dft);
-    presence_dft_im_ = c.take<double>(s.dft);
+    const std::size_t mfb_bytes = MfbBlockDecoder::storage_bytes(config.max_interleaver);
+    const Layout l = carve_all(c, s, mfb_bytes);
+    if (!mfb_.configure({l.mfb, mfb_bytes}, config.max_interleaver)) return false;
+    dfe_storage_ = {l.dfe, s.dfe};
+    block_llrs_ = l.block_llrs;
+    deinterleaved_ = l.deinterleaved;
+    mother_ = l.mother;
+    info_ = l.info;
+    presence_dft_re_ = l.dft_re;
+    presence_dft_im_ = l.dft_im;
+    first_pass_llrs_ = l.first_pass_llrs;
+    turbo_llrs_ = l.turbo_llrs;
+    soft_punctured_ = l.soft_punctured;
+    soft_mother_ = l.soft_mother;
+    soft_mother_post_ = l.soft_mother_post;
+    soft_wire_llrs_ = l.soft_wire_llrs;
+    soft_wire_ext_ = l.soft_wire_ext;
+    soft_var_ = l.soft_var;
+    soft_expected_ = l.soft_expected;
+    turbo_expected_ = l.turbo_expected;
+    first_info_ = l.first_info;
+    prev_info_ = l.prev_info;
+    mfb_info_ = l.mfb_info;
+    fetched_ = l.fetched;
+    fetched2_ = l.fetched2;
+    coded_ = l.coded;
+    punctured_bits_ = l.punctured_bits;
     ring_size_ = s.ring;
     max_size_bits_ = s.size_bits;
     max_input_bits_ = s.input_bits;
+    max_block_symbols_ = s.symbols;
     config_ = config;
-    viterbi_k7_ = k7;
-    viterbi_k9_ = k9;
-    ring_ = ring;
+    decoders_ = decoders;
+    ring_ = l.ring;
     reset();
     return true;
 }
@@ -299,7 +354,11 @@ bool DfeReceiver::start(const DfeStart& s) noexcept {
     il_ = *il;
     interleaver_ = Interleaver(static_cast<std::uint32_t>(il->size_bits), static_cast<std::uint32_t>(il->increment));
     puncture_ = puncture;
-    viterbi_ = s.constraint_length == 9 ? viterbi_k9_ : viterbi_k7_;
+    viterbi_ = s.constraint_length == 9 ? decoders_.viterbi_k9 : decoders_.viterbi_k7;
+    siso_ = s.constraint_length == 9 ? decoders_.siso_k9 : decoders_.siso_k7;
+    code_ = &code;
+    mfb_ready_ = false;
+    frozen_relock_active_ = false;
     for (int i = 0; i < mode_.k; ++i) {
         probe_plain_[static_cast<std::size_t>(i)] = cf(tables::probe_symbol(*probe_spec, i, false));
         probe_shifted_[static_cast<std::size_t>(i)] = cf(tables::probe_symbol(*probe_spec, i, true));
@@ -1155,16 +1214,95 @@ void DfeReceiver::finish_block() noexcept {
         return;
     }
 
-    // Deinterleave, depuncture to the mother lattice, tail-biting Viterbi (the C#
-    // Ms110dFraming.DecodeBlock).
-    interleaver_.deinterleave(block_llrs_, deinterleaved_);
-    depuncture_soft(*puncture_, {deinterleaved_, size}, {mother_, 2 * input});
-    viterbi_->decode({mother_, 2 * input}, {info_, input});
+    std::copy(block_llrs_, block_llrs_ + size, first_pass_llrs_);
+    decode_block(block_llrs_, info_);
+
+    // The turbo stage (the C# FinishBlock): for every equaliser mode but QAM16 the turbo
+    // re-equalisation loop, with the frozen-probe salvage and the MFB ensemble for 8PSK; for QAM16
+    // the MFB block decoder instead. Each keeps the first-pass decode when it finds no fixed point.
+    block_.turbo = DfeTurbo::Skipped;
+    block_.turbo_llrs = {};
+    block_.mfb_offered = false;
+    block_.mfb_selected = false;
+    const bool full = block_frames_ == il_.frames;
+    if (config_.turbo && mode_.modulation != Modulation::Qam16 && full && block_samples_resident()) {
+        // The rows gathered since the last probe solve belong to the next one; keep them.
+        dfe_.snapshot_training();
+        std::memcpy(first_info_, info_, input);
+        bool aborted = false;
+        const bool converged = run_turbo_loop(info_, prev_info_, aborted);
+        if (!aborted) {
+            std::copy(block_llrs_, block_llrs_ + size, turbo_llrs_);
+            block_.turbo_llrs = {turbo_llrs_, size};
+        }
+        if (converged) {
+            ++stats_.turbo_converged;
+            block_.turbo = DfeTurbo::Converged;
+        } else if (aborted) {
+            ++stats_.turbo_aborted;
+            block_.turbo = DfeTurbo::Aborted;
+        } else if (mode_.modulation == Modulation::Psk8 &&
+                   (try_salvage_revert(info_, prev_info_) || try_salvage_relock(info_, prev_info_))) {
+            ++stats_.turbo_salvaged;
+            ++stats_.turbo_converged;
+            block_.turbo = DfeTurbo::Salvaged;
+        } else {
+            // No fixed point: a self-trained iterate is not evidence, keep the first pass.
+            ++stats_.turbo_reverted;
+            std::memcpy(info_, first_info_, input);
+            block_.turbo = DfeTurbo::Reverted;
+        }
+        dfe_.restore_training();
+
+        if (mode_.modulation == Modulation::Psk8) {
+            // The 8PSK per-block ensemble: the MFB decode, when it converges, is weighed against
+            // the chain path's in log-likelihood units and the larger evidence wins.
+            if (!mfb_ready_) mfb_ready_ = mfb_.begin(mode_, il_, *code_, *puncture_, interleaver_, *viterbi_, *siso_);
+            std::memcpy(mfb_info_, info_, input);
+            if (mfb_ready_ && mfb_.decode_block(*this, block_frame_chips_.data(), mfb_info_)) {
+                const double chain_price = mfb_.price(info_, block_frame_chips_.data());
+                const double mfb_price = mfb_.price(mfb_info_, block_frame_chips_.data());
+                const double mfb_evidence = static_cast<double>(mfb_.price_rows()) * std::log(chain_price / mfb_price);
+                double chain_evidence = 0;
+                int diff_bits = 0;
+                ++stats_.mfb_offered;
+                block_.mfb_offered = true;
+                if (mfb_evidence > 0 && block_llr_count_ == size) {
+                    encode_block(info_, fetched_);
+                    encode_block(mfb_info_, fetched2_);
+                    for (std::size_t i = 0; i < size; ++i) {
+                        if (fetched_[i] != fetched2_[i]) {
+                            ++diff_bits;
+                            chain_evidence += static_cast<double>(std::abs(block_llrs_[i]));
+                        }
+                    }
+                    if (diff_bits > 0 && mfb_evidence > chain_evidence) {
+                        std::memcpy(info_, mfb_info_, input);
+                        ++stats_.mfb_selected;
+                        block_.mfb_selected = true;
+                    }
+                }
+            }
+        }
+    } else if (config_.turbo && mode_.modulation == Modulation::Qam16 && full && block_samples_resident()) {
+        if (!mfb_ready_) mfb_ready_ = mfb_.begin(mode_, il_, *code_, *puncture_, interleaver_, *viterbi_, *siso_);
+        std::memcpy(first_info_, info_, input);
+        if (mfb_ready_ && mfb_.decode_block(*this, block_frame_chips_.data(), info_)) {
+            ++stats_.turbo_converged;
+            block_.turbo = DfeTurbo::Converged;
+        } else {
+            ++stats_.turbo_reverted;
+            std::memcpy(info_, first_info_, input);
+            block_.turbo = DfeTurbo::Reverted;
+        }
+    } else {
+        ++stats_.turbo_skipped;
+    }
 
     block_.index = block_index_;
     block_.at_t2 = written_;
     block_.info = {info_, input};
-    block_.llrs = {block_llrs_, size};
+    block_.llrs = {first_pass_llrs_, size};
     pending_block_ = true;
     block_llr_count_ = 0;
 
