@@ -33,6 +33,13 @@ if (args.Length > 0 && args[0] == "framing")
     return;
 }
 
+// "dfe" mode: the equaliser driven through scripted scenarios for tests/data/csharp-dfe-0.2.0.txt (see DfeDump.cs).
+if (args.Length > 0 && args[0] == "dfe")
+{
+    Console.Out.Write(DfeDump.Run(args.Length > 1 ? args[1] : "build/_reference/ref"));
+    return;
+}
+
 static ulong Fnv(IEnumerable<uint> values)
 {
     ulong h = 14695981039346656037UL;
