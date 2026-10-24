@@ -40,6 +40,9 @@ MS110D_DEVIATION(124, "Single precision equaliser", "Float is enough on the Cort
 }
 ```
 
+- Every deviation must actually run, not skip, in at least one CI build; a deviation that skips everywhere is never measured and so exists only in prose. Reviewers check this on every PR that adds or changes a deviation: say in the PR which CI build measures it.
+- Because of the half-bound rule, a deviation can never be zero-cost. If the cost falls to nothing, the difference is gone: delete the deviation and close its issue.
+
 ## The list check
 
 The ctest `deviations_doc` regenerates the list from the declarations and compares it with `docs/deviations.md`, and fails if they differ (for example a deviation added or its bound changed without regenerating). `cmake/DeviationsDoc.cmake` does the work, in the same style as the [API lock](api-lock.md). The generator is the hidden Catch2 test tagged `[.deviation-doc]`, which writes to the file named by `MS110D_DEVIATIONS_OUT`.
