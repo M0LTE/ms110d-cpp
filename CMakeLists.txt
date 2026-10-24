@@ -41,7 +41,8 @@ configure_file(
   @ONLY)
 
 add_library(ms110d src/version.cpp src/mode.cpp src/tables.cpp src/trinomial_scrambler.cpp src/scrambler_interleaver_check.cpp
-  src/puncture.cpp src/fec/tail_biting_encoder.cpp)
+  src/puncture.cpp src/fec/tail_biting_encoder.cpp
+  src/dsp/filter_design.cpp src/modulator.cpp)
 add_library(m0lte::ms110d ALIAS ms110d)
 
 target_compile_features(ms110d PUBLIC cxx_std_20)
