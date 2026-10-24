@@ -25,7 +25,9 @@ add_executable(ms110d_tests
   equaliser_test.cpp
   wn0_receiver_test.cpp
   support/impair.cpp
-  preamble_detector_test.cpp)
+  preamble_detector_test.cpp
+  support/rx_driver.cpp
+  dfe_receiver_test.cpp)
 target_link_libraries(ms110d_tests PRIVATE m0lte::ms110d Catch2::Catch2WithMain)
 # The tests also see the library's internal headers (src/tables.hpp); they are not installed.
 target_include_directories(ms110d_tests PRIVATE support "${PROJECT_SOURCE_DIR}/src")
@@ -47,6 +49,8 @@ target_compile_definitions(ms110d_tests PRIVATE
   MS110D_CSHARP_WN0_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-wn0-0.2.1.txt"
   MS110D_CSHARP_WN0_AWGN="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-wn0-awgn-0.2.1.txt"
   MS110D_WN0_POOR_STEM="${MS110D_WN0_POOR_STEM}"
+  MS110D_CSHARP_RX_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-rx-0.2.1.txt"
+  MS110D_CSHARP_RX_AWGN="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-rx-awgn-0.2.1.txt"
   MS110D_CSHARP_DFE_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-dfe-0.2.1.txt"
   MS110D_PIN_FILE="${PROJECT_SOURCE_DIR}/reference/pin.txt")
 ms110d_apply_options(ms110d_tests)

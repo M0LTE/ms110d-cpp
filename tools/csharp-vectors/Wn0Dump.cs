@@ -34,7 +34,7 @@ static class Wn0Dump
 
     // Seeded Gaussian noise that the C++ tests reproduce exactly: SplitMix64 for uniforms,
     // Box-Muller for pairs (cos then sin), in double, one value per audio sample.
-    sealed class SharedNoise(ulong seed)
+    internal sealed class SharedNoise(ulong seed)
     {
         ulong _state = seed;
         double _spare;

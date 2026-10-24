@@ -54,3 +54,5 @@ CI runs the script on every PR and caches `build/_reference` keyed on `reference
 The tool (`tools/csharp-vectors`) is pinned to the NuGet package `M0LTE.Ms110d` 0.2.1, so bump the version in its project file together with `reference/pin.txt`. The BPSK, QPSK and 8PSK transcode lines come from the C# modulator's private `Transcode`, evaluated for every input through reflection. Without arguments the same tool prints the scrambler and interleaver vectors for `tests/csharp_vectors.hpp` (see `tools/csharp-vectors/make_header.py`).
 
 `tests/wn0_receiver_test.cpp` compares the WN 0 receiver with three more dumps from the same tool (`wn0`, `wn0-awgn`, `wn0-poor`), regenerated when the pin moves; the commands, and `scripts/generate-wn0-poor.sh` for the Poor channel corpus that is not committed, are in docs/dev/wn0-receiver.md.
+
+`tests/dfe_receiver_test.cpp` compares the equaliser receive path with two more (`rx`, `rx-awgn`), regenerated the same way when the pin moves; the commands are in docs/dev/dfe-receiver.md.
