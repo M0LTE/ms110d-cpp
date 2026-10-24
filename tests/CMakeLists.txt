@@ -18,8 +18,7 @@ target_compile_definitions(ms110d_tests PRIVATE
 ms110d_apply_options(ms110d_tests)
 
 include(Catch)
-# The deviation-doc test writes the generated list and is run by the checks below.
-catch_discover_tests(ms110d_tests TEST_SPEC "~[deviation-doc]")
+catch_discover_tests(ms110d_tests)
 
 # Public API lock: see docs/dev/api-lock.md.
 set(MS110D_API_SNAPSHOT "${CMAKE_CURRENT_SOURCE_DIR}/api/public-api.txt")

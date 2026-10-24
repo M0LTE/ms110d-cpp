@@ -1,31 +1,43 @@
 // Accepted deviations: see docs/dev/deviations.md.
 //
 // A deviation is a difference from the C# reference that we keep on purpose.
-// Declare it once at namespace scope, then measure it in a Catch2 test:
+// One construct declares it, registers it and defines its test, so none of the
+// three can exist without the others:
 //
-//   inline const auto kTurboSkip = ms110d_test::declare_deviation(
-//       {123, "Skip the turbo pass", "Saves 40% CPU on the Cortex-M7",
-//        "SNR cost on WN4 at 1% frame error", "dB", 0.5});
-//
-//   TEST_CASE("Deviation #123: skip the turbo pass", "[deviation][issue-123]") {
-//       kTurboSkip.check(measure_snr_cost());
+//   MS110D_DEVIATION(123, "Skip the turbo pass", "Saves 40% CPU on the Cortex-M7",
+//                    "frames lost versus the C# on WN4 at 3 dB", "%", 0.5) {
+//       return measure_frames_lost_percent();
 //   }
 //
-// Declaring also registers the deviation, so the generated list in
-// docs/deviations.md includes it. The test fails if the measured value is above
-// the stated bound.
+// The issue number must be a plain integer literal. The body returns the
+// measured cost (lower is better) and is the body of a Catch2 test tagged
+// [deviation] and [issue-123]. The test fails if the cost is above the bound,
+// and also if it is below half the bound (the bound is stale: tighten it).
+// A deviation that applies to only some builds is always declared; the body
+// calls SKIP() where it does not apply.
 #pragma once
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace ms110d_test {
+namespace deviation_detail {
+
+// Shortest text that reads back as the same double, so the published list and
+// the check cannot disagree about the bound.
+inline std::string number(double v) {
+    char buf[64];
+    const auto r = std::to_chars(buf, buf + sizeof buf, v);
+    return std::string(buf, r.ptr);
+}
 
 struct Deviation {
     int issue;               // GitHub issue number in M0LTE/ms110d-cpp
@@ -41,24 +53,21 @@ struct Deviation {
     };
 
     // Compares a measured value with the bound. Does not touch Catch2, so it
-    // can be tested directly.
+    // can be tested directly. Lower is better. Measurements must be
+    // deterministic (fixed seeds, counts rather than wall-clock time), so a
+    // value below half the bound means the bound is stale.
     Result evaluate(double measured) const {
-        char buf[128];
-        const bool ok = std::isfinite(measured) && measured <= bound;
-        std::snprintf(buf, sizeof buf, "measured %g %s, bound %g %s", measured, unit.c_str(), bound, unit.c_str());
-        std::string msg = ok ? std::string("Deviation #") + std::to_string(issue) + " within bound: " + buf
-                             : std::string("Deviation #") + std::to_string(issue) + " (" + title + ") exceeds its stated bound: " + buf +
-                                   " (" + metric + "). Fix the regression, or raise the bound in the test and in issue #" +
-                                   std::to_string(issue) + " with a reason.";
-        return {ok, msg};
-    }
-
-    // Call from the TEST_CASE. Fails the test, naming the issue, if the
-    // measured value is above the bound.
-    void check(double measured) const {
-        const Result r = evaluate(measured);
-        INFO(r.message);
-        CHECK(r.ok);
+        const bool finite = std::isfinite(measured);
+        const bool over = !finite || measured > bound;
+        const bool stale = finite && measured < bound / 2;
+        const std::string id = "Deviation #" + std::to_string(issue) + " (" + title + ")";
+        const std::string numbers = "measured " + number(measured) + " " + unit + ", bound " + number(bound) + " " + unit + " (" + metric + ")";
+        if (over)
+            return {false, id + " exceeds its stated bound: " + numbers + ". Fix the regression, or raise the bound and record why in issue #" +
+                               std::to_string(issue) + "."};
+        if (stale)
+            return {false, id + " is below half its stated bound: " + numbers + ". Tighten the bound to just above the measured cost."};
+        return {true, id + " within bound: " + numbers};
     }
 };
 
@@ -68,10 +77,10 @@ inline std::vector<Deviation>& deviation_registry() {
 }
 
 inline void require_valid(const Deviation& d) {
-    const bool bad = d.issue <= 0 || d.title.empty() || d.reason.empty() || d.metric.empty() || d.unit.empty() ||
+    const bool bad = d.issue <= 0 || !(d.bound > 0) || d.title.empty() || d.reason.empty() || d.metric.empty() || d.unit.empty() ||
                      !std::isfinite(d.bound);
     if (bad) {
-        std::fprintf(stderr, "Invalid deviation declaration (issue %d): issue, title, reason, metric, unit and a finite bound are all required\n",
+        std::fprintf(stderr, "Invalid deviation declaration (issue %d): issue, title, reason, metric, unit and a finite positive bound are all required\n",
                      d.issue);
         std::abort();
     }
@@ -83,16 +92,29 @@ inline void require_valid(const Deviation& d) {
     }
 }
 
-// Validates the deviation and adds it to the published list.
-inline Deviation declare_deviation(Deviation d) {
-    require_valid(d);
-    deviation_registry().push_back(d);
-    return d;
+// Validates a deviation and adds it to the published list. Only the
+// MS110D_DEVIATION macro should create one of these.
+struct Registered {
+    Deviation d;
+    explicit Registered(Deviation dev) : d(std::move(dev)) {
+        require_valid(d);
+        deviation_registry().push_back(d);
+    }
+};
+
+// The check run by the test the macro defines.
+inline void check(const Deviation& d, double measured) {
+    const Deviation::Result r = d.evaluate(measured);
+    INFO(r.message);
+    CHECK(r.ok);
 }
+
+}  // namespace deviation_detail
 
 // The published list as markdown, in issue order. This is what
 // docs/deviations.md must contain.
 inline std::string deviations_markdown() {
+    using namespace deviation_detail;
     std::vector<Deviation> all = deviation_registry();
     std::sort(all.begin(), all.end(), [](const Deviation& a, const Deviation& b) { return a.issue < b.issue; });
 
@@ -105,15 +127,22 @@ inline std::string deviations_markdown() {
         return out;
     }
     for (const Deviation& d : all) {
-        char bound[64];
-        std::snprintf(bound, sizeof bound, "%g", d.bound);
         out += "## #" + std::to_string(d.issue) + ": " + d.title + "\n\n";
         out += "- Issue: https://github.com/M0LTE/ms110d-cpp/issues/" + std::to_string(d.issue) + "\n";
         out += "- Reason: " + d.reason + "\n";
         out += "- Measured: " + d.metric + "\n";
-        out += std::string("- Bound: at most ") + bound + " " + d.unit + "\n\n";
+        out += std::string("- Bound: at most ") + number(d.bound) + " " + d.unit + "\n\n";
     }
     return out;
 }
 
 }  // namespace ms110d_test
+
+#define MS110D_DEVIATION(issue, title, reason, metric, unit, bound)                                     \
+    static double ms110d_dev_measure_##issue();                                                         \
+    static const ::ms110d_test::deviation_detail::Registered ms110d_dev_reg_##issue{                    \
+        ::ms110d_test::deviation_detail::Deviation{issue, title, reason, metric, unit, bound}};         \
+    TEST_CASE("Deviation #" #issue ": " title, "[deviation][issue-" #issue "]") {                       \
+        ::ms110d_test::deviation_detail::check(ms110d_dev_reg_##issue.d, ms110d_dev_measure_##issue()); \
+    }                                                                                                   \
+    static double ms110d_dev_measure_##issue()

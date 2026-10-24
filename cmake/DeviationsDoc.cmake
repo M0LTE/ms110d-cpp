@@ -1,7 +1,7 @@
 # Deviations list check and regenerate. Run with cmake -P.
 #   TEST_EXE  the test binary that holds the deviation tests
 #   DOC       the checked-in docs/deviations.md
-#   ACTUAL    where to write the current list when it differs (check mode)
+#   ACTUAL    where to write the current list (check mode); always written, then compared with DOC
 #   UPDATE    ON to rewrite DOC instead of comparing
 if(UPDATE)
   set(_out "${DOC}")
@@ -9,7 +9,7 @@ else()
   set(_out "${ACTUAL}")
 endif()
 execute_process(
-  COMMAND ${CMAKE_COMMAND} -E env "MS110D_DEVIATIONS_OUT=${_out}" "${TEST_EXE}" "[deviation-doc]"
+  COMMAND ${CMAKE_COMMAND} -E env "MS110D_DEVIATIONS_OUT=${_out}" "${TEST_EXE}" "[.deviation-doc]"
   RESULT_VARIABLE _rc
   OUTPUT_VARIABLE _log
   ERROR_VARIABLE _log)
