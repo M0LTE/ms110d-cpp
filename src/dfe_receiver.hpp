@@ -134,6 +134,7 @@ struct DfeFrameTrace {
     bool fresh_solve = false;
     bool shifted_probe = false;
     int bad_probes = 0;
+    int frames_since_excursion = 0;  // the fading detector's counter
     float ff_energy = 0;
     std::array<EqSample, eq_max_taps> taps{};  // the taps after the frame (feed-forward then feedback)
     int tap_count = 0;
@@ -162,6 +163,8 @@ struct DfeBlock {
     std::span<const float> turbo_llrs;
     bool mfb_offered = false;              // 8PSK: the MFB decode converged and was weighed
     bool mfb_selected = false;             // ... and kept over the chain path's
+    int relock_offers = 0;                 // 8PSK salvage: frames offered the late-lock geometry
+    int relock_adopted = 0;                // ... and frames that took it
 };
 
 struct DfeBurstEnd {

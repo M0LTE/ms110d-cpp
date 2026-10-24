@@ -754,6 +754,8 @@ void DfeReceiver::turbo_frozen_probe_pass() noexcept {
                         const float alt_var =
                             std::max(alt_rows > 0 ? 0.5f * alt_acc / static_cast<float>(alt_rows) : 1e-2f, 1e-6f);
                         const bool adopt = alt_rows > 0 && alt_var < 0.5f * noise_var;
+                        ++block_.relock_offers;
+                        if (adopt) ++block_.relock_adopted;
                         if (adopt) {
                             tir = s_tir;
                             delay = std::max(1, tir.lag);

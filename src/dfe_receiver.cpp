@@ -864,6 +864,7 @@ void DfeReceiver::process_frame() noexcept {
         t.fresh_solve = fresh_solve;
         t.shifted_probe = shifted;
         t.bad_probes = bad_probes_;
+        t.frames_since_excursion = frames_since_excursion_;
         t.ff_energy = dfe_.ff_energy();
         t.tap_count = n_taps;
         dfe_.snapshot_taps({t.taps.data(), static_cast<std::size_t>(n_taps)});
@@ -1225,6 +1226,8 @@ void DfeReceiver::finish_block() noexcept {
     block_.turbo_llrs = {};
     block_.mfb_offered = false;
     block_.mfb_selected = false;
+    block_.relock_offers = 0;
+    block_.relock_adopted = 0;
     const bool full = block_frames_ == il_.frames;
     if (config_.turbo && mode_.modulation != Modulation::Qam16 && full && block_samples_resident()) {
         // The rows gathered since the last probe solve belong to the next one; keep them.

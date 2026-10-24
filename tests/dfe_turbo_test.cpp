@@ -391,8 +391,8 @@ void check_tally(const Tally& t, int max_diff_quarters) {
     } else {
         // The single build decodes at least as many bursts right as the C#, give or take one. And it
         // may take a different path from the C# only on a bounded share of bursts: none of the clean
-        // reference cases, at most a quarter of the channel corpus (measured: 15 of 159 here, about
-        // 9%; the CI runner's libm moves more). The divergence comes from the equaliser's float sums
+        // reference cases, at most a quarter of the channel corpus (measured: 17 of 166 here, about
+        // 10%; the CI runner's libm moves more). The divergence comes from the equaliser's float sums
         // tipping marginal fading blocks, so it stays a minority; a broken single build would leave
         // most bursts.
         CHECK(t.payload_right + 1 >= t.cs_payload_right);
