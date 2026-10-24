@@ -30,9 +30,11 @@ bool build_tx_bits(std::span<const std::uint8_t> payload_bits, bool append_eom, 
                    std::span<std::uint8_t> out) noexcept;
 
 // One block of what build_tx_bits writes: block `block_index`, exactly `input_bits` bits in
-// `out`, without building the others. Returns false, writing nothing, if input_bits is zero,
-// `out` has another size, or block_index is not below framed_block_count(...).
-bool build_tx_block(std::span<const std::uint8_t> payload_bits, bool append_eom, std::size_t input_bits,
+// `out`, without building the others. The payload is packed, 8 bits to a byte, first bit in
+// the least significant place (bit i is (packed[i / 8] >> (i % 8)) & 1), `payload_bits` long.
+// Returns false, writing nothing, if input_bits is zero, `packed` is too short, `out` has
+// another size, or block_index is not below framed_block_count(...).
+bool build_tx_block(std::span<const std::uint8_t> packed, std::size_t payload_bits, bool append_eom, std::size_t input_bits,
                     std::size_t block_index, std::span<std::uint8_t> out) noexcept;
 
 // The five waveform ID di-bits w4..w0 (w4 first). d9d8d7d6 is the waveform number, d5d4 the

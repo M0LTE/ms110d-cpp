@@ -126,6 +126,8 @@ MS110D_API ms110d_status ms110d_tx_begin(ms110d_tx* tx);
 MS110D_API ms110d_status ms110d_tx_push_bits(ms110d_tx* tx, const uint8_t* bits, uint32_t count);
 MS110D_API ms110d_status ms110d_tx_end_payload(ms110d_tx* tx);
 MS110D_API ms110d_status ms110d_tx_read(ms110d_tx* tx, float* audio, uint32_t capacity, uint32_t* written);
+MS110D_API ms110d_status ms110d_tx_modulate(ms110d_tx* tx, const uint8_t* bits, uint32_t bit_count, float* audio,
+                                            uint32_t capacity, uint32_t* written);
 MS110D_API ms110d_status ms110d_tx_remaining(const ms110d_tx* tx, uint32_t* samples);
 #ifdef __cplusplus
 }
@@ -158,6 +160,12 @@ public:
     Transmitter() noexcept = default;
     Transmitter(const Transmitter&) = delete;
     Transmitter& operator=(const Transmitter&) = delete;
+    Transmitter(Transmitter&& other) noexcept : impl_(other.impl_) { other.impl_ = nullptr; }
+    Transmitter& operator=(Transmitter&& other) noexcept {
+        impl_ = other.impl_;
+        other.impl_ = nullptr;
+        return *this;
+    }
     static Status storage_bytes(const TxSettings& settings, std::size_t max_payload_bits,
                                 std::size_t& bytes) noexcept;
     Status configure(const TxSettings& settings, std::size_t max_payload_bits,
@@ -167,6 +175,7 @@ public:
     Status begin() noexcept;
     Status push_bits(std::span<const std::uint8_t> bits) noexcept;
     Status end_payload() noexcept;
+    Status modulate(std::span<const std::uint8_t> bits, std::span<float> audio, std::size_t& written) noexcept;
     Status read(std::span<float> audio, std::size_t& written) noexcept;
     std::size_t remaining() const noexcept;
     bool done() const noexcept;

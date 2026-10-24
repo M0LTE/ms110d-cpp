@@ -28,17 +28,17 @@ bool build_tx_bits(std::span<const std::uint8_t> payload_bits, bool append_eom, 
     return true;
 }
 
-bool build_tx_block(std::span<const std::uint8_t> payload_bits, bool append_eom, std::size_t input_bits,
-                    std::size_t block_index, std::span<std::uint8_t> out) noexcept {
-    if (input_bits == 0 || out.size() != input_bits) return false;
-    if (block_index >= framed_block_count(payload_bits.size(), append_eom, input_bits)) return false;
-    const std::size_t payload = payload_bits.size();
+bool build_tx_block(std::span<const std::uint8_t> packed, std::size_t payload_bits, bool append_eom,
+                    std::size_t input_bits, std::size_t block_index, std::span<std::uint8_t> out) noexcept {
+    if (input_bits == 0 || out.size() != input_bits || packed.size() < (payload_bits + 7) / 8) return false;
+    if (block_index >= framed_block_count(payload_bits, append_eom, input_bits)) return false;
+    const std::size_t payload = payload_bits;
     const std::size_t start = block_index * input_bits;
     for (std::size_t i = 0; i < input_bits; ++i) {
         const std::size_t g = start + i;
         std::uint8_t bit = 0;
         if (g < payload) {
-            bit = payload_bits[g] & 1u;
+            bit = static_cast<std::uint8_t>((packed[g / 8] >> (g % 8)) & 1u);
         } else if (append_eom && g < payload + 32) {
             // D.5.4.3: the left most bit of 4B65A5B2 is sent first.
             bit = static_cast<std::uint8_t>((tables::eom >> (31 - (g - payload))) & 1u);

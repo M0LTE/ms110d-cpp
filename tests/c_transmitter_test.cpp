@@ -78,12 +78,11 @@ TEST_CASE("reference end to end through the C interface: payload bits to audio m
         uint32_t total = 0;
         REQUIRE(ms110d_tx_audio_length(tx, count, &total) == MS110D_OK);
         REQUIRE(total == ref.size());
-        std::vector<float> audio(total);
         const uint32_t chunk = chunks[cases % std::size(chunks)];
+        std::vector<float> audio(total + chunk);  // room for the final read that reports the end
         uint32_t at = 0, got = 0;
         do {
-            const uint32_t room = std::min<uint32_t>(chunk, total - at);
-            REQUIRE(ms110d_tx_read(tx, audio.data() + at, room, &got) == MS110D_OK);
+            REQUIRE(ms110d_tx_read(tx, audio.data() + at, chunk, &got) == MS110D_OK);
             at += got;
         } while (got != 0);
         REQUIRE(at == total);
@@ -94,6 +93,15 @@ TEST_CASE("reference end to end through the C interface: payload bits to audio m
         }
         worst = std::max(worst, err);
         CHECK(err <= 1e-6);
+
+        // The one-shot call: same audio, and the length when the buffer is short.
+        std::vector<float> shot(total);
+        uint32_t written = 0;
+        REQUIRE(ms110d_tx_modulate(tx, payload.data(), count, shot.data(), total, &written) == MS110D_OK);
+        CHECK(written == total);
+        CHECK(std::equal(shot.begin(), shot.end(), audio.begin()));
+        CHECK(ms110d_tx_modulate(tx, payload.data(), count, shot.data(), total - 1, &written) == MS110D_ERR_BUFFER_TOO_SMALL);
+        CHECK(written == total);
 
         if (memory != nullptr) {
             std::free(memory);

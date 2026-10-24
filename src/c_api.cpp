@@ -31,11 +31,18 @@ ms110d_status to_c(Status s) noexcept {
     return static_cast<ms110d_status>(s);
 }
 
-// Reads and checks the caller's settings. The struct may in time grow, so only the first
-// struct_size bytes are read; version 1 is the smallest a caller can have.
+// Reads and checks the caller's settings. struct_size policy (docs/dev/c-interface.md): smaller
+// than the first published size is an error; larger than this library knows is accepted only if
+// every byte past the known size is zero, so a field this library does not know cannot be
+// silently ignored. The reserved word must be zero too.
 ms110d_status settings_from_c(const ms110d_tx_settings* in, TxSettings& out) noexcept {
     if (in == nullptr) return MS110D_ERR_INVALID_ARGUMENT;
     if (in->struct_size < sizeof(ms110d_tx_settings)) return MS110D_ERR_INVALID_ARGUMENT;
+    const auto* raw = reinterpret_cast<const std::uint8_t*>(in);
+    for (std::size_t i = sizeof(ms110d_tx_settings); i < in->struct_size; ++i) {
+        if (raw[i] != 0) return MS110D_ERR_INVALID_ARGUMENT;
+    }
+    if (in->reserved != 0) return MS110D_ERR_INVALID_ARGUMENT;
     if (in->interleaver < MS110D_INTERLEAVER_ULTRA_SHORT || in->interleaver > MS110D_INTERLEAVER_LONG) {
         return MS110D_ERR_INVALID_ARGUMENT;
     }
@@ -219,10 +226,24 @@ ms110d_status ms110d_tx_end_payload(ms110d_tx* tx) {
     return to_c(tx_of(tx)->end_payload());
 }
 
+ms110d_status ms110d_tx_modulate(ms110d_tx* tx, const uint8_t* bits, uint32_t bit_count, float* audio,
+                                 uint32_t capacity, uint32_t* written) {
+    if (written == nullptr) return MS110D_ERR_INVALID_ARGUMENT;
+    *written = 0;
+    if (tx == nullptr || (bits == nullptr && bit_count != 0) || (audio == nullptr && capacity != 0)) {
+        return MS110D_ERR_INVALID_ARGUMENT;
+    }
+    std::size_t n = 0;
+    const Status st = tx_of(tx)->modulate(std::span<const std::uint8_t>(bits, bit_count), std::span<float>(audio, capacity), n);
+    if (n > std::numeric_limits<uint32_t>::max()) return MS110D_ERR_INVALID_ARGUMENT;
+    *written = static_cast<uint32_t>(n);
+    return to_c(st);
+}
+
 ms110d_status ms110d_tx_read(ms110d_tx* tx, float* audio, uint32_t capacity, uint32_t* written) {
     if (written == nullptr) return MS110D_ERR_INVALID_ARGUMENT;
     *written = 0;
-    if (tx == nullptr || (audio == nullptr && capacity != 0)) return MS110D_ERR_INVALID_ARGUMENT;
+    if (tx == nullptr || audio == nullptr || capacity == 0) return MS110D_ERR_INVALID_ARGUMENT;
     std::size_t n = 0;
     const Status st = tx_of(tx)->read(std::span<float>(audio, capacity), n);
     *written = static_cast<uint32_t>(n);

@@ -131,7 +131,8 @@ static void test_transmit(void) {
     CHECK(ms110d_tx_read(tx, NULL, 5, &got) == MS110D_ERR_INVALID_ARGUMENT);
     CHECK(ms110d_tx_read(tx, piece, 5, NULL) == MS110D_ERR_INVALID_ARGUMENT);
     CHECK(ms110d_tx_read(NULL, piece, 5, &got) == MS110D_ERR_INVALID_ARGUMENT && got == 0);
-    CHECK(ms110d_tx_read(tx, NULL, 0, &got) == MS110D_OK && got == 0);
+    CHECK(ms110d_tx_read(tx, NULL, 0, &got) == MS110D_ERR_INVALID_ARGUMENT && got == 0);
+    CHECK(ms110d_tx_read(tx, piece, 0, &got) == MS110D_ERR_INVALID_ARGUMENT && got == 0);
     CHECK(ms110d_tx_read(tx, piece, 5, &got) == MS110D_OK && got == 5);
     CHECK(ms110d_tx_audio_length(NULL, 1, &samples) == MS110D_ERR_INVALID_ARGUMENT);
     CHECK(ms110d_tx_audio_length(tx, 1, NULL) == MS110D_ERR_INVALID_ARGUMENT);
@@ -142,6 +143,52 @@ static void test_transmit(void) {
     CHECK(ms110d_tx_end_payload(NULL) == MS110D_ERR_INVALID_ARGUMENT);
     ms110d_tx_destroy(tx);
     ms110d_tx_destroy(NULL);
+
+    /* The one-shot path equals the streamed one, and reports the length when short. */
+    ms110d_tx_settings_default(&s);
+    CHECK(ms110d_tx_create(&s, MAXBITS, &tx) == MS110D_OK);
+    n1 = run_burst(tx, bits, 100, 100, 1000, whole, CAP);
+    CHECK(n1 > 0);
+    CHECK(ms110d_tx_modulate(tx, bits, 100, piece, CAP, &got) == MS110D_OK && (long)got == n1);
+    CHECK(memcmp(whole, piece, (size_t)n1 * sizeof(float)) == 0);
+    got = 0;
+    CHECK(ms110d_tx_modulate(tx, bits, 100, NULL, 0, &got) == MS110D_ERR_BUFFER_TOO_SMALL && (long)got == n1);
+    CHECK(ms110d_tx_modulate(tx, bits, 100, piece, (uint32_t)n1 - 1u, &got) == MS110D_ERR_BUFFER_TOO_SMALL && (long)got == n1);
+    CHECK(ms110d_tx_modulate(tx, bits, MAXBITS + 1u, piece, CAP, &got) == MS110D_ERR_BUFFER_TOO_SMALL && got == 0);
+    CHECK(ms110d_tx_modulate(tx, NULL, 1, piece, CAP, &got) == MS110D_ERR_INVALID_ARGUMENT);
+    CHECK(ms110d_tx_modulate(tx, bits, 1, NULL, 1, &got) == MS110D_ERR_INVALID_ARGUMENT);
+    CHECK(ms110d_tx_modulate(tx, bits, 1, piece, CAP, NULL) == MS110D_ERR_INVALID_ARGUMENT);
+    CHECK(ms110d_tx_modulate(NULL, bits, 1, piece, CAP, &got) == MS110D_ERR_INVALID_ARGUMENT);
+    ms110d_tx_destroy(tx);
+    tx = NULL;
+
+    /* Reserved must be zero. struct_size: bigger is fine only with zeros beyond what the library knows. */
+    {
+        struct {
+            ms110d_tx_settings s;
+            uint8_t extra[16];
+        } big;
+        memset(&big, 0, sizeof big);
+        ms110d_tx_settings_default(&big.s);
+        big.s.struct_size = (uint32_t)sizeof big;
+        CHECK(ms110d_tx_create(&big.s, 10, &tx) == MS110D_OK);
+        ms110d_tx_destroy(tx);
+        tx = NULL;
+        big.extra[15] = 1;
+        CHECK(ms110d_tx_create(&big.s, 10, &tx) == MS110D_ERR_INVALID_ARGUMENT && tx == NULL);
+        CHECK(ms110d_tx_memory_size(&big.s, 10, &bytes, &alignment) == MS110D_ERR_INVALID_ARGUMENT);
+        big.s.struct_size = (uint32_t)sizeof big.s;  /* the extra bytes are then not part of the struct */
+        CHECK(ms110d_tx_create(&big.s, 10, &tx) == MS110D_OK);
+        ms110d_tx_destroy(tx);
+        tx = NULL;
+    }
+    ms110d_tx_settings_default(&s);
+    s.struct_size = (uint32_t)sizeof s - 1u;
+    CHECK(ms110d_tx_create(&s, 10, &tx) == MS110D_ERR_INVALID_ARGUMENT && tx == NULL);
+    ms110d_tx_settings_default(&s);
+    s.reserved = 1;
+    CHECK(ms110d_tx_create(&s, 10, &tx) == MS110D_ERR_INVALID_ARGUMENT && tx == NULL);
+    CHECK(ms110d_tx_init(NULL, 0, &s, 10, &tx) == MS110D_ERR_INVALID_ARGUMENT);
 
     /* Bad settings. */
     tx = NULL;

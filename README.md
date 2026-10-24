@@ -32,26 +32,28 @@ Payload bits in (one bit per byte, 0 or 1), 9600 Hz audio on the 1800 Hz sub-car
 
     const std::size_t max_bits = 4000;      // the largest payload this transmitter will carry
     std::size_t bytes = 0;
-    Transmitter::storage_bytes(settings, max_bits, bytes);
+    if (Transmitter::storage_bytes(settings, max_bits, bytes) != Status::Ok) { /* bad settings */ }
     std::vector<std::uint8_t> memory(bytes);  // or a static array: the library never allocates
 
     Transmitter tx;
     if (tx.configure(settings, max_bits, memory) != Status::Ok) { /* bad settings or memory */ }
 
-    tx.push_bits(payload_bits);             // as often as you like, up to max_bits in all
-    tx.end_payload();
+    if (tx.push_bits(payload_bits) != Status::Ok) { /* more than max_bits in all */ }
+    if (tx.end_payload() != Status::Ok) { /* wrong step */ }
     std::size_t samples = 0;
     tx.audio_samples(payload_bits.size(), samples);  // the whole burst's length, known up front
 
     float chunk[480];
     while (!tx.done()) {
         std::size_t got = 0;
-        tx.read(chunk, got);                // any chunk size, down to one sample
+        if (tx.read(chunk, got) != Status::Ok) break;  // any chunk size, down to one sample
         play(chunk, got);
     }
     tx.begin();                             // ready for the next burst
 
-The audio is the same as the C# `Ms110dModulator.Modulate` makes, to within 1e-6 per sample. Nothing throws, and nothing allocates after `configure`. The same thing is available from C as `ms110d_tx_*` in `ms110d.h`, with the library allocating (`ms110d_tx_create`) or the caller supplying the memory (`ms110d_tx_memory_size` and `ms110d_tx_init`). See [docs/dev/transmitter.md](docs/dev/transmitter.md).
+For a whole burst in one call, like the C# `Modulate`, use `tx.modulate(payload_bits, audio, written)`; if `audio` is too short it returns `BufferTooSmall` and sets `written` to the length needed.
+
+The audio is the same as the C# `Ms110dModulator.Modulate` makes, to within 1e-6 per sample. Nothing throws, and nothing allocates after `configure`. The same thing is available from C as `ms110d_tx_*` in `ms110d.h`, with the library allocating (`ms110d_tx_create`) or the caller supplying the memory (`ms110d_tx_memory_size` and `ms110d_tx_init`); `ms110d_tx_modulate` is the one-shot call. See [docs/dev/transmitter.md](docs/dev/transmitter.md).
 
 ## Compatibility, proven by tests
 

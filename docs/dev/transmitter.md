@@ -8,13 +8,19 @@ For each burst, in order: the preamble (`src/preamble.*`), the initial mini-prob
 
 ## Memory
 
-Everything lives in one block the caller hands to `configure(settings, max_payload_bits, storage)`; `Transmitter::storage_bytes` says how big. The `Transmitter` object itself is one pointer. The block holds, in order, the working state (`sizeof` 5320 bytes in the double build and 4792 in the single build on the Cortex-M7: the modulator is 2368 or 1840 of that, 320 symbols of buffer and the settings make the rest), two work buffers sized from the settings, and the payload.
+Everything lives in one block the caller hands to `configure(settings, max_payload_bits, storage)`; `Transmitter::storage_bytes` says how big. The `Transmitter` object itself is one pointer (movable, not copyable). The block holds, in order, the working state (`sizeof` 5320 bytes in the double build and 4792 in the single build on the Cortex-M7: the modulator is 2368 or 1840 of that, 320 symbols of buffer and the settings make the rest), two work buffers sized from the settings, and the payload.
 
-- The payload is kept at one byte per bit, as pushed, because it is needed until its last block has been coded. This is the one part that grows with `max_payload_bits`.
+- The payload is kept packed, 8 bits to a byte, because it is needed until its last block has been coded. This is the one part that grows with `max_payload_bits` (one byte per 8 bits).
 - The two work buffers are reused through the pipeline: the first holds the framed bits and then the punctured bits, the second the coded bits and then the interleaved block. One block is coded at a time, whatever the payload length. The sizes follow the mode: `max(input, interleaver)` and `max(2 * input, interleaver)` bytes, from 192 and 192 bytes for WN 1 ultra-short up to 65536 and 98304 for WN 8 with the long interleaver.
 - Nothing is allocated after `configure`, or inside it (`tests/transmitter_test.cpp` checks `begin`, `push_bits`, `end_payload`, `audio_samples` and `read` with the allocation guard, for the heaviest modes).
 
 The C interface adds a 16 byte header to the block and offers create (the library allocates the block once) and init (caller memory).
+
+`configure` checks everything before it touches the storage, so a failed call leaves a transmitter already running in that block undisturbed.
+
+## One-shot
+
+`modulate(bits, audio, written)` does begin, push, end and every read in one call, like the C# `Modulate`. With a short `audio` it returns `BufferTooSmall` and `written` is the length needed (call it with an empty span to ask). `read` with an empty span is `InvalidArgument`, so a read that gives 0 samples only ever means the burst has finished.
 
 ## Streaming
 

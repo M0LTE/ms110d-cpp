@@ -104,7 +104,9 @@ MS110D_API const char* ms110d_status_string(ms110d_status status);
 typedef struct ms110d_tx ms110d_tx;
 
 // Burst settings. Fill it with ms110d_tx_settings_default() first, then change fields; the
-// caller sets struct_size (the default function does). Flags are 0 or 1.
+// caller sets struct_size (the default function does) and reserved must be 0. A struct larger
+// than the library knows is accepted only if every byte past the known size is zero. Flags are
+// 0 or 1.
 //   waveform_number       0 to 8 or 13 (default 6)
 //   interleaver           0 ultra short, 1 short, 2 medium, 3 long (default 1)
 //   constraint_length     7 or 9 (default 7)
@@ -177,8 +179,19 @@ MS110D_API ms110d_status ms110d_tx_push_bits(ms110d_tx* tx, const uint8_t* bits,
 MS110D_API ms110d_status ms110d_tx_end_payload(ms110d_tx* tx);
 
 // Writes up to capacity samples into audio and sets *written to how many; 0 means the burst is
-// finished. MS110D_ERR_STATE before end_payload. Any capacity works, down to 1.
+// finished, and only that. A capacity of 0 or a null audio is MS110D_ERR_INVALID_ARGUMENT.
+// MS110D_ERR_STATE before end_payload. Any other capacity works, down to 1.
+//
+// The whole burst in one call is ms110d_tx_modulate, below.
 MS110D_API ms110d_status ms110d_tx_read(ms110d_tx* tx, float* audio, uint32_t capacity, uint32_t* written);
+
+// The whole burst at once, like the C# Modulate(bits): begin, push_bits, end_payload and every
+// read, into audio. *written is the burst's length in samples. If capacity is shorter the result
+// is MS110D_ERR_BUFFER_TOO_SMALL, nothing is written to audio and *written is the length needed
+// (so a caller can call with capacity 0 to ask). More bits than the maximum payload is
+// MS110D_ERR_BUFFER_TOO_SMALL with *written 0.
+MS110D_API ms110d_status ms110d_tx_modulate(ms110d_tx* tx, const uint8_t* bits, uint32_t bit_count, float* audio,
+                                            uint32_t capacity, uint32_t* written);
 
 // Samples still to be read (0 before end_payload, and when the burst is finished).
 MS110D_API ms110d_status ms110d_tx_remaining(const ms110d_tx* tx, uint32_t* samples);

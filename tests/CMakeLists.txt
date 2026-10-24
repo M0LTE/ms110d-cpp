@@ -96,6 +96,7 @@ if(MS110D_BUILD_C_SHARED)
     add_test(NAME c_exports
       COMMAND ${CMAKE_COMMAND}
         "-DNM=${CMAKE_NM}" "-DLIB=$<TARGET_FILE:ms110d_c>"
+        "-DHEADER=${PROJECT_SOURCE_DIR}/include/m0lte/ms110d/ms110d.h"
         -P "${PROJECT_SOURCE_DIR}/cmake/CheckExports.cmake")
   endif()
 

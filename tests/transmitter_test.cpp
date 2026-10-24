@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <limits>
 #include <random>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -121,6 +122,16 @@ TEST_CASE("reference end to end: payload bits to audio matches all 122 cases", "
         const std::size_t chunk = chunks[cases % std::size(chunks)];
         const auto audio = transmit(rig.tx, payload, chunk, cases % 2 == 1 ? payload.size() / 2 + 1 : 0);
         const double err = max_error(audio, ref);
+        // The one-shot path gives the very same audio, and says what it needs when short.
+        std::vector<float> shot(ref.size());
+        std::size_t written = 0;
+        REQUIRE(rig.tx.modulate(payload, shot, written) == Status::Ok);
+        CHECK(written == ref.size());
+        CHECK(shot == audio);
+        std::vector<float> shorter(ref.size() - 1, 7.0f);
+        CHECK(rig.tx.modulate(payload, shorter, written) == Status::BufferTooSmall);
+        CHECK(written == ref.size());
+        CHECK(std::all_of(shorter.begin(), shorter.end(), [](float x) { return x == 7.0f; }));
         worst = std::max(worst, err);
         CHECK(err <= tolerance);
         ++cases;
@@ -314,7 +325,9 @@ TEST_CASE("configure checks the storage and leaves a failed object unconfigured"
     CHECK(tx.push_bits({}) == Status::State);
     CHECK(tx.end_payload() == Status::State);
     CHECK(tx.audio_samples(10, out) == Status::State);
-    CHECK(tx.read(std::span<float>{}, out) == Status::State);
+    float one_sample[1];
+    CHECK(tx.read(one_sample, out) == Status::State);
+    CHECK(tx.modulate({}, one_sample, out) == Status::State);
     CHECK(out == 0);
     CHECK(tx.remaining() == 0);
     CHECK_FALSE(tx.done());
@@ -351,8 +364,8 @@ TEST_CASE("the steps must come in order and the payload must fit", "[transmitter
     std::size_t expected = 0;
     REQUIRE(tx.audio_samples(10, expected) == Status::Ok);
     CHECK(tx.remaining() == expected);
-    // An empty read asks for nothing and gets nothing.
-    CHECK(tx.read(std::span<float>{}, got) == Status::Ok);
+    // An empty read is an error, so that zero samples only ever means the burst is finished.
+    CHECK(tx.read(std::span<float>{}, got) == Status::InvalidArgument);
     CHECK(got == 0);
     CHECK(tx.remaining() == expected);
     // Reading past the end gives zero samples, not an error.
@@ -418,4 +431,55 @@ TEST_CASE("transmitting does not allocate once configured", "[transmitter][alloc
         CHECK(calls > 2);
         CHECK(seen == 0);
     }
+}
+
+TEST_CASE("modulate asks for the length with an empty buffer, and refuses too long a payload", "[transmitter]") {
+    TxSettings s;
+    s.preamble_superframes = 1;
+    Rig rig(s, 20);
+    const std::vector<std::uint8_t> bits(20, 1);
+    std::size_t need = 0;
+    REQUIRE(rig.tx.audio_samples(20, need) == Status::Ok);
+    std::size_t written = 99;
+    CHECK(rig.tx.modulate(bits, std::span<float>{}, written) == Status::BufferTooSmall);
+    CHECK(written == need);
+    const std::vector<std::uint8_t> too_many(21, 1);
+    CHECK(rig.tx.modulate(too_many, std::span<float>{}, written) == Status::BufferTooSmall);
+    CHECK(written == 0);
+    // A failed call leaves the transmitter usable.
+    std::vector<float> audio(need);
+    CHECK(rig.tx.modulate(bits, audio, written) == Status::Ok);
+    CHECK(written == need);
+    CHECK(rig.tx.done());
+}
+
+TEST_CASE("a transmitter can be moved, and the old one is left unconfigured", "[transmitter]") {
+    TxSettings s;
+    s.preamble_superframes = 1;
+    Rig rig(s, 20);
+    const std::vector<std::uint8_t> bits(20, 1);
+    const auto before = transmit(rig.tx, bits, 100);
+    Transmitter moved(std::move(rig.tx));
+    CHECK_FALSE(rig.tx.configured());
+    CHECK(moved.configured());
+    CHECK(transmit(moved, bits, 100) == before);
+    Transmitter assigned;
+    assigned = std::move(moved);
+    CHECK_FALSE(moved.configured());
+    CHECK(transmit(assigned, bits, 100) == before);
+}
+
+TEST_CASE("a failed configure leaves storage that is in use untouched", "[transmitter]") {
+    TxSettings s;
+    s.preamble_superframes = 1;
+    Rig rig(s, 20);
+    const std::vector<std::uint8_t> bits(20, 1);
+    const auto before = transmit(rig.tx, bits, 100);
+    const auto snapshot = rig.memory;
+    TxSettings bad = s;
+    bad.roll_off = 5.0;
+    CHECK(rig.tx.configure(bad, 20, rig.memory) == Status::InvalidArgument);
+    CHECK(rig.tx.configure(s, 20, std::span<std::uint8_t>(rig.memory).first(10)) == Status::BufferTooSmall);
+    CHECK(rig.memory == snapshot);
+    CHECK(transmit(rig.tx, bits, 100) == before);
 }

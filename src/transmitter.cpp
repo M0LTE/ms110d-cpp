@@ -155,7 +155,7 @@ struct Transmitter::Impl {
         const std::span<std::uint8_t> coded(work2, 2 * input);
         const std::span<std::uint8_t> punctured(work1, size);
         [[maybe_unused]] const bool framed_ok =
-            build_tx_block({payload, payload_len}, settings.append_eom, input, b, framed);
+            build_tx_block({payload, (payload_len + 7) / 8}, payload_len, settings.append_eom, input, b, framed);
         [[maybe_unused]] const bool coded_ok = fec::encode_tail_biting(code, framed, coded);
         [[maybe_unused]] const auto n = apply_puncture(*puncture, coded, punctured);
         assert(framed_ok && coded_ok && n && *n == size);
@@ -195,7 +195,7 @@ Status Transmitter::storage_bytes(const TxSettings& settings, std::size_t max_pa
     Plan plan;
     const Status st = plan_for(settings, max_payload_bits, plan);
     if (st != Status::Ok) return st;
-    bytes = sizeof(Impl) + alignof(Impl) - 1 + plan.work1 + plan.work2 + max_payload_bits;
+    bytes = sizeof(Impl) + alignof(Impl) - 1 + plan.work1 + plan.work2 + (max_payload_bits + 7) / 8;
     return Status::Ok;
 }
 
@@ -211,14 +211,17 @@ Status Transmitter::configure(const TxSettings& settings, std::size_t max_payloa
 
     void* where = storage.data();
     std::size_t space = storage.size();
-    const std::size_t need = plan.work1 + plan.work2 + max_payload_bits;
+    const std::size_t need = plan.work1 + plan.work2 + (max_payload_bits + 7) / 8;
     if (std::align(alignof(Impl), sizeof(Impl), where, space) == nullptr || space < sizeof(Impl) + need) {
         return Status::BufferTooSmall;
     }
     auto* bytes = static_cast<std::uint8_t*>(where) + sizeof(Impl);
     auto* impl = ::new (where) Impl(settings, plan, *preamble, max_payload_bits, bytes, bytes + plan.work1,
                                     bytes + plan.work1 + plan.work2);
-    if (!impl->modulator.configure(settings)) return Status::InvalidArgument;
+    // plan_for() already checked everything the modulator checks, so this cannot fail; nothing
+    // above touches the storage until every check has passed.
+    [[maybe_unused]] const bool modulator_ok = impl->modulator.configure(settings);
+    assert(modulator_ok);
     impl->units_per_block = settings.waveform_number == 0 ? static_cast<std::size_t>(plan.layout.interleaver.size_bits) / 2
                                                           : static_cast<std::size_t>(plan.layout.interleaver.frames);
     impl_ = impl;
@@ -244,7 +247,12 @@ Status Transmitter::begin() noexcept {
 Status Transmitter::push_bits(std::span<const std::uint8_t> bits) noexcept {
     if (impl_ == nullptr || impl_->streaming) return Status::State;
     if (bits.size() > impl_->max_payload - impl_->payload_len) return Status::BufferTooSmall;
-    for (const std::uint8_t b : bits) impl_->payload[impl_->payload_len++] = b & 1u;
+    for (const std::uint8_t b : bits) {
+        const std::size_t at = impl_->payload_len++;
+        std::uint8_t& byte = impl_->payload[at / 8];
+        if (at % 8 == 0) byte = 0;
+        byte = static_cast<std::uint8_t>(byte | ((b & 1u) << (at % 8)));
+    }
     return Status::Ok;
 }
 
@@ -267,8 +275,33 @@ Status Transmitter::end_payload() noexcept {
     return Status::Ok;
 }
 
+Status Transmitter::modulate(std::span<const std::uint8_t> bits, std::span<float> audio, std::size_t& written) noexcept {
+    written = 0;
+    if (impl_ == nullptr) return Status::State;
+    if (bits.size() > impl_->max_payload) return Status::BufferTooSmall;
+    std::size_t total = 0;
+    Status st = audio_samples(bits.size(), total);
+    if (st != Status::Ok) return st;
+    written = total;
+    st = begin();
+    if (st != Status::Ok) return st;
+    if (audio.size() < total) return Status::BufferTooSmall;
+    st = push_bits(bits);
+    if (st == Status::Ok) st = end_payload();
+    std::size_t done_samples = 0;
+    while (st == Status::Ok && done_samples < total) {
+        std::size_t got = 0;
+        st = read(audio.subspan(done_samples), got);
+        if (st == Status::Ok && got == 0) st = Status::State;  // cannot happen: total is exact
+        done_samples += got;
+    }
+    if (st != Status::Ok) written = 0;
+    return st;
+}
+
 Status Transmitter::read(std::span<float> audio, std::size_t& written) noexcept {
     written = 0;
+    if (audio.empty()) return Status::InvalidArgument;
     if (impl_ == nullptr || !impl_->streaming) return Status::State;
     Impl& m = *impl_;
     real chunk[read_chunk];

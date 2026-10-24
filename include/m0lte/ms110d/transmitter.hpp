@@ -23,6 +23,7 @@
 //     tx.push_bits(bits);  tx.end_payload();                // bits are 0 or 1 per byte
 //     size_t n;  tx.audio_samples(bit_count, n);            // total length, known before reading
 //     while (!tx.done()) { size_t got; tx.read(chunk, got); /* play chunk[0..got) */ }
+// or, for a whole burst at once, tx.modulate(bits, audio, written).
 //     tx.begin();                                           // ready for the next burst
 // A burst is complete: preamble, data, EOM and EOT as the settings say. Not thread safe; use
 // one object from one thread at a time.
@@ -62,6 +63,14 @@ public:
     Transmitter() noexcept = default;
     Transmitter(const Transmitter&) = delete;
     Transmitter& operator=(const Transmitter&) = delete;
+    // Moving hands the transmitter, with its memory block, to the new object and leaves the
+    // old one unconfigured.
+    Transmitter(Transmitter&& other) noexcept : impl_(other.impl_) { other.impl_ = nullptr; }
+    Transmitter& operator=(Transmitter&& other) noexcept {
+        impl_ = other.impl_;
+        other.impl_ = nullptr;
+        return *this;
+    }
 
     // Bytes of storage that configure() needs for these settings and a payload of up to
     // max_payload_bits bits (0 to max_payload_bits_limit). Fails with InvalidArgument for
@@ -96,8 +105,16 @@ public:
     // already called. An empty payload is valid (the burst then carries only the EOM, if on).
     Status end_payload() noexcept;
 
+    // The whole burst in one call, like the C# Modulate(bits): begin(), push_bits(bits),
+    // end_payload() and reads everything into `audio`. `written` is the burst's length in
+    // samples, always set when the payload fits: when `audio` is shorter the status is
+    // BufferTooSmall, nothing is written to it and `written` is the length needed. A payload over
+    // the maximum given to configure() is BufferTooSmall with `written` 0.
+    Status modulate(std::span<const std::uint8_t> bits, std::span<float> audio, std::size_t& written) noexcept;
+
     // Writes up to audio.size() samples and sets `written` to how many (fewer only at the end of
-    // the burst; 0 once it is all read). State before end_payload(). The first read after a
+    // the burst; 0 means the burst is finished, and only that). InvalidArgument if audio is
+    // empty, State before end_payload(). The first read after a
     // block boundary of the data does the coding work for that block, so calls vary in cost;
     // the size of a chunk never changes the audio.
     Status read(std::span<float> audio, std::size_t& written) noexcept;
