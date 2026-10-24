@@ -162,8 +162,10 @@ public:
     Transmitter& operator=(const Transmitter&) = delete;
     Transmitter(Transmitter&& other) noexcept : impl_(other.impl_) { other.impl_ = nullptr; }
     Transmitter& operator=(Transmitter&& other) noexcept {
-        impl_ = other.impl_;
-        other.impl_ = nullptr;
+        if (this != &other) {
+            impl_ = other.impl_;
+            other.impl_ = nullptr;
+        }
         return *this;
     }
     static Status storage_bytes(const TxSettings& settings, std::size_t max_payload_bits,
