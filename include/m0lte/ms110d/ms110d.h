@@ -196,6 +196,169 @@ MS110D_API ms110d_status ms110d_tx_modulate(ms110d_tx* tx, const uint8_t* bits, 
 // Samples still to be read (0 before end_payload, and when the burst is finished).
 MS110D_API ms110d_status ms110d_tx_remaining(const ms110d_tx* tx, uint32_t* samples);
 
+// ---------------------------------------------------------------------------
+// Receive: 9600 Hz audio in, decoded bursts out, by polling for events.
+//
+//   ms110d_rx_options options;
+//   ms110d_rx_options_default(&options);            // the C# Ms110dDemodOptions defaults
+//   ms110d_rx* rx;
+//   ms110d_rx_create(&options, &rx);
+//   uint8_t bits[49152];                             // the longest block (WN 8, long interleaver)
+//   for each chunk of audio:
+//       uint32_t done = 0;
+//       while (done < count) {
+//           uint32_t used;
+//           ms110d_rx_process(rx, samples + done, count - done, &used);
+//           done += used;
+//           ms110d_rx_event ev;
+//           ev.struct_size = sizeof ev;
+//           while (ms110d_rx_next_event(rx, &ev, bits, sizeof bits, NULL, 0) == MS110D_OK &&
+//                  ev.kind != MS110D_RX_EVENT_NONE) { /* use ev, and bits[0..ev.length) */ }
+//       }
+//   ms110d_rx_destroy(rx);
+//
+// process stops right after a sample that raised events and, until every event has been taken,
+// takes no more audio (MS110D_ERR_STATE). The events, in the order the C# raises them:
+//   BURST_STARTED    the preamble identified a burst: waveform_number, interleaver,
+//                    constraint_length, cfo_hz;
+//   FIRST_PASS_SOFT, TURBO_SOFT  (only with soft_decisions) a block's soft values, wire order,
+//                    positive for bit 0, copied into `soft`: block_index, length;
+//   BLOCK_DECODED    a block's info bits, one per byte, copied into `bits`: block_index, length;
+//   BURST_COMPLETED  the burst ended: end_reason, blocks, payload_bits. The payload is the burst's
+//                    block bits in order, cut to payload_bits.
+// Every event has `sample` (input samples taken when it was raised) and the burst's waveform,
+// interleaver, constraint length and carrier offset. Unknown kinds are to be skipped.
+//
+// The handle is sized when it is made, from the options (above all max_interleaver; the long
+// interleaver takes about 61 MB, the short about 4.3 MB) and allocates nothing afterwards.
+// ---------------------------------------------------------------------------
+
+typedef struct ms110d_rx ms110d_rx;
+
+// Turbo noise pricing (the C# TurboNsegMode).
+enum {
+    MS110D_NOISE_PRICING_SPIKE_UP = 0,
+    MS110D_NOISE_PRICING_OFF = 1,
+    MS110D_NOISE_PRICING_SPIKE_2S = 2
+};
+
+// Receiver options. Fill with ms110d_rx_options_default() first, then change fields; struct_size
+// as for ms110d_tx_settings, reserved must be 0, flags are 0 or 1.
+//   max_input_data_blocks  stop after this many blocks, 0 for no limit (default 0)
+//   disable_turbo          decode from the first pass alone (default 0)
+//   presence_release_off   never end a burst as signal absent (default 0)
+//   turbo_noise_pricing    MS110D_NOISE_PRICING_* (default spike up)
+//   has_rls_forgetting_factor, rls_forgetting_factor  override of 1 - ln 10 / U (default off)
+//   has_track_ridge, track_ridge  override of the anchored-solve ridge (default off)
+//   max_interleaver        longest interleaver accepted, MS110D_INTERLEAVER_* (default long);
+//                          sizes the memory, a longer burst is not received
+//   soft_decisions         raise the soft value events (default 0)
+//   sync_threshold         preamble detection threshold (default 0.32)
+//   roll_off               receive filter roll-off, 0.05 to 1 (default 0.35)
+typedef struct ms110d_rx_options {
+    uint32_t struct_size;
+    int32_t max_input_data_blocks;
+    int32_t disable_turbo;
+    int32_t presence_release_off;
+    int32_t turbo_noise_pricing;
+    int32_t has_rls_forgetting_factor;
+    float rls_forgetting_factor;
+    int32_t has_track_ridge;
+    float track_ridge;
+    int32_t max_interleaver;
+    int32_t soft_decisions;
+    uint32_t reserved;
+    double sync_threshold;
+    double roll_off;
+} ms110d_rx_options;
+
+// Event kinds.
+enum {
+    MS110D_RX_EVENT_NONE = 0,
+    MS110D_RX_EVENT_BURST_STARTED = 1,
+    MS110D_RX_EVENT_BLOCK_DECODED = 2,
+    MS110D_RX_EVENT_BURST_COMPLETED = 3,
+    MS110D_RX_EVENT_FIRST_PASS_SOFT = 4,
+    MS110D_RX_EVENT_TURBO_SOFT = 5
+};
+
+// Why a burst ended (the C# Ms110dBurstEndReason, same order).
+enum {
+    MS110D_END_EOM = 0,
+    MS110D_END_MAX_INPUT_DATA_BLOCKS = 1,
+    MS110D_END_TERMINATED = 2,
+    MS110D_END_SIGNAL_LOST = 3,
+    MS110D_END_SIGNAL_ABSENT = 4
+};
+
+// Receiver state (the C# Ms110dRxState).
+enum {
+    MS110D_RX_STATE_SEARCHING = 0,
+    MS110D_RX_STATE_READING_PREAMBLE = 1,
+    MS110D_RX_STATE_TRACKING = 2
+};
+
+// One event. The caller sets struct_size to the size it was compiled with; the library writes no
+// further than that (a larger struct gets zeros past the fields it knows).
+typedef struct ms110d_rx_event {
+    uint32_t struct_size;
+    uint32_t kind;               // MS110D_RX_EVENT_*
+    int64_t sample;              // input samples taken when it was raised
+    int32_t waveform_number;
+    int32_t interleaver;         // MS110D_INTERLEAVER_*
+    int32_t constraint_length;
+    int32_t block_index;         // block and soft events, else -1
+    int32_t end_reason;          // BURST_COMPLETED: MS110D_END_*
+    int32_t blocks;              // BURST_COMPLETED: blocks decoded
+    int64_t payload_bits;        // BURST_COMPLETED: payload length in bits
+    uint32_t length;             // block and soft events: elements copied (or needed)
+    uint32_t reserved;
+    double cfo_hz;               // carrier offset in Hz
+} ms110d_rx_event;
+
+// Writes the defaults, and struct_size, into *options.
+MS110D_API ms110d_status ms110d_rx_options_default(ms110d_rx_options* options);
+
+// Makes a receiver. MS110D_ERR_INVALID_ARGUMENT for an option out of range,
+// MS110D_ERR_OUT_OF_MEMORY if it cannot allocate. *rx is set only on success.
+MS110D_API ms110d_status ms110d_rx_create(const ms110d_rx_options* options, ms110d_rx** rx);
+
+// Frees a handle from ms110d_rx_create. Accepts null. Not for one from ms110d_rx_init.
+MS110D_API void ms110d_rx_destroy(ms110d_rx* rx);
+
+// The same without a heap: how much memory ms110d_rx_init needs, and its alignment.
+MS110D_API ms110d_status ms110d_rx_memory_size(const ms110d_rx_options* options, uint32_t* bytes, uint32_t* alignment);
+
+// Builds a receiver in memory the caller owns (kept valid and untouched while the handle is used).
+// MS110D_ERR_BAD_MEMORY if it is smaller than ms110d_rx_memory_size says or not aligned to that.
+// No destroy is needed.
+MS110D_API ms110d_status ms110d_rx_init(void* memory, uint32_t bytes, const ms110d_rx_options* options, ms110d_rx** rx);
+
+// Takes up to count samples of audio (32 bit float, 9600 Hz) and sets *consumed to how many it
+// used: all, unless one raised events, when it stops right after that sample. With events still to
+// be taken it takes none and returns MS110D_ERR_STATE.
+MS110D_API ms110d_status ms110d_rx_process(ms110d_rx* rx, const float* samples, uint32_t count, uint32_t* consumed);
+
+// Takes the next event into *event (kind MS110D_RX_EVENT_NONE when there is none). A block's bits go
+// into bits (one per byte) and soft values into soft; ev->length says how many. If the buffer for
+// the event is too small (or null) the result is MS110D_ERR_BUFFER_TOO_SMALL, the event's fields and
+// the length needed are filled in, and the event stays queued, so the call can be repeated with a
+// larger buffer. A struct_size below the size of the first published ms110d_rx_event is
+// MS110D_ERR_INVALID_ARGUMENT. A null bits or soft with capacity 0 is fine for events that do not
+// need it.
+MS110D_API ms110d_status ms110d_rx_next_event(ms110d_rx* rx, ms110d_rx_event* event, uint8_t* bits, uint32_t bits_capacity,
+                                              float* soft, uint32_t soft_capacity);
+
+// The terminate-receive command: a burst in progress ends on the next sample (BURST_COMPLETED,
+// MS110D_END_TERMINATED).
+MS110D_API ms110d_status ms110d_rx_terminate(ms110d_rx* rx);
+
+// Back to the start of a stream: any burst and queued event dropped, counts zero.
+MS110D_API ms110d_status ms110d_rx_reset(ms110d_rx* rx);
+
+// The receiver's state, MS110D_RX_STATE_*.
+MS110D_API ms110d_status ms110d_rx_state(const ms110d_rx* rx, int32_t* state);
+
 #ifdef __cplusplus
 }
 #endif

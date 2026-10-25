@@ -485,6 +485,11 @@ RxEvent Receiver::next_event() noexcept {
     return e;
 }
 
+RxEvent Receiver::peek_event() const noexcept {
+    if (impl_ == nullptr || impl_->count == 0) return RxEvent{};
+    return impl_->queue[impl_->head].event;
+}
+
 void Receiver::terminate() noexcept {
     if (impl_ != nullptr) impl_->terminate_pending = true;
 }

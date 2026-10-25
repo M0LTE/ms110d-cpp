@@ -195,8 +195,10 @@ public:
     // queued it takes none and returns State; State too if not configured.
     Status process(std::span<const float> audio, std::size_t& consumed) noexcept;
 
-    // The next queued event, or one of kind None when there are none.
+    // The next queued event, taken off the queue, or one of kind None when there are none.
     RxEvent next_event() noexcept;
+    // The same event without taking it.
+    RxEvent peek_event() const noexcept;
 
     // The terminate-receive command (D.5.4.5.2, the C# Terminate): on the next sample a burst in
     // progress ends (BurstCompleted, Terminated) and the receiver returns to the search.

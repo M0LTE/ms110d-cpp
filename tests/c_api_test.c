@@ -219,6 +219,120 @@ static void test_transmit(void) {
     CHECK(tx == NULL);
 }
 
+/* The receive functions in plain C: defaults, both ways to make a handle, a burst from the
+ * transmitter decoded through the event queue, and the null and bad-value cases. */
+static void test_receive(void) {
+    enum { BITS = 300 };
+    ms110d_rx_options o;
+    ms110d_rx* rx = NULL;
+    ms110d_rx* built = NULL;
+    ms110d_tx_settings s;
+    ms110d_tx* tx = NULL;
+    ms110d_rx_event ev;
+    static float audio[200000];
+    static uint8_t bits[4096];
+    static uint8_t got[8192];
+    uint8_t payload[BITS];
+    uint32_t i, n = 0, written = 0, used = 0, at = 0, total = 0, bytes = 0, alignment = 0;
+    int32_t state = -1;
+    int started = 0, ended = 0, reason = -1;
+    int64_t payload_bits = -1;
+    void* raw;
+    uint8_t* aligned;
+
+    CHECK(ms110d_rx_options_default(&o) == MS110D_OK);
+    CHECK(o.struct_size == sizeof(ms110d_rx_options));
+    CHECK(o.max_interleaver == MS110D_INTERLEAVER_LONG);
+    CHECK(o.sync_threshold == 0.32);
+    CHECK(ms110d_rx_options_default(NULL) == MS110D_ERR_INVALID_ARGUMENT);
+    o.max_interleaver = MS110D_INTERLEAVER_SHORT;
+
+    CHECK(ms110d_rx_create(NULL, &rx) == MS110D_ERR_INVALID_ARGUMENT);
+    CHECK(ms110d_rx_create(&o, NULL) == MS110D_ERR_INVALID_ARGUMENT);
+    o.reserved = 1;
+    CHECK(ms110d_rx_create(&o, &rx) == MS110D_ERR_INVALID_ARGUMENT);
+    o.reserved = 0;
+    o.disable_turbo = 7;
+    CHECK(ms110d_rx_create(&o, &rx) == MS110D_ERR_INVALID_ARGUMENT);
+    o.disable_turbo = 0;
+    CHECK(rx == NULL);
+    CHECK(ms110d_rx_create(&o, &rx) == MS110D_OK);
+    CHECK(rx != NULL);
+
+    CHECK(ms110d_rx_memory_size(&o, &bytes, &alignment) == MS110D_OK);
+    CHECK(ms110d_rx_memory_size(&o, NULL, &alignment) == MS110D_ERR_INVALID_ARGUMENT);
+    raw = malloc((size_t)bytes + alignment);
+    CHECK(raw != NULL);
+    aligned = (uint8_t*)raw + (alignment - (uintptr_t)raw % alignment) % alignment;
+    CHECK(ms110d_rx_init(aligned, bytes - 1, &o, &built) == MS110D_ERR_BAD_MEMORY);
+    CHECK(ms110d_rx_init(aligned, bytes, &o, NULL) == MS110D_ERR_INVALID_ARGUMENT);
+    CHECK(ms110d_rx_init(aligned, bytes, &o, &built) == MS110D_OK);
+
+    CHECK(ms110d_tx_settings_default(&s) == MS110D_OK);
+    s.waveform_number = 0;
+    CHECK(ms110d_tx_create(&s, BITS, &tx) == MS110D_OK);
+    for (i = 0; i < BITS; ++i) payload[i] = (uint8_t)((i * 5u / 3u) & 1u);
+    CHECK(ms110d_tx_audio_length(tx, BITS, &n) == MS110D_OK);
+    CHECK(n + 9600 <= 200000);
+    CHECK(ms110d_tx_modulate(tx, payload, BITS, audio, n, &written) == MS110D_OK);
+    ms110d_tx_destroy(tx);
+    total = n + 9600;
+
+    CHECK(ms110d_rx_process(NULL, audio, 1, &used) == MS110D_ERR_INVALID_ARGUMENT);
+    CHECK(ms110d_rx_process(built, NULL, 1, &used) == MS110D_ERR_INVALID_ARGUMENT);
+    CHECK(ms110d_rx_process(built, audio, 1, NULL) == MS110D_ERR_INVALID_ARGUMENT);
+    ev.struct_size = 8;
+    CHECK(ms110d_rx_next_event(built, &ev, bits, sizeof bits, NULL, 0) == MS110D_ERR_INVALID_ARGUMENT);
+    CHECK(ms110d_rx_next_event(NULL, &ev, bits, sizeof bits, NULL, 0) == MS110D_ERR_INVALID_ARGUMENT);
+    CHECK(ms110d_rx_state(NULL, &state) == MS110D_ERR_INVALID_ARGUMENT);
+    CHECK(ms110d_rx_terminate(NULL) == MS110D_ERR_INVALID_ARGUMENT);
+    CHECK(ms110d_rx_reset(NULL) == MS110D_ERR_INVALID_ARGUMENT);
+
+    n = 0;
+    while (at < total && !ended) {
+        if (ms110d_rx_process(built, audio + at, total - at, &used) != MS110D_OK) {
+            CHECK(0);
+            break;
+        }
+        at += used;
+        for (;;) {
+            ev.struct_size = sizeof ev;
+            if (ms110d_rx_next_event(built, &ev, bits, sizeof bits, NULL, 0) != MS110D_OK) {
+                CHECK(0);
+                break;
+            }
+            if (ev.kind == MS110D_RX_EVENT_NONE) break;
+            if (ev.kind == MS110D_RX_EVENT_BURST_STARTED) {
+                started = 1;
+                CHECK(ev.waveform_number == 0);
+                CHECK(ms110d_rx_state(built, &state) == MS110D_OK);
+                CHECK(state == MS110D_RX_STATE_TRACKING);
+            }
+            if (ev.kind == MS110D_RX_EVENT_BLOCK_DECODED && n + ev.length <= sizeof got) {
+                memcpy(got + n, bits, ev.length);
+                n += ev.length;
+            }
+            if (ev.kind == MS110D_RX_EVENT_BURST_COMPLETED) {
+                ended = 1;
+                reason = ev.end_reason;
+                payload_bits = ev.payload_bits;
+            }
+        }
+    }
+    CHECK(started && ended);
+    CHECK(reason == MS110D_END_EOM);
+    CHECK(payload_bits == BITS);
+    CHECK(memcmp(got, payload, BITS) == 0);
+    CHECK(ms110d_rx_state(built, &state) == MS110D_OK);
+    CHECK(state == MS110D_RX_STATE_SEARCHING);
+    CHECK(ms110d_rx_terminate(built) == MS110D_OK);
+    CHECK(ms110d_rx_reset(built) == MS110D_OK);
+
+    ms110d_rx_destroy(rx);
+    ms110d_rx_destroy(NULL);
+    free(raw);
+}
+
 int main(void) {
     int32_t major = -1, minor = -1, patch = -1;
     char text[64];
@@ -253,6 +367,7 @@ int main(void) {
     CHECK(strcmp(ms110d_status_string(-1), "unknown status") == 0);
 
     test_transmit();
+    test_receive();
 
     if (failures != 0) {
         fprintf(stderr, "%d check(s) failed\n", failures);
