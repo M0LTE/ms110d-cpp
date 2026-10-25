@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DCMAKE_C_COMPILER=${{ matrix.compiler == 'clang++' && 'clang' || 'gcc' }} -DMS110D_PRECISION=${{ matrix.precision }} -DMS110D_DOTNET_TESTS=OFF
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=${{ matrix.compiler }} -DCMAKE_C_COMPILER=${{ matrix.compiler == 'clang++' && 'clang' || 'gcc' }} -DMS110D_PRECISION=${{ matrix.precision }} -DMS110D_DOTNET_TESTS=OFF -DMS110D_BUILD_TOOLS=ON
       - name: Build
         run: cmake --build build -j4
       - name: Test

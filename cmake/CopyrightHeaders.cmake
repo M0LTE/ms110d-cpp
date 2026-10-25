@@ -3,7 +3,7 @@
 set(_line1 "// Copyright (C) 2026 Thomas Fanning")
 set(_line2 "// SPDX-License-Identifier: AGPL-3.0-or-later")
 file(GLOB_RECURSE _files RELATIVE "${SOURCE_DIR}"
-    "${SOURCE_DIR}/include/*" "${SOURCE_DIR}/src/*" "${SOURCE_DIR}/tests/*")
+    "${SOURCE_DIR}/include/*" "${SOURCE_DIR}/src/*" "${SOURCE_DIR}/tests/*" "${SOURCE_DIR}/tools/*")
 set(_missing "")
 foreach(_f IN LISTS _files)
   if(NOT _f MATCHES "\\.(hpp|cpp|h|c|cs)$|version\\.hpp\\.in$")

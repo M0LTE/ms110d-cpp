@@ -20,6 +20,13 @@ if (args.Length > 2 && args[0] == "corpus")
     return;
 }
 
+// "shadow" modes: the C# twin of tools/ms110d-decode, see ShadowDecode.cs and docs/dev/shadow.md.
+if (args.Length > 2 && args[0] == "shadow" && (args[1] == "decode" || args[1] == "finish"))
+{
+    Console.Out.Write(ShadowDecode.Run(args[1], args[2]));
+    return;
+}
+
 // "tables" mode: the mode/table dump for tests/data/csharp-tables-0.2.1.txt (see TablesDump.cs).
 if (args.Length > 0 && args[0] == "tables")
 {

@@ -1,0 +1,10 @@
+[Unit]
+Description=Decode newly filed shadow slots a few minutes after the slot keeper runs
+
+[Timer]
+# The keeper runs at :16 and :31 past each hour.
+OnCalendar=*:19,34
+Persistent=true
+
+[Install]
+WantedBy=timers.target

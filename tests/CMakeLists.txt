@@ -209,6 +209,14 @@ add_custom_target(update-deviations
   DEPENDS ms110d_tests
   COMMENT "Rewriting docs/deviations.md")
 
+# The shadow decode tool (MS110D_BUILD_TOOLS): a committed corpus burst through it ends with an EOM.
+if(TARGET ms110d-decode)
+  add_test(NAME ms110d_decode_tool
+    COMMAND ms110d-decode "${CMAKE_CURRENT_SOURCE_DIR}/data/corpus/bursts/20261024T135800Z-04.wav")
+  set_tests_properties(ms110d_decode_tool PROPERTIES
+    PASS_REGULAR_EXPRESSION "\"ev\":\"burst_completed\"[^\n]*\"reason\":\"Eom\"[^\n]*\n\\{\"ev\":\"summary\"")
+endif()
+
 # The performance masks (docs/dev/masks.md): C# made audio, decoded by the C++ receivers. Its own executable and
 # its own ctest entries (one per point) so the job that has the audio can run them in parallel; skips without it.
 set(MS110D_MASK_DIR "${PROJECT_SOURCE_DIR}/build/_reference/masks-ci" CACHE PATH
