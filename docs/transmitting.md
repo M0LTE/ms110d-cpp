@@ -30,6 +30,30 @@ Bad values give `Status::InvalidArgument`; a waveform and interleaver the standa
 
 For the whole burst in one call use `modulate(bits, audio, written)`. If `audio` is too short it returns `BufferTooSmall` and sets `written` to the length needed, so calling it first with an empty span tells you.
 
+## Bits and sample rate
+
+The transmitter takes bits, not bytes: one bit per byte, 0 or 1. How a byte becomes eight bits is up to you; the receiver gives the bits back in the order you sent them, so use the same order at both ends. The helpers below go most significant bit first.
+
+```cpp
+// Bytes to bits, most significant bit first, one bit per byte; and back. Any order works as long
+// as both ends use the same one.
+std::vector<std::uint8_t> to_bits(std::span<const std::uint8_t> bytes) {
+    std::vector<std::uint8_t> bits;
+    for (const std::uint8_t b : bytes)
+        for (int i = 7; i >= 0; --i) bits.push_back(static_cast<std::uint8_t>((b >> i) & 1));
+    return bits;
+}
+
+std::vector<std::uint8_t> to_bytes(std::span<const std::uint8_t> bits) {
+    std::vector<std::uint8_t> bytes(bits.size() / 8);
+    for (std::size_t i = 0; i < bytes.size() * 8; ++i)
+        bytes[i / 8] = static_cast<std::uint8_t>((bytes[i / 8] << 1) | (bits[i] & 1));
+    return bytes;
+}
+```
+
+The audio is 9600 Hz, mono, `float`, centred on 1800 Hz. A 48 kHz sound card needs it resampled up by 5 (and a 9600 Hz receive path resampled down by 5 from 48 kHz), with a decent low-pass filter; the library does no resampling.
+
 ## Chunked audio
 
 `read` takes any chunk size, down to one sample, and the burst is never held whole, so you can feed a sound card or DMA buffer as it is made. The chunk size never changes the audio. Each new interleaver block is coded when its first sample is wanted, so some reads cost more than others; real-time players should read ahead into their own buffer. A read of 0 samples only ever means the burst has finished (an empty buffer is an error).

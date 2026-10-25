@@ -13,7 +13,7 @@ add_test(NAME docs_guides COMMAND docs_guides)
 
 add_test(NAME docs_snippets_in_sync
   COMMAND ${CMAKE_COMMAND}
-    "-DPAIRS=${CMAKE_CURRENT_SOURCE_DIR}/quickstart.cpp|${PROJECT_SOURCE_DIR}/README.md;${CMAKE_CURRENT_SOURCE_DIR}/quickstart_c.c|${PROJECT_SOURCE_DIR}/README.md;${CMAKE_CURRENT_SOURCE_DIR}/guides.cpp|${PROJECT_SOURCE_DIR}/docs/transmitting.md,${PROJECT_SOURCE_DIR}/docs/receiving.md,${PROJECT_SOURCE_DIR}/docs/microcontroller.md"
+    "-DPAIRS=${CMAKE_CURRENT_SOURCE_DIR}/quickstart.cpp|${PROJECT_SOURCE_DIR}/README.md;${CMAKE_CURRENT_SOURCE_DIR}/quickstart_c.c|${PROJECT_SOURCE_DIR}/docs/c-quickstart.md;${CMAKE_CURRENT_SOURCE_DIR}/guides.cpp|${PROJECT_SOURCE_DIR}/docs/transmitting.md,${PROJECT_SOURCE_DIR}/docs/receiving.md,${PROJECT_SOURCE_DIR}/docs/microcontroller.md"
     -P "${PROJECT_SOURCE_DIR}/cmake/CheckDocSnippets.cmake")
 
 if(MS110D_BUILD_C_SHARED)

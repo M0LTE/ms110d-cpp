@@ -10,6 +10,10 @@ The 3 kHz serial-tone waveforms of MIL-STD-188-110D Appendix D, as this library 
 - K7 and K9 convolutional codes, and all four interleavers: ultra-short, short, medium, long. WN0 has no ultra-short row in the standard, so asking for it is `Unsupported`.
 - Transmit settings are free to choose any of these. The receiver follows whatever the preamble announces, up to the longest interleaver you set with `max_interleaver` (see [receiving](receiving.md)).
 
+## Choosing a waveform
+
+Start from the channel. On a good path, WN6 (3200 bps) is the default; WN7 and WN8 need a lot more SNR for their extra speed. On a weak or fading path, drop to WN4 (1200 bps), then WN2 or WN1, and WN0 (75 bps) as the last resort that still gets through. The table's Poor column is the guide: pick a waveform whose target SNR is comfortably below what your path gives. Then pick the interleaver. Short is the default; use medium or long on fading paths if you can afford the delay, and ultra-short when delay matters more. K9 buys a little robustness for more work in the decoder. Whatever you send, the receiver reads the choice from the preamble, so it needs no setting except `max_interleaver`.
+
 ## Every waveform
 
 | | |

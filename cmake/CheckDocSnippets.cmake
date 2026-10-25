@@ -6,6 +6,9 @@
 #   cmake "-DPAIRS=<example>|<doc>[,<doc>...];<example>|<doc>..." -P CheckDocSnippets.cmake
 # A snippet must appear in at least one of the documents listed for its example.
 #
+# Every fenced cpp or c code block in the listed documents must also be exactly one snippet, so a
+# block pasted into the docs by hand fails the check.
+#
 # This works on whole strings, not lists, because code and markdown are full of semicolons and
 # square brackets, which CMake lists treat specially.
 
@@ -24,6 +27,8 @@ function(_normalise text out)
 endfunction()
 
 set(failed OFF)
+set(all_snippets "")
+set(all_docs "")
 set(checked 0)
 foreach(pair IN LISTS PAIRS)
   string(REPLACE "|" ";" parts "${pair}")
@@ -33,6 +38,7 @@ foreach(pair IN LISTS PAIRS)
 
   set(docs_text "")
   foreach(d IN LISTS doc_files)
+    list(APPEND all_docs "${d}")
     file(READ "${d}" t)
     _normalise("${t}" nt)
     string(APPEND docs_text "${nt}")
@@ -64,6 +70,7 @@ foreach(pair IN LISTS PAIRS)
     string(REGEX REPLACE "[^${NL}]*snippet-(begin|end) [^${NL}]*${NL}" "" body "${body}")
     _normalise("${body}" nb)
     string(FIND "${docs_text}" "${nb}" found)  # nb ends in a newline, as a code line does
+    string(APPEND all_snippets "<<<SNIP>>>${nb}<<<SNIP>>>")
     math(EXPR checked "${checked} + 1")
     if(found EQUAL -1)
       message(SEND_ERROR "snippet '${name}' of ${example} is not in the docs word for word")
@@ -72,6 +79,36 @@ foreach(pair IN LISTS PAIRS)
     # Carry on after the begin marker, so a snippet nested in this one is found too.
     set(rest "${after}")
   endwhile()
+endforeach()
+list(REMOVE_DUPLICATES all_docs)
+foreach(d IN LISTS all_docs)
+  file(READ "${d}" t)
+  string(REPLACE "\r" "" t "${t}")
+  foreach(lang cpp c)
+    set(text "${t}")
+    while(TRUE)
+      string(FIND "${text}" "```${lang}${NL}" at)
+      if(at EQUAL -1)
+        break()
+      endif()
+      string(LENGTH "```${lang}${NL}" flen)
+      math(EXPR from "${at} + ${flen}")
+      string(SUBSTRING "${text}" ${from} -1 text)
+      string(FIND "${text}" "```" close)
+      if(close EQUAL -1)
+        message(SEND_ERROR "unclosed code block in ${d}")
+        set(failed ON)
+        break()
+      endif()
+      string(SUBSTRING "${text}" 0 ${close} block)
+      _normalise("${block}" nb)
+      string(FIND "${all_snippets}" "<<<SNIP>>>${nb}<<<SNIP>>>" found)
+      if(found EQUAL -1)
+        message(SEND_ERROR "a ${lang} code block in ${d} is not a snippet from tests/docs_examples:\n${block}")
+        set(failed ON)
+      endif()
+    endwhile()
+  endforeach()
 endforeach()
 if(checked EQUAL 0)
   message(SEND_ERROR "no snippets found")

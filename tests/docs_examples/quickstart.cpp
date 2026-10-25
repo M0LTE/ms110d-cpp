@@ -4,18 +4,18 @@
 // The C++ quick start from the README, compiled and run by ctest so it cannot rot. The regions
 // between the snippet markers are checked to appear word for word in the README.
 
-#include <m0lte/ms110d/receiver.hpp>
+#include <cstdio>
+
+// snippet-begin transmit
 #include <m0lte/ms110d/transmitter.hpp>
 
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <span>
 #include <vector>
 
 using namespace m0lte::ms110d;
 
-// snippet-begin transmit
 // Payload bits (one per byte, 0 or 1) in, 9600 Hz audio out.
 std::vector<float> transmit(const std::vector<std::uint8_t>& payload_bits) {
     TxSettings settings;                 // WN 6, short interleaver, K 7, and so on
@@ -28,7 +28,7 @@ std::vector<float> transmit(const std::vector<std::uint8_t>& payload_bits) {
 
     Transmitter tx;
     if (tx.configure(settings, max_bits, memory) != Status::Ok) return {};
-    if (tx.push_bits(payload_bits) != Status::Ok) return {};  // more than max_bits in all
+    if (tx.push_bits(payload_bits) != Status::Ok) return {};  // fails past max_bits
     if (tx.end_payload() != Status::Ok) return {};
 
     std::size_t total = 0;
@@ -45,6 +45,15 @@ std::vector<float> transmit(const std::vector<std::uint8_t>& payload_bits) {
 // snippet-end transmit
 
 // snippet-begin receive
+#include <m0lte/ms110d/receiver.hpp>
+
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <vector>
+
+using namespace m0lte::ms110d;
+
 // 9600 Hz audio in, the first decoded burst's payload bits out (one per byte).
 std::vector<std::uint8_t> receive(std::span<const float> audio) {
     RxOptions options;                   // the same defaults as the C# demodulator

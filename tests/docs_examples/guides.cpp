@@ -55,6 +55,24 @@ bool start_receiver(Receiver& rx) {
 }
 // snippet-end mcu_rx
 
+// snippet-begin bytes_bits
+// Bytes to bits, most significant bit first, one bit per byte; and back. Any order works as long
+// as both ends use the same one.
+std::vector<std::uint8_t> to_bits(std::span<const std::uint8_t> bytes) {
+    std::vector<std::uint8_t> bits;
+    for (const std::uint8_t b : bytes)
+        for (int i = 7; i >= 0; --i) bits.push_back(static_cast<std::uint8_t>((b >> i) & 1));
+    return bits;
+}
+
+std::vector<std::uint8_t> to_bytes(std::span<const std::uint8_t> bits) {
+    std::vector<std::uint8_t> bytes(bits.size() / 8);
+    for (std::size_t i = 0; i < bytes.size() * 8; ++i)
+        bytes[i / 8] = static_cast<std::uint8_t>((bytes[i / 8] << 1) | (bits[i] & 1));
+    return bytes;
+}
+// snippet-end bytes_bits
+
 static int g_started = 0, g_blocks = 0, g_completed = 0, g_refused = 0;
 
 // snippet-begin rx_events
@@ -138,6 +156,8 @@ static bool receive_with(InterleaverKind longest, const std::vector<float>& audi
 }
 
 int main() {
+    const std::vector<std::uint8_t> text = {0x48, 0x69, 0x80};
+    if (to_bytes(to_bits(text)) != text) return 5;
     Receiver mcu;
     if (!start_receiver(mcu)) return 4;
     if (!send(std::vector<std::uint8_t>(800, 1)) || g_played == 0) return 1;

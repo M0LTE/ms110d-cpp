@@ -21,7 +21,7 @@ A value out of range gives `Status::InvalidArgument` from `storage_bytes`.
 
 ## Chunked audio
 
-`process(audio, used)` takes any number of samples, from one to a whole recording. It stops right after a sample that raised events and tells you how many it used, so you loop until your chunk is gone. The audio is `float` at 9600 Hz, whatever the precision.
+`process(audio, used)` takes any number of samples, from one to a whole recording. The audio is 9600 Hz mono `float`; from a 48 kHz sound card, low-pass filter and take every fifth sample first (the library does no resampling). It stops right after a sample that raised events and tells you how many it used, so you loop until your chunk is gone. The audio is `float` at 9600 Hz, whatever the precision.
 
 ## Events and the drain rule
 
@@ -37,7 +37,7 @@ Results come out of `next_event()` one at a time; it returns an event of kind `N
 
 Every event also has `sample`, the number of input samples taken when it was raised.
 
-The payload is the `bits` of all the `BlockDecoded` events, in order, cut to `payload_bits` (the bits before the end of message). Nothing holds a whole burst for you, so there is no maximum burst length. A block is at most 49152 bits. The `bits` and `soft` spans point into the receiver and are good until the next `process()` or `reset()`: copy what you want to keep.
+The bits come out one per byte, in the order they were sent (see [transmitting](transmitting.md#bits-and-sample-rate) for packing bytes). The payload is the `bits` of all the `BlockDecoded` events, in order, cut to `payload_bits` (the bits before the end of message). Nothing holds a whole burst for you, so there is no maximum burst length. A block is at most 49152 bits. The `bits` and `soft` spans point into the receiver and are good until the next `process()` or `reset()`: copy what you want to keep.
 
 **The drain rule.** With events still queued, `process()` takes no audio and returns `Status::State`. So call `next_event()` until it says `None` after every `process()`, also one that used all its audio, because its last sample may have raised events. The events of one sample are never more than four, so none are ever dropped.
 
@@ -90,12 +90,14 @@ bool feed(Receiver& rx, std::span<const float> chunk) {
 
 All working memory is the one block you give `configure`, and nothing is allocated, ever. It is set by the longest interleaver you accept. A decoder has to hold a whole block, and the longest are very long:
 
-| `max_interleaver` | Memory (double build) | Single build |
-|---|---|---|
-| `UltraShort` | 1.4 MiB | 1.4 MiB |
-| `Short` | 4.1 MiB | 4.1 MiB |
-| `Medium` | 14.8 MiB | 14.8 MiB |
-| `Long` | 58.2 MiB | 58.2 MiB |
+| `max_interleaver` | Memory |
+|---|---|
+| `UltraShort` | 1.4 MiB |
+| `Short` | 4.1 MiB |
+| `Medium` | 14.8 MiB |
+| `Long` | 58.2 MiB |
+
+These are the same in the single precision build to within 5 KiB.
 
 The default accepts everything, as the C# does, and needs the 58.2 MiB. If you only expect short bursts, say so. Ask `Receiver::storage_bytes(options, bytes)` for the exact figure. Most of it is the decoder's store for a block, which is why single precision saves almost nothing here. [Microcontroller](microcontroller.md) says what that means for small boards.
 
