@@ -28,7 +28,8 @@ add_executable(ms110d_tests
   preamble_detector_test.cpp
   support/rx_driver.cpp
   dfe_receiver_test.cpp
-  dfe_turbo_test.cpp)
+  dfe_turbo_test.cpp
+  receiver_test.cpp)
 target_link_libraries(ms110d_tests PRIVATE m0lte::ms110d Catch2::Catch2WithMain)
 # The tests also see the library's internal headers (src/tables.hpp); they are not installed.
 target_include_directories(ms110d_tests PRIVATE support "${PROJECT_SOURCE_DIR}/src")
@@ -57,6 +58,7 @@ target_compile_definitions(ms110d_tests PRIVATE
   MS110D_CSHARP_RX_AWGN="${MS110D_RX_DUMP_DIR}/csharp-rx-awgn.txt"
   MS110D_CSHARP_RX_TURBO="${MS110D_RX_DUMP_DIR}/csharp-rx-turbo.txt"
   MS110D_RX_CORPUS_STEM="${MS110D_RX_DUMP_DIR}/rx-corpus"
+  MS110D_RX_OPTIONS_STEM="${MS110D_RX_DUMP_DIR}/rx-options"
   MS110D_CSHARP_DFE_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-dfe-0.2.1.txt"
   MS110D_PIN_FILE="${PROJECT_SOURCE_DIR}/reference/pin.txt")
 ms110d_apply_options(ms110d_tests)
@@ -105,10 +107,11 @@ if(MS110D_BUILD_C_SHARED)
   endif()
   add_test(NAME c_api COMMAND ms110d_c_test)
 
-  # The transmit path through the C interface alone, against the C# reference files.
-  add_executable(ms110d_c_tests c_transmitter_test.cpp support/reference_files.cpp)
+  # The transmit and receive paths through the C interface alone, against the C# reference files.
+  add_executable(ms110d_c_tests c_transmitter_test.cpp c_receiver_test.cpp support/reference_files.cpp)
   target_link_libraries(ms110d_c_tests PRIVATE ms110d_c Catch2::Catch2WithMain)
   target_include_directories(ms110d_c_tests PRIVATE support)
+  target_compile_definitions(ms110d_c_tests PRIVATE MS110D_CSHARP_RX_TURBO="${MS110D_RX_DUMP_DIR}/csharp-rx-turbo.txt")
   ms110d_apply_options(ms110d_c_tests)
   catch_discover_tests(ms110d_c_tests PROPERTIES ENVIRONMENT "MS110D_REFERENCE_DIR=${MS110D_REFERENCE_DIR}")
 

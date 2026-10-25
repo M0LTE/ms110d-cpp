@@ -29,7 +29,10 @@ RxDriver::RxDriver(InterleaverKind max_interleaver, bool trace_frames, bool turb
     d.siso_k7 = siso7_.get();
     d.siso_k9 = siso9_.get();
     d.chain = chain_.get();
-    if (!receiver_->configure(config, storage_, d)) throw std::runtime_error("configure failed");
+    ring_.resize(std::max(DfeReceiver::ring_size_for(max_interleaver), PreambleDetector::ring_size));
+    if (!stream_.configure(config.roll_off, ring_)) throw std::runtime_error("stream configure failed");
+    if (!detector_->configure(PreambleDetectorConfig{}, stream_)) throw std::runtime_error("detector configure failed");
+    if (!receiver_->configure(config, storage_, d, stream_)) throw std::runtime_error("configure failed");
 }
 
 RxRun RxDriver::run(std::span<const float> audio, std::size_t chunk) {
@@ -49,26 +52,22 @@ RxRun RxDriver::run(std::span<const float> audio, std::size_t chunk) {
     }
 
     block_frames_mark_ = 0;
-    std::size_t det = 0;  // samples the detector has used
-    std::size_t rx = 0;   // samples the receiver has used
-    while (rx < audio.size() && !out.ended) {
-        if (!receiver_->active() && receiver_->event() == DfeEvent::None) {
-            if (out.detected) break;  // the burst never ended: out of audio
-            // Searching: the detector leads, the receiver's front end follows to the same sample.
-            const std::size_t n = std::min(chunk, audio.size() - det);
-            det += detector_->process(audio.subspan(det, n));
-            while (rx < det) rx += receiver_->push_audio(audio.subspan(rx, det - rx));
-            if (detector_->has_detection()) {
-                detector_->take_detection(out.detection);
-                out.detected = true;
-                if (!receiver_->start(dfe_start_from_detection(out.detection))) break;
-            } else if (det >= audio.size()) {
-                break;
-            }
-            continue;
+    stream_.reset();
+    // One front end for both: per T/2 sample the detector first (its energies and, while searching,
+    // the search), then the receiver, as the C# PushT2 does. `chunk` only sets how often the
+    // events are collected, which cannot change a result.
+    (void)chunk;
+    for (std::size_t i = 0; i < audio.size() && !out.ended; ++i) {
+        if (!stream_.push(audio[i])) continue;
+        detector_->on_t2();
+        if (detector_->has_detection()) {
+            if (out.detected) break;  // only the first burst is recorded
+            detector_->take_detection(out.detection);
+            out.detected = true;
+            if (!receiver_->start(dfe_start_from_detection(out.detection))) break;
+            continue;  // the receiver starts on the next sample, as the C#'s tracking does
         }
-        const std::size_t n = std::min(chunk, audio.size() - rx);
-        rx += receiver_->push_audio(audio.subspan(rx, n));
+        receiver_->on_t2();
         while (receiver_->event() != DfeEvent::None) {
             if (receiver_->event() == DfeEvent::BlockDecoded) {
                 const DfeBlock& b = receiver_->block();

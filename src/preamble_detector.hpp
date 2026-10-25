@@ -11,20 +11,25 @@
 // Internal for now (not installed, not in the locked public API); the demodulator and the
 // poll-and-drain C interface are built on it.
 //
-// Use: construct (or configure), then process() audio in chunks of any size. process() returns
+// The detector reads the shared receive front end and ring (rx_stream.hpp), which it is bound to
+// at configure(). Whoever drives that stream calls on_t2() after every new T/2 sample; a detector
+// used on its own (StandalonePreambleDetector below) drives it itself through process().
+//
+// Use: configure, then process() audio in chunks of any size. process() returns
 // how many samples it used; it stops right after the sample that completes a detection, so the
 // caller can take_detection() before feeding the rest. take_detection() returns the event once;
 // afterwards the detector only runs its front end (the T/2 samples stay readable through
 // t2_sample()) until resume_search() sends it back to looking for a preamble.
 //
-// No allocation after construction and no exceptions. The object is about 90 KB, so keep it
-// off a small stack.
+// No allocation and no exceptions. The object is about 19 KB without the ring (the stand-alone one
+// carries its own 128 KB ring), so keep it off a small stack.
 
 #include <m0lte/ms110d/mode.hpp>
 
 #include "dsp/complex_f.hpp"
 #include "dsp/fir_filter.hpp"
 #include "modulator.hpp"
+#include "rx_stream.hpp"
 
 #include <array>
 #include <complex>
@@ -124,18 +129,28 @@ public:
     static constexpr int chips_per_superframe = 576;
     static constexpr int search_bins = 7;            // -75 to +75 Hz in 25 Hz steps
 
-    PreambleDetector() noexcept;
+    PreambleDetector() noexcept = default;
+    PreambleDetector(const PreambleDetector&) = delete;
+    PreambleDetector& operator=(const PreambleDetector&) = delete;
 
-    // Applies a configuration (designs the filter and the matched-filter references) and
-    // resets. Returns false, leaving the detector unusable, if the roll-off is not valid.
-    bool configure(const PreambleDetectorConfig& config) noexcept;
+    // Applies a configuration (the matched-filter references) and binds the detector to `stream`,
+    // which must be configured with the same roll-off and hold at least ring_size samples, and
+    // stay in place. Resets the detector (not the stream). Returns false, leaving the detector
+    // unusable, if the roll-off is not valid or the stream does not fit.
+    bool configure(const PreambleDetectorConfig& config, RxStream& stream) noexcept;
     bool configured() const noexcept { return taps_ != 0; }
 
-    // Back to the start of a stream: front end cleared, searching, counters zero.
+    // Back to searching with the counters zero. The stream is the driver's to reset.
     void reset() noexcept;
 
-    // Uses audio (9600 Hz) and returns how many samples it used, which is all of them unless a
-    // detection completed (it stops after that sample) or one is waiting to be taken (then 0).
+    // For the stream's driver: a new T/2 sample has been pushed. Keeps the running energies and,
+    // while searching or reading a preamble, takes the search one step (not if `step` is false:
+    // the C# skips the stage on the sample a terminate command ends a burst).
+    void on_t2(bool step = true) noexcept;
+
+    // Drives the bound stream itself: pushes audio (9600 Hz) and returns how many samples it used,
+    // which is all of them unless a detection completed (it stops after that sample) or one is
+    // waiting to be taken (then 0). Only for a detector that is the stream's only reader.
     std::size_t process(std::span<const float> audio) noexcept;
 
     bool has_detection() const noexcept { return state_ == State::Detected; }
@@ -146,15 +161,21 @@ public:
     void resume_search() noexcept;
 
     bool searching() const noexcept { return state_ == State::Searching; }
+    // True between the lock (the waveform ID decoded, stats().locks counted) and the detection,
+    // while the final carrier fit waits for the samples up to the data start; lock_info() then
+    // holds the identified parameters and the first-fit carrier.
+    bool locked() const noexcept { return state_ == State::ReadingPreamble && tail_pending_; }
+    const PreambleDetection& lock_info() const noexcept { return event_; }
     const PreambleSearchStats& stats() const noexcept { return stats_; }
 
     // Input samples used so far, and T/2 samples produced.
-    std::int64_t samples_used() const noexcept { return used_; }
-    std::int64_t t2_written() const noexcept { return written_; }
+    std::int64_t samples_used() const noexcept { return stream_ == nullptr ? 0 : stream_->used(); }
+    std::int64_t t2_written() const noexcept { return stream_ == nullptr ? 0 : stream_->written(); }
     // T/2 sample `index` if it is still in the ring (the last ring_size produced), else zero.
     std::complex<float> t2_sample(std::int64_t index) const noexcept;
     bool t2_available(std::int64_t index) const noexcept {
-        return index >= 0 && index < written_ && written_ - index <= static_cast<std::int64_t>(ring_size);
+        return stream_ != nullptr && index >= 0 && index < stream_->written() &&
+               stream_->written() - index <= static_cast<std::int64_t>(ring_size);
     }
 
 private:
@@ -162,7 +183,6 @@ private:
 
     using ComplexF = dsp::ComplexF;
 
-    void push_t2(ComplexF sample) noexcept;
     void search_step() noexcept;
     double metric(std::int64_t s, int bin, double energy, ComplexF* segments) const noexcept;
     void accept_peak() noexcept;
@@ -177,18 +197,11 @@ private:
     std::uint8_t read_walsh_symbol(int start_chip, const std::array<std::uint8_t, 256>& pn, int pn_offset) const noexcept;
     void accumulate_walsh_mags(int start_chip, const std::array<std::uint8_t, 256>& pn, int pn_offset, double* mags) const noexcept;
 
-    // Front end.
-    dsp::FirFilter<max_pulse_taps> filter_re_;
-    dsp::FirFilter<max_pulse_taps> filter_im_;
-    std::array<ComplexF, 16> mix_table_{};
+    // Front end (the shared stream) and the matched-filter references.
+    RxStream* stream_ = nullptr;
     std::array<std::array<ComplexF, chips_per_fixed>, search_bins> mf_reference_{};
-    std::array<ComplexF, ring_size> ring_{};
     std::size_t taps_ = 0;
-    int mix_phase_ = 0;
-    bool decimate_toggle_ = false;
     std::array<double, 2> comb_energy_{};
-    std::int64_t written_ = 0;
-    std::int64_t used_ = 0;
 
     // Search.
     double sync_threshold_ = 0.32;
@@ -214,6 +227,24 @@ private:
 
     PreambleDetection event_{};
     PreambleSearchStats stats_{};
+};
+
+// A detector with its own front end and ring, for use on its own (tests and tools): the same
+// interface, with configure() and reset() covering the stream too.
+class StandalonePreambleDetector : public PreambleDetector {
+public:
+    StandalonePreambleDetector() noexcept { configure(PreambleDetectorConfig{}); }
+    bool configure(const PreambleDetectorConfig& config) noexcept {
+        stream_.configure(config.roll_off);  // on failure the stream is unconfigured, so the next fails too
+        return PreambleDetector::configure(config, stream_);
+    }
+    void reset() noexcept {
+        stream_.reset();
+        PreambleDetector::reset();
+    }
+
+private:
+    OwnedRxStream<PreambleDetector::ring_size> stream_{};
 };
 
 }  // namespace m0lte::ms110d

@@ -11,8 +11,9 @@ namespace Ms110dInterop.Tests;
 // recorded hash and the pinned C# receiver decodes it to what the manifest says. Two corpora are
 // checked: the small set committed under tests/data/corpus (always present), and the full one
 // fetched by scripts/fetch-corpus.sh (skipped when absent; MS110D_REQUIRE_CORPUS=1 makes absence
-// a failure). The C++ receiver gets its own comparison against the same manifests later.
-public class CorpusTests
+// a failure). The C++ receiver (through the C interface) is then held to the layer 4 rule against
+// the same manifests.
+public class CorpusTests(ITestOutputHelper output)
 {
     static string RepoRoot()
     {
@@ -83,6 +84,61 @@ public class CorpusTests
         Assert.Empty(Layer4Rule.Evaluate(pairs));
     }
 
+    // ---- the C++ receiver against the same manifests (layer 4) ------------------------------
+
+    [Fact]
+    public void CppMeetsTheLayer4RuleOnTheCommittedSet() => CheckCpp(Path.Combine(RepoRoot(), "tests", "data", "corpus"));
+
+    [Fact]
+    public void CppMeetsTheLayer4RuleOnTheFetchedCorpus()
+    {
+        string dir = Environment.GetEnvironmentVariable("MS110D_CORPUS_DIR")
+            ?? Path.Combine(RepoRoot(), "build", "_corpus", "current");
+        if (!File.Exists(Path.Combine(dir, "manifest.json")))
+        {
+            Assert.False(Environment.GetEnvironmentVariable("MS110D_REQUIRE_CORPUS") == "1",
+                $"no corpus in {dir}; run scripts/fetch-corpus.sh");
+            Assert.Skip($"no corpus in {dir}; run scripts/fetch-corpus.sh to fetch it");
+        }
+
+        CheckCpp(dir);
+    }
+
+    void CheckCpp(string dir)
+    {
+        using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, "manifest.json")));
+        var pairs = new List<(JsonElement Want, CorpusDecode.Found Got)>();
+        int wantFrames = 0, gotFrames = 0, sameEnd = 0, errorFree = 0, errorFreeSame = 0;
+        foreach (JsonElement b in doc.RootElement.GetProperty("bursts").EnumerateArray())
+        {
+            string id = b.GetProperty("id").GetString()!;
+            var got = CppCorpusDecode.Run(CorpusDecode.ReadWav(Path.Combine(dir, b.GetProperty("file").GetString()!)));
+            JsonElement w = b.GetProperty("expected")[0];
+            CorpusDecode.Found first = got.Count > 0
+                ? got[0]
+                : new CorpusDecode.Found(-1, -1, -1, "none", 0, 0, "None", 0, "", 0, "", 0, 0, 0);
+            pairs.Add((b, first));
+            wantFrames += w.GetProperty("good_frames").GetInt32();
+            gotFrames += Math.Min(first.GoodFrames, w.GetProperty("good_frames").GetInt32());
+            bool same = first.Reason == w.GetProperty("reason").GetString() && first.Blocks == w.GetProperty("blocks").GetInt32();
+            if (same) sameEnd++;
+            if (b.GetProperty("error_free").GetBoolean())
+            {
+                errorFree++;
+                if (first.Sha256 == w.GetProperty("sha256").GetString()) errorFreeSame++;
+            }
+            output.WriteLine($"{id}: C# wn={w.GetProperty("wn").GetInt32()} {w.GetProperty("reason").GetString()} blocks={w.GetProperty("blocks").GetInt32()} good={w.GetProperty("good_frames").GetInt32()}; " +
+                $"C++ bursts={got.Count} wn={first.Wn} {first.Reason} blocks={first.Blocks} good={first.GoodFrames} crc_failures={first.CrcFailures}");
+        }
+
+        List<string> problems = Layer4Rule.Evaluate(pairs);
+        string summary = $"layer 4, C++ receiver: {pairs.Count} bursts, good frames {gotFrames} of the C#'s {wantFrames}, " +
+            $"same end and block count on {sameEnd}, error-free payloads equal {errorFreeSame} of {errorFree}; rule problems {problems.Count}";
+        output.WriteLine(summary);
+        Console.WriteLine(summary);
+        Assert.True(problems.Count == 0, string.Join("; ", problems));
+    }
+
     // ---- the rule itself, exercised on synthetic candidates --------------------------------
 
     static (List<(JsonElement, CorpusDecode.Found)> Pairs, JsonDocument Doc) Committed()
@@ -138,12 +194,73 @@ public class CorpusTests
     }
 }
 
+// The C++ receiver over a corpus file, fed exactly as CorpusDecode.Run feeds the C# (chunks of 96,
+// three seconds of silence after, then a terminate if a burst is still open), with the same IL2P
+// deframer on its decoded blocks, giving the same Found record.
+static class CppCorpusDecode
+{
+    public static List<CorpusDecode.Found> Run(float[] audio)
+    {
+        using var rx = new CppReceiver();
+        var outList = new List<CorpusDecode.Found>();
+        long fed = 0, start = -1;
+        int goodFrames = 0, corrected = 0;
+        var framesHash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        M0LTE.Il2p.Il2pDeframer NewDeframer() => new((frame, info) =>
+        {
+            goodFrames++;
+            corrected += info.CorrectedSymbols;
+            framesHash.AppendData(BitConverter.GetBytes(frame.Length));
+            framesHash.AppendData(frame);
+        }, crcMode: true);
+        var deframer = NewDeframer();
+        rx.BlockDecoded = bits => { foreach (byte bit in bits) deframer.PushBit(bit); };
+        void Completed(CppBurst bu)
+        {
+            byte[] packed = Pack(bu.PayloadBits);
+            string sha = Convert.ToHexString(SHA256.HashData(packed)).ToLowerInvariant();
+            outList.Add(new CorpusDecode.Found(start, fed, bu.Wn, bu.Il.ToString(), bu.K, bu.Blocks, bu.Reason.ToString(),
+                packed.Length, sha, goodFrames, Convert.ToHexString(framesHash.GetHashAndReset()).ToLowerInvariant(), corrected,
+                deframer.CrcFailures, deframer.RsFailures));
+            start = -1;
+            goodFrames = corrected = 0;
+            deframer = NewDeframer();
+        }
+        const int chunk = 96;
+        void Feed(ReadOnlySpan<float> s)
+        {
+            for (int i = 0; i < s.Length; i += chunk)
+            {
+                int n = Math.Min(chunk, s.Length - i);
+                foreach (CppBurst b in rx.Process(s.Slice(i, n))) Completed(b);
+                fed += n;
+                if (start < 0 && rx.Busy) start = fed;
+            }
+        }
+        Feed(audio);
+        Feed(new float[9600 * 3]);
+        if (rx.Busy)
+        {
+            rx.Terminate();
+            Feed(new float[chunk]);
+        }
+        return outList;
+    }
+
+    static byte[] Pack(byte[] bits)
+    {
+        var r = new byte[(bits.Length + 7) / 8];
+        for (int i = 0; i < bits.Length; i++) if (bits[i] != 0) r[i >> 3] |= (byte)(0x80 >> (i & 7));
+        return r;
+    }
+}
+
 // Layer 4 rule (docs/dev/corpus.md), the one the C++ receiver is held to. Per burst: waveform,
 // interleaver and K match exactly; end reason and block count match exactly unless the manifest burst
 // has no good frames; the candidate has at most one good IL2P frame fewer than the manifest, and
 // at most 2 percent fewer over the whole set; every frame it decodes passes its CRC; the payload
-// hash matches exactly on error-free bursts only. The C++ side supplies its own CorpusDecode.Found
-// values here when the receiver exists.
+// hash matches exactly on error-free bursts only. CppCorpusDecode supplies the C++ receiver's
+// CorpusDecode.Found values.
 static class Layer4Rule
 {
     public static List<string> Evaluate(IEnumerable<(JsonElement Want, CorpusDecode.Found Got)> pairs)

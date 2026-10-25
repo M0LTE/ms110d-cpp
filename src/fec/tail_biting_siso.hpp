@@ -37,6 +37,13 @@ namespace m0lte::fec {
 class TailBitingSisoDecoder {
 public:
     TailBitingSisoDecoder(const ConvolutionalCode& code, std::size_t max_block_bits);
+    // Unconfigured (valid() false) until configure(). As the Viterbi: storage_bytes() and
+    // configure() set it up in caller storage with no allocation, for any code that fits.
+    TailBitingSisoDecoder() noexcept = default;
+    TailBitingSisoDecoder(const TailBitingSisoDecoder&) = delete;
+    TailBitingSisoDecoder& operator=(const TailBitingSisoDecoder&) = delete;
+    static std::size_t storage_bytes(const ConvolutionalCode& code, std::size_t max_block_bits) noexcept;
+    bool configure(const ConvolutionalCode& code, std::size_t max_block_bits, std::span<std::uint8_t> storage) noexcept;
 
     // False if the code is not one with 2 <= k <= 16 (decode() then always fails).
     bool valid() const noexcept { return valid_; }
@@ -53,14 +60,15 @@ private:
 
     float max_star(float a, float b) const noexcept;
 
-    ConvolutionalCode code_;
-    bool valid_;
-    std::size_t max_n_;
-    std::vector<std::uint8_t> outputs_;
-    std::vector<float> alpha_;
-    std::vector<float> beta_a_;
-    std::vector<float> beta_b_;
-    std::array<float, corr_entries> corr_;
+    ConvolutionalCode code_{};
+    bool valid_ = false;
+    std::size_t max_n_ = 0;
+    std::uint8_t* outputs_ = nullptr;
+    float* alpha_ = nullptr;
+    float* beta_a_ = nullptr;
+    float* beta_b_ = nullptr;
+    std::array<float, corr_entries> corr_{};
+    std::vector<float> owned_;  // the allocating constructor's storage
 };
 
 }  // namespace m0lte::fec

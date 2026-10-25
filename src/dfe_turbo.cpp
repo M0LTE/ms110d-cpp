@@ -109,7 +109,7 @@ void DfeReceiver::encode_block(const std::uint8_t* info, std::uint8_t* fetched) 
 bool DfeReceiver::block_samples_resident() const noexcept {
     const double oldest =
         (chip0_ + (2.0 * static_cast<double>(block_frame_chips_[0])) + tau_) - nff_ - interp_half;
-    return oldest > static_cast<double>(written_ - static_cast<std::int64_t>(ring_size_));
+    return oldest > static_cast<double>(stream_->written() - static_cast<std::int64_t>(stream_->size()));
 }
 
 // Hard labels on iteration 0, soft (SISO) feedback after, until two decodes in a row agree.
@@ -509,13 +509,18 @@ void DfeReceiver::turbo_core(const ComplexF* expected_all, const float* symbol_v
                             ? std::max(0.5f * seg_resid[s] / static_cast<float>(seg_resid_count[s]), 1e-6f)
                             : noise_var;
         }
-        for (int s = 0; s < segments; ++s) {
-            const float thr = seg_resid_count[s] > 0
-                                  ? std::exp(3.0f / std::sqrt(static_cast<float>(seg_resid_count[s])))
-                                  : std::numeric_limits<float>::max();
-            const bool spike = seg_nv[s] > noise_var * thr;
-            seg_price[s] = spike ? seg_nv[s] : noise_var;
-            engaged = engaged || spike;
+        // The C# TurboNsegMode: "spikeup" (shipped, upward only), "spike2s" (both ways) or "off"
+        // (the frame constant throughout).
+        if (config_.noise_pricing != DfeNoisePricing::Off) {
+            const bool two_sided = config_.noise_pricing == DfeNoisePricing::Spike2s;
+            for (int s = 0; s < segments; ++s) {
+                const float thr = seg_resid_count[s] > 0
+                                      ? std::exp(3.0f / std::sqrt(static_cast<float>(seg_resid_count[s])))
+                                      : std::numeric_limits<float>::max();
+                const bool spike = seg_nv[s] > noise_var * thr || (two_sided && seg_nv[s] < noise_var / thr);
+                seg_price[s] = spike ? seg_nv[s] : noise_var;
+                engaged = engaged || spike;
+            }
         }
         if (engaged) {
             for (int u = 0; u < U; ++u) {

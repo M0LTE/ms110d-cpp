@@ -16,7 +16,6 @@ namespace m0lte::ms110d {
 
 namespace {
 
-constexpr int ring_mask = static_cast<int>(PreambleDetector::ring_size) - 1;
 constexpr int chips_fixed = PreambleDetector::chips_per_fixed;
 constexpr int chips_superframe = PreambleDetector::chips_per_superframe;
 constexpr int interp_half = 4;  // 8 tap interpolator
@@ -78,23 +77,15 @@ bool estimate_carrier_fit(const ComplexF* groups, int count, double& slope_rad_p
 
 }  // namespace
 
-PreambleDetector::PreambleDetector() noexcept {
-    configure(PreambleDetectorConfig{});
-}
-
-bool PreambleDetector::configure(const PreambleDetectorConfig& config) noexcept {
+bool PreambleDetector::configure(const PreambleDetectorConfig& config, RxStream& stream) noexcept {
     taps_ = 0;
+    stream_ = nullptr;
     std::array<float, max_pulse_taps> pulse{};
     const std::size_t taps = design_pulse(config.roll_off, pulse);
-    if (taps == 0) return false;
-    if (!filter_re_.configure({pulse.data(), taps}) || !filter_im_.configure({pulse.data(), taps})) return false;
+    if (taps == 0 || !stream.configured() || stream.size() < ring_size) return false;
     taps_ = taps;
+    stream_ = &stream;
     sync_threshold_ = config.sync_threshold;
-
-    // 1800 Hz = 3/16 of a cycle per 9600 Hz sample: sixteenth-turn table, index step 3.
-    for (int i = 0; i < 16; ++i) {
-        mix_table_[static_cast<std::size_t>(i)] = from_phase(-static_cast<float>(2.0 * std::numbers::pi * i / 16.0));
-    }
 
     // The matched-filter references: the Fixed subsection (9 Walsh symbols, the M >= 2 form),
     // conjugated and counter-rotated by each grid bin's frequency.
@@ -111,14 +102,7 @@ bool PreambleDetector::configure(const PreambleDetectorConfig& config) noexcept 
 }
 
 void PreambleDetector::reset() noexcept {
-    filter_re_.clear();
-    filter_im_.clear();
-    ring_.fill({});
-    mix_phase_ = 0;
-    decimate_toggle_ = false;
     comb_energy_ = {0, 0};
-    written_ = 0;
-    used_ = 0;
     best_metric_ = 0;
     best_start_ = -1;
     best_bin_ = 0;
@@ -134,7 +118,7 @@ void PreambleDetector::reset() noexcept {
 
 std::complex<float> PreambleDetector::t2_sample(std::int64_t index) const noexcept {
     if (!t2_available(index)) return {0.0f, 0.0f};
-    const ComplexF v = ring_[static_cast<std::size_t>(index & ring_mask)];
+    const ComplexF v = stream_->at(index);
     return {v.re, v.im};
 }
 
@@ -163,26 +147,21 @@ std::size_t PreambleDetector::process(std::span<const float> audio) noexcept {
     std::size_t used = 0;
     for (const float sample : audio) {
         ++used;
-        ++used_;
-        const ComplexF phasor = mix_table_[static_cast<std::size_t>(mix_phase_)];
-        mix_phase_ = (mix_phase_ + 3) & 15;
-        filter_re_.push(phasor.re * sample);
-        filter_im_.push(phasor.im * sample);
-        decimate_toggle_ = !decimate_toggle_;
-        if (decimate_toggle_) continue;  // half of the outputs are thrown away, so never computed
-        push_t2({filter_re_.output(), filter_im_.output()});
+        if (!stream_->push(sample)) continue;
+        on_t2();
         if (state_ == State::Detected) break;
     }
     return used;
 }
 
-void PreambleDetector::push_t2(ComplexF sample) noexcept {
-    const std::int64_t p = written_;
+void PreambleDetector::on_t2(bool step) noexcept {
+    // The newest sample is in the stream already; the one 576 back is still held (the ring is at
+    // least ring_size long), so the running comb energies see the same values as the C#'s.
+    const std::int64_t p = stream_->written() - 1;
     const std::size_t parity = static_cast<std::size_t>(p & 1);
-    comb_energy_[parity] += static_cast<double>(cmag2(sample));
-    if (p >= 576) comb_energy_[parity] -= static_cast<double>(cmag2(ring_[static_cast<std::size_t>((p - 576) & ring_mask)]));
-    ring_[static_cast<std::size_t>(p & ring_mask)] = sample;
-    written_ = p + 1;
+    comb_energy_[parity] += static_cast<double>(cmag2(stream_->at(p)));
+    if (p >= 576) comb_energy_[parity] -= static_cast<double>(cmag2(stream_->at(p - 576)));
+    if (!step) return;
 
     switch (state_) {
         case State::Searching: search_step(); break;
@@ -195,7 +174,7 @@ void PreambleDetector::push_t2(ComplexF sample) noexcept {
 // ------------------------------------------------------------------ acquisition
 
 void PreambleDetector::search_step() noexcept {
-    const std::int64_t p = written_ - 1;
+    const std::int64_t p = stream_->written() - 1;
     if (p < 574) return;
 
     const std::int64_t s = p - 574;
@@ -233,7 +212,7 @@ double PreambleDetector::metric(std::int64_t s, int bin, double energy, ComplexF
         ComplexF c{0, 0};
         int chip = 32 * k;
         for (int i = 0; i < 32; ++i, ++chip) {
-            const ComplexF r = ring_[static_cast<std::size_t>((s + (2 * chip)) & ring_mask)];
+            const ComplexF r = stream_->at(s + (2 * chip));
             const ComplexF ref = reference[static_cast<std::size_t>(chip)];
             c = cadd(c, cmul(r, ref));
         }
@@ -302,6 +281,7 @@ void PreambleDetector::accept_peak() noexcept {
 PreambleDetector::ComplexF PreambleDetector::interpolate(double pos) const noexcept {
     const auto i0 = static_cast<std::int64_t>(std::floor(pos));
     const double frac = pos - static_cast<double>(i0);
+    const std::int64_t written = stream_->written();
     ComplexF acc{0, 0};
     for (int j = -interp_half + 1; j <= interp_half; ++j) {
         const double u = j - frac;
@@ -314,9 +294,9 @@ PreambleDetector::ComplexF PreambleDetector::interpolate(double pos) const noexc
         }
         const std::int64_t idx = i0 + j;
         // Look-back bound: a read at or after the oldest sample the ring still holds.
-        assert(idx < 0 || idx >= written_ || written_ - idx <= static_cast<std::int64_t>(ring_size));
-        if (idx >= 0 && idx < written_) {
-            acc = cadd(acc, cscale(ring_[static_cast<std::size_t>(idx & ring_mask)], static_cast<float>(w)));
+        assert(idx < 0 || idx >= written || written - idx <= static_cast<std::int64_t>(ring_size));
+        if (idx >= 0 && idx < written) {
+            acc = cadd(acc, cscale(stream_->at(idx), static_cast<float>(w)));
         }
     }
     return acc;
@@ -410,7 +390,7 @@ void PreambleDetector::try_read_preamble() noexcept {
         return static_cast<std::int64_t>(std::ceil(chip0_ + (2.0 * chips_superframe * super_frames))) + (2 * interp_half) + 2;
     };
     // The whole matched super-frame plus interpolation margin.
-    if (written_ < need(1)) return;
+    if (stream_->written() < need(1)) return;
 
     if (!count_read_) {
         std::array<std::uint8_t, 4> count_dibits{};
@@ -431,7 +411,7 @@ void PreambleDetector::try_read_preamble() noexcept {
     }
 
     const int votes = votes_;
-    if (written_ < need(votes)) return;  // wait for the vote span, still entirely pre-data
+    if (stream_->written() < need(votes)) return;  // wait for the vote span, still entirely pre-data
 
     std::array<double, 5 * 4> wid_mags{};
     for (int v = 0; v < votes; ++v) {
@@ -528,7 +508,7 @@ void PreambleDetector::try_read_preamble() noexcept {
     e.data_start_t2 = chip0_ + (2.0 * static_cast<double>(data_start_chip));
     e.data_start_sample = (2.0 * e.data_start_t2) + 1.0 - (static_cast<double>(taps_ - 1) / 2.0);
     e.timing_fraction_t2 = timing_fraction_;
-    e.locked_at_sample = used_;
+    e.locked_at_sample = stream_->used();
     e.cfo_hz_first_fit = cfo_hz_;
     e.carrier_omega_first_fit = omega_;
     e.carrier_theta_base_first_fit = theta_base_;
@@ -579,7 +559,7 @@ void PreambleDetector::finish_tail() noexcept {
     const int count = event_.superframes_after;
     const std::int64_t data_start_chip = static_cast<std::int64_t>(chips_superframe) * (count + 1);
     const double last = chip0_ + (2.0 * static_cast<double>(data_start_chip + 2));
-    if (written_ <= static_cast<std::int64_t>(std::ceil(last)) + interp_half + 1) return;
+    if (stream_->written() <= static_cast<std::int64_t>(std::ceil(last)) + interp_half + 1) return;
 
     // The input level, read with the first-fit carrier; the equaliser path then reads everything
     // through the gain it implies (the C# sets it before the re-fit).
@@ -606,7 +586,7 @@ void PreambleDetector::finish_tail() noexcept {
     event_.cfo_hz = cfo_hz_;
     event_.carrier_omega = omega_;
     event_.carrier_theta_base = theta_base_;
-    event_.detected_at_sample = used_;
+    event_.detected_at_sample = stream_->used();
     tail_pending_ = false;
     ++stats_.detections;
     state_ = State::Detected;

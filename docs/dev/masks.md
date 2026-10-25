@@ -2,7 +2,7 @@
 
 Issue 30, under epic 23. The standard's D.6 performance masks, run by the C++ tests alone (no .NET at test time) on channel audio made by the C# reference.
 
-Code: `tools/csharp-vectors/MaskDump.cs` (the audio and the C# counts), `scripts/generate-masks.sh`, `tests/mask_test.cpp`, `tests/support/mask_driver.*` (the detector and the Walsh or equaliser receiver, whichever the preamble names), `scripts/mask-summary.sh` (the results table). The CI workflow is `masks.yml` (pushes to main, pull requests touching the receiver, the mask code or its tooling, and by hand; not in `ci.yml`, so `release.yml` does not run it); generation is one job and the double and single decodes are two parallel jobs; the full counts are `masks-long.yml`, by hand.
+Code: `tools/csharp-vectors/MaskDump.cs` (the audio and the C# counts), `scripts/generate-masks.sh`, `tests/mask_test.cpp`, `tests/support/mask_driver.*` (the public `Receiver`), `scripts/mask-summary.sh` (the results table). The CI workflow is `masks.yml` (pushes to main, pull requests touching the receiver, the mask code or its tooling, and by hand; not in `ci.yml`, so `release.yml` does not run it); generation is one job and the double and single decodes are two parallel jobs; the full counts are `masks-long.yml`, by hand.
 
 ## What is tested
 

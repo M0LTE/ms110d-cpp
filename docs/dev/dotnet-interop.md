@@ -42,6 +42,10 @@ Payload lengths are chosen around the block size B (the info bits per interleave
 
 The receive tests are spread over several classes only so that xunit runs them in parallel. The default run is about 5 CPU minutes and under 2 minutes on a 16 core machine. `MS110D_LONG_TESTS=1` in the environment runs 25 rounds of random settings per combination and random lengths up to four blocks (no cap) side by side, and 12 rounds per receive test. A failure is a bug in one implementation, to be settled against the standard; never loosen a check to pass.
 
+## The C++ receiver
+
+`CppReceiver.cs` wraps `ms110d_rx_*` (declared in `Native.cs`) as audio in, bursts out, in the shape of the C# events. The layer 3 harness uses it as the C++ receiver endpoint and `CorpusTests` holds it to the layer 4 rule (docs/dev/corpus.md). It binds its entry points once in its static constructor, before any worker thread calls them.
+
 ## Layer 3 cross-decoding
 
 The layer 3 harness (frame loss against SNR through the C# HF channel, pairings of the C# and C++ transmitters and receivers) lives in `tests/interop/Layer3` and has its own ctest test, `dotnet_layer3`, which `dotnet_interop` leaves out by trait. See docs/dev/layer3.md.

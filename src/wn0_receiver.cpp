@@ -44,66 +44,25 @@ inline Cx walsh_sum(const std::array<Cx, 4>& q, std::size_t s) noexcept {
 
 }  // namespace
 
-bool Wn0Receiver::configure(double roll_off) noexcept {
-    taps_ = 0;
+bool Wn0Receiver::configure(RxStream& stream) noexcept {
+    stream_ = nullptr;
     active_ = false;
-    const std::size_t taps = design_pulse(roll_off, pulse_);
-    if (taps == 0) return false;
-    taps_ = taps;
-    // 1800 Hz = 3/16 of a cycle per 9600 Hz sample: sixteenth-turn table, index step 3. The C#
-    // takes MathF.Cos/Sin of the float-rounded phase; the same here (computed in double, rounded
-    // once), so the entries at the quarter turns are the C#'s tiny non-zeros, not exact 0 and 1.
-    for (std::size_t i = 0; i < 16; ++i) {
-        const float phase = static_cast<float>(-(2.0 * std::numbers::pi * static_cast<double>(i) / 16.0));
-        mix_[i] = {static_cast<real>(static_cast<float>(std::cos(static_cast<double>(phase)))),
-                   static_cast<real>(static_cast<float>(std::sin(static_cast<double>(phase))))};
-    }
+    if (!stream.configured() || stream.size() < ring_size) return false;
+    stream_ = &stream;
     reset();
     return true;
 }
 
 void Wn0Receiver::reset() noexcept {
-    hist_re_.fill(0);
-    hist_im_.fill(0);
-    ring_.fill(Cx{});
-    hist_pos_ = 0;
-    mix_phase_ = 0;
-    decimate_toggle_ = false;
-    written_ = 0;
     active_ = false;
     last_ = Wn0Symbol{};
 }
 
+void Wn0Receiver::stop() noexcept { active_ = false; }
+
 void Wn0Receiver::push_audio(std::span<const float> audio) noexcept {
-    if (taps_ == 0) return;
-    for (const float sample : audio) {
-        // Mix to baseband (the table is the 1800 Hz carrier, conjugated), then the matched filter.
-        const real s = static_cast<real>(sample);
-        const Cx mixed = scale(mix_[mix_phase_], s);
-        mix_phase_ = (mix_phase_ + 3) & 15;
-        hist_re_[hist_pos_] = mixed.re;
-        hist_im_[hist_pos_] = mixed.im;
-        const std::size_t newest = hist_pos_;
-        if (++hist_pos_ == taps_) hist_pos_ = 0;
-
-        // The C# filters every sample and keeps every second; the skipped outputs are never
-        // used, so they are not computed (the history is still updated above).
-        decimate_toggle_ = !decimate_toggle_;
-        if (decimate_toggle_) continue;
-
-        // FirFilter.Next: newest sample first, plain scalar accumulation.
-        real acc_re = 0;
-        real acc_im = 0;
-        std::size_t index = newest;
-        for (std::size_t k = 0; k < taps_; ++k) {
-            const real c = static_cast<real>(pulse_[k]);
-            acc_re += c * hist_re_[index];
-            acc_im += c * hist_im_[index];
-            index = index == 0 ? taps_ - 1 : index - 1;
-        }
-        ring_[static_cast<std::size_t>(written_) & ring_mask] = Cx{acc_re, acc_im};
-        ++written_;
-    }
+    if (stream_ == nullptr) return;
+    for (const float sample : audio) stream_->push(sample);
 }
 
 Cx Wn0Receiver::interpolate(double pos) const noexcept {
@@ -112,6 +71,8 @@ Cx Wn0Receiver::interpolate(double pos) const noexcept {
     // contribute nothing.
     const std::int64_t i0 = static_cast<std::int64_t>(std::floor(pos));
     const double frac = pos - static_cast<double>(i0);
+    const std::int64_t written = stream_->written();
+    const auto held = static_cast<std::int64_t>(stream_->size());
     Cx acc{};
     for (int j = -k_interp_half + 1; j <= k_interp_half; ++j) {
         const double u = static_cast<double>(j) - frac;
@@ -123,8 +84,10 @@ Cx Wn0Receiver::interpolate(double pos) const noexcept {
                 (0.5 + (0.5 * std::cos(std::numbers::pi * u / k_interp_half)));
         }
         const std::int64_t idx = i0 + j;
-        if (idx >= 0 && idx < written_ && idx + static_cast<std::int64_t>(ring_size) > written_) {
-            acc = add(acc, scale(ring_[static_cast<std::size_t>(idx) & ring_mask], static_cast<real>(w)));
+        if (idx >= 0 && idx < written && idx + held > written) {
+            // The samples are the shared stream's single precision ones, as the C#'s ring.
+            const dsp::ComplexF& v = stream_->at(idx);
+            acc = add(acc, scale(Cx{static_cast<real>(v.re), static_cast<real>(v.im)}, static_cast<real>(w)));
         }
     }
     return acc;
@@ -140,17 +103,18 @@ Cx Wn0Receiver::read_chip(std::int64_t chip) const noexcept {
 
 bool Wn0Receiver::have_samples_for_chip(double chip) const noexcept {
     const double pos = chip0_ + (2.0 * chip) + tau_;
-    return written_ > static_cast<std::int64_t>(std::ceil(pos)) + k_interp_half + 1;
+    return stream_->written() > static_cast<std::int64_t>(std::ceil(pos)) + k_interp_half + 1;
 }
 
 bool Wn0Receiver::start(const Wn0Start& s, std::span<real> block_llrs) noexcept {
-    if (taps_ == 0) return false;
+    if (stream_ == nullptr) return false;
     const std::uint32_t bits = s.interleaver.size_bits();
     if (bits == 0 || bits % 2 != 0 || !s.interleaver.valid() || block_llrs.size() < bits) return false;
     if (s.data_start_chip < neg_fingers) return false;
     // The oldest half-chip sample the first symbol reads must still be held.
     const double first = s.chip0 + (2.0 * static_cast<double>(s.data_start_chip - neg_fingers)) + s.tau;
-    if (static_cast<std::int64_t>(std::floor(first)) - k_interp_half + static_cast<std::int64_t>(ring_size) <= written_)
+    if (static_cast<std::int64_t>(std::floor(first)) - k_interp_half + static_cast<std::int64_t>(stream_->size()) <=
+        stream_->written())
         return false;
 
     chip0_ = s.chip0;

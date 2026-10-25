@@ -115,7 +115,13 @@ if (args.Length > 1 && args[0] == "masks")
         Console.Error.WriteLine("usage: masks list <profile> | masks write <profile> <dir> [id ...]");
         Environment.Exit(2);
     }
+    return;
+}
 
+// "rx-options": the receiver with each instrument option on, see OptionsDump.cs.
+if (args.Length > 3 && args[0] == "rx-options")
+{
+    OptionsDump.Run(args[1], args[2], args[3]);
     return;
 }
 

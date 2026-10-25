@@ -27,12 +27,25 @@ namespace m0lte::fec {
 // independent of the modem's `real` type. The metrics are sums of a few LLRs, nothing
 // here needs more than float, and double would only double the decision memory traffic.
 //
-// All memory is sized in the constructor from the longest block; decode() never
-// allocates and never throws.
+// All memory is sized up front from the longest block: either allocated by the
+// constructor, or carved from caller storage by configure() (storage_bytes() says how much),
+// which allocates nothing. decode() never allocates and never throws.
 class TailBitingViterbiDecoder {
 public:
     // `max_block_bits` is the longest block (info bits) decode() will be given.
     TailBitingViterbiDecoder(const ConvolutionalCode& code, std::size_t max_block_bits);
+    // Unconfigured (valid() false) until configure().
+    TailBitingViterbiDecoder() noexcept = default;
+    TailBitingViterbiDecoder(const TailBitingViterbiDecoder&) = delete;
+    TailBitingViterbiDecoder& operator=(const TailBitingViterbiDecoder&) = delete;
+
+    // Bytes configure() needs for this code and longest block (0 for a code it cannot decode).
+    // Larger codes need more, so storage for k = 9 also fits k = 7.
+    static std::size_t storage_bytes(const ConvolutionalCode& code, std::size_t max_block_bits) noexcept;
+    // Sets the decoder up in `storage` (any alignment, kept in place), allocating nothing. False,
+    // unconfigured, if the code is not valid or the storage too small. May be called again, for
+    // another code, on the same storage.
+    bool configure(const ConvolutionalCode& code, std::size_t max_block_bits, std::span<std::uint8_t> storage) noexcept;
 
     // False if the code is not one with 2 <= k <= 16 (decode() then always fails).
     bool valid() const noexcept { return valid_; }
@@ -44,13 +57,14 @@ public:
     bool decode(std::span<const float> mother_llrs, std::span<std::uint8_t> info) noexcept;
 
 private:
-    ConvolutionalCode code_;
-    bool valid_;
-    std::size_t max_n_;
-    std::vector<std::uint8_t> outputs_;  // per k-bit register value v: (T1 << 1) | T2
-    std::vector<float> metric_a_;
-    std::vector<float> metric_b_;
-    std::vector<std::uint64_t> decisions_;
+    ConvolutionalCode code_{};
+    bool valid_ = false;
+    std::size_t max_n_ = 0;
+    std::uint8_t* outputs_ = nullptr;  // per k-bit register value v: (T1 << 1) | T2
+    float* metric_a_ = nullptr;
+    float* metric_b_ = nullptr;
+    std::uint64_t* decisions_ = nullptr;
+    std::vector<std::uint64_t> owned_;  // the allocating constructor's storage
 };
 
 }  // namespace m0lte::fec
