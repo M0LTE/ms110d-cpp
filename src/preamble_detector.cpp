@@ -154,13 +154,14 @@ std::size_t PreambleDetector::process(std::span<const float> audio) noexcept {
     return used;
 }
 
-void PreambleDetector::on_t2() noexcept {
+void PreambleDetector::on_t2(bool step) noexcept {
     // The newest sample is in the stream already; the one 576 back is still held (the ring is at
     // least ring_size long), so the running comb energies see the same values as the C#'s.
     const std::int64_t p = stream_->written() - 1;
     const std::size_t parity = static_cast<std::size_t>(p & 1);
     comb_energy_[parity] += static_cast<double>(cmag2(stream_->at(p)));
     if (p >= 576) comb_energy_[parity] -= static_cast<double>(cmag2(stream_->at(p - 576)));
+    if (!step) return;
 
     switch (state_) {
         case State::Searching: search_step(); break;

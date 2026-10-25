@@ -144,8 +144,9 @@ public:
     void reset() noexcept;
 
     // For the stream's driver: a new T/2 sample has been pushed. Keeps the running energies and,
-    // while searching or reading a preamble, takes the search one step.
-    void on_t2() noexcept;
+    // while searching or reading a preamble, takes the search one step (not if `step` is false:
+    // the C# skips the stage on the sample a terminate command ends a burst).
+    void on_t2(bool step = true) noexcept;
 
     // Drives the bound stream itself: pushes audio (9600 Hz) and returns how many samples it used,
     // which is all of them unless a detection completed (it stops after that sample) or one is

@@ -28,7 +28,8 @@ add_executable(ms110d_tests
   preamble_detector_test.cpp
   support/rx_driver.cpp
   dfe_receiver_test.cpp
-  dfe_turbo_test.cpp)
+  dfe_turbo_test.cpp
+  receiver_test.cpp)
 target_link_libraries(ms110d_tests PRIVATE m0lte::ms110d Catch2::Catch2WithMain)
 # The tests also see the library's internal headers (src/tables.hpp); they are not installed.
 target_include_directories(ms110d_tests PRIVATE support "${PROJECT_SOURCE_DIR}/src")

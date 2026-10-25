@@ -82,6 +82,13 @@ public:
     // `max_symbols` is the longest block and `max_constellation` the largest M that
     // equalize() will be given. Scratch is (max_symbols * M + 3 * M + max_symbols) reals.
     BasicChainBcjr(std::size_t max_symbols, std::size_t max_constellation);
+    // Unconfigured (equalize() fails) until configure(), which sets it up in caller storage
+    // (storage_bytes() of it, any alignment, kept in place) and allocates nothing.
+    BasicChainBcjr() noexcept = default;
+    BasicChainBcjr(const BasicChainBcjr&) = delete;
+    BasicChainBcjr& operator=(const BasicChainBcjr&) = delete;
+    static std::size_t storage_bytes(std::size_t max_symbols, std::size_t max_constellation) noexcept;
+    bool configure(std::size_t max_symbols, std::size_t max_constellation, std::span<std::uint8_t> storage) noexcept;
 
     struct Input {
         // One entry per symbol (rx, h1, h2): received samples in the equalised and
@@ -116,12 +123,13 @@ public:
     bool equalize(const Input& in, std::span<T> llrs) noexcept;
 
 private:
-    std::size_t max_n_;
-    std::size_t max_m_;
-    std::vector<T> inv2_;
-    std::vector<T> alpha_;
-    std::vector<T> beta_;
-    std::vector<T> post_;
+    std::size_t max_n_ = 0;
+    std::size_t max_m_ = 0;
+    T* inv2_ = nullptr;
+    T* alpha_ = nullptr;
+    T* beta_ = nullptr;
+    T* post_ = nullptr;
+    std::vector<T> owned_;  // the allocating constructor's storage
 };
 
 // The chain BCJR in the build's precision (docs/dev/soft-decoders.md). The receiver's turbo stage
