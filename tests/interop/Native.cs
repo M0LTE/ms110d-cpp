@@ -125,6 +125,74 @@ internal static class Native
     [DllImport(Lib, EntryPoint = "ms110d_tx_modulate")]
     public static extern int TxModulate(IntPtr tx, byte[] bits, uint bitCount, float[] audio, uint capacity, out uint written);
 
+    /// <summary>ms110d_rx_options: 4 byte fields, the doubles at 48 and 56, as in the C header.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RxOptions
+    {
+        public uint StructSize;
+        public int MaxInputDataBlocks;
+        public int DisableTurbo;
+        public int PresenceReleaseOff;
+        public int TurboNoisePricing;
+        public int HasRlsForgettingFactor;
+        public float RlsForgettingFactor;
+        public int HasTrackRidge;
+        public float TrackRidge;
+        public int MaxInterleaver;
+        public int SoftDecisions;
+        public uint Reserved;
+        public double SyncThreshold;
+        public double RollOff;
+    }
+
+    /// <summary>ms110d_rx_event: 64 bytes, the 64 bit fields at 8, 40 and 56.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RxEvent
+    {
+        public uint StructSize;
+        public uint Kind;
+        public long Sample;
+        public int WaveformNumber;
+        public int Interleaver;
+        public int ConstraintLength;
+        public int BlockIndex;
+        public int EndReason;
+        public int Blocks;
+        public long PayloadBits;
+        public uint Length;
+        public uint Reserved;
+        public double CfoHz;
+    }
+
+    public const uint RxEventNone = 0;
+    public const uint RxEventBurstStarted = 1;
+    public const uint RxEventBlockDecoded = 2;
+    public const uint RxEventBurstCompleted = 3;
+
+    [DllImport(Lib, EntryPoint = "ms110d_rx_options_default")]
+    public static extern int RxOptionsDefault(ref RxOptions options);
+
+    [DllImport(Lib, EntryPoint = "ms110d_rx_create")]
+    public static extern int RxCreate(ref RxOptions options, out IntPtr rx);
+
+    [DllImport(Lib, EntryPoint = "ms110d_rx_destroy")]
+    public static extern void RxDestroy(IntPtr rx);
+
+    [DllImport(Lib, EntryPoint = "ms110d_rx_process")]
+    public static extern unsafe int RxProcess(IntPtr rx, float* samples, uint count, out uint consumed);
+
+    [DllImport(Lib, EntryPoint = "ms110d_rx_next_event")]
+    public static extern unsafe int RxNextEvent(IntPtr rx, ref RxEvent ev, byte* bits, uint bitsCapacity, float* soft, uint softCapacity);
+
+    [DllImport(Lib, EntryPoint = "ms110d_rx_terminate")]
+    public static extern int RxTerminate(IntPtr rx);
+
+    [DllImport(Lib, EntryPoint = "ms110d_rx_reset")]
+    public static extern int RxReset(IntPtr rx);
+
+    [DllImport(Lib, EntryPoint = "ms110d_rx_state")]
+    public static extern int RxState(IntPtr rx, out int state);
+
     public static string StatusString(int status) => Marshal.PtrToStringAnsi(StatusStringPtr(status))!;
 
     // ---- Test-only stage hooks (tests/testhooks/ms110d_testhooks.h). Not part of the C interface. ----

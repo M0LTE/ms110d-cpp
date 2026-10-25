@@ -160,6 +160,10 @@ jobs:
         env:
           MS110D_REQUIRE_REFERENCE: "1"
         run: ctest --test-dir build/tests-single --output-on-failure -R "^reference " --no-tests=error
+      - name: Print the single precision build's differences from the C# (the tally dfe_turbo_test.cpp bounds)
+        env:
+          MS110D_REFERENCE_DIR: ${{ github.workspace }}/build/_reference/ref
+        run: build/tests-single/tests/ms110d_tests "reference demodulator*" | grep "vs C#"
       - name: Cache the real-audio corpus
         uses: actions/cache@v4
         with:
@@ -167,11 +171,11 @@ jobs:
           key: corpus-${{ hashFiles('reference/corpus.txt', 'scripts/fetch-corpus.sh') }}
       - name: Fetch and verify the real-audio corpus
         run: scripts/fetch-corpus.sh
-      - name: Check the corpus against the C# reference (must not skip)
+      - name: Check the corpus against the C# reference, and the C++ receiver against the layer 4 rule (must not skip)
         env:
           MS110D_REQUIRE_CORPUS: "1"
           MS110D_CORPUS_DIR: ${{ github.workspace }}/build/_corpus/current
           MS110D_PIN_FILE: ${{ github.workspace }}/reference/pin.txt
-          MS110D_NATIVE_LIB: unused
+          MS110D_NATIVE_LIB: ${{ github.workspace }}/build/tests/libms110d_c.so
           MS110D_EXPECTED_VERSION: "0"
         run: dotnet run --project tests/interop -c Release -- -class Ms110dInterop.Tests.CorpusTests
