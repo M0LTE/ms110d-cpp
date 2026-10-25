@@ -107,7 +107,7 @@ jobs:
   reference:
     name: reference files
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -141,6 +141,8 @@ jobs:
             build/_reference/csharp-rx-turbo.txt
             build/_reference/rx-corpus.txt
             build/_reference/rx-corpus.i16le
+            build/_reference/rx-options.txt
+            build/_reference/rx-options.f32le
             build/_reference/rx-dumps.stamp
           key: rx-dumps-${{ hashFiles('reference/pin.txt', 'scripts/generate-rx-dumps.sh', 'tools/csharp-vectors/*.cs', 'tools/csharp-vectors/*.csproj') }}
       - name: Generate the receive dumps
