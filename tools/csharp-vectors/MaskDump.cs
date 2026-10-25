@@ -72,15 +72,15 @@ static class MaskDump
     }
 
     // What a point is asked for: payload bits, the least simulated seconds, and the most (0 for no limit).
-    // The C# tests use 3,000,000 payload bits per point (and 600 s simulated for the fading points); the "long"
-    // profile is exactly that. The "ci" profile is sized for a pull request job: 370,000 bits, the least that
+    // The C# tests use 3,000,000 payload bits per point (6,000,000 for Poor WN 2, 5 and 6, whose rates sit close to the
+    // mask) and 600 s simulated for the fading points; the "long" profile is exactly that. The "ci" profile is sized for a pull request job: 370,000 bits, the least that
     // decides the 1e-5 mask with no errors (the 97.5 % Poisson bound of zero errors is 3.69 over the bits), and
     // at least 640 s simulated (8 bursts), but no more than 1300 s (14 bursts) because the slow waveforms
-    // (WN 0 is 75 bit/s) would need hours of audio. So WN 2 and up decide the mask in the pull request job
-    // and WN 0 and WN 1 (about 100 and 200 kbit) compare with the C# only; the long profile decides them all.
+    // (WN 0 is 75 bit/s) would need hours of audio. So WN 3 and up decide the mask in the pull request job
+    // and WN 0 to WN 2 (about 88, 172 and 344 kbit) compare with the C# only; the long profile decides them all.
     static (long Bits, double MinSimSeconds, double MaxSimSeconds) Budget(string profile, Point p) => profile switch
     {
-        "long" => (3_000_000, p.Kind == Kind.Poor ? 600 : 0, 0),
+        "long" => (p.Kind == Kind.Poor && p.Wn is 2 or 5 or 6 ? 6_000_000 : 3_000_000, p.Kind == Kind.Poor ? 600 : 0, 0),
         "ci" => (370_000, 640, 1300),
         _ => throw new ArgumentException($"unknown profile {profile}"),
     };

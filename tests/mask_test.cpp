@@ -8,7 +8,7 @@
 // receiver's. Two checks per point (docs/dev/masks.md):
 //   (a) the C++ meets the mask wherever the C# does: the C# repo's accept rule (BER at most 1e-5; with fewer than
 //       30 errors, the 97.5 % Poisson upper bound at most 1e-5) holds for the C++ whenever it holds for the C#;
-//   (b) the C++ error count is within statistical noise of the C#'s on the same audio.
+//   (b) the C++ error count equals the C#'s on the same audio in the double build, and is within statistical noise of it in the single build.
 // The result lines go to stdout and, when MS110D_MASK_LOG is set, one CSV row per point is appended to that file.
 
 #include "mask_driver.hpp"
@@ -203,12 +203,18 @@ void run_point(const std::string& id) {
     if (id.rfind("below-", 0) == 0) CHECK(cs_errors > 0);
     // (a) wherever the C# meets the mask on this audio, so does the C++.
     if (cs_ok) CHECK(cpp_ok);
-    // (b) within statistical noise of the C#: acquisition failures no more than the C# had, and the error
-    // count within three standard deviations of a Poisson count at the larger of the two (at least 2).
+    // (b) acquisition failures no more than the C# had. The double build is the C#'s arithmetic step for step, so
+    // its error count must equal the C#'s burst by burst; the single build is within statistical noise of it: the
+    // counts differ by at most three standard deviations of a Poisson count at the larger of the two (at least 2).
     CHECK(cpp_fail <= cs_fail);
+#ifdef MS110D_SINGLE_PRECISION
     const double larger = static_cast<double>(std::max(cpp_errors, cs_errors));
     const double allowed = std::max(2.0, std::ceil(3.0 * std::sqrt(larger)));
     CHECK(std::fabs(static_cast<double>(cpp_errors - cs_errors)) <= allowed);
+#else
+    CHECK(differing == 0);
+    CHECK(cpp_errors == cs_errors);
+#endif
 }
 
 }  // namespace

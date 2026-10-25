@@ -218,4 +218,4 @@ target_link_libraries(ms110d_mask_tests PRIVATE m0lte::ms110d Catch2::Catch2With
 target_include_directories(ms110d_mask_tests PRIVATE support "${PROJECT_SOURCE_DIR}/src")
 target_compile_definitions(ms110d_mask_tests PRIVATE MS110D_MASK_DIR="${MS110D_MASK_DIR}")
 ms110d_apply_options(ms110d_mask_tests)
-catch_discover_tests(ms110d_mask_tests TEST_PREFIX "masks " PROPERTIES TIMEOUT 3000)
+catch_discover_tests(ms110d_mask_tests TEST_PREFIX "masks_" PROPERTIES TIMEOUT 3000)

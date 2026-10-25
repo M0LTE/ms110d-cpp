@@ -1,0 +1,93 @@
+name: Performance masks
+
+# The D-LXIV and D-LXV masks on C# made channel audio (docs/dev/masks.md). About an hour of runner time, so not on
+# every pull request: pushes to main, pull requests that touch the receiver, the mask tests or their tooling, and by
+# hand. Not part of ci.yml, so release.yml (which reuses ci.yml) does not run it; the full counts are masks-long.yml.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'include/**'
+      - 'tests/support/mask*'
+      - 'tests/mask_test.cpp'
+      - 'tests/CMakeLists.txt'
+      - 'tools/csharp-vectors/**'
+      - 'scripts/generate-masks.sh'
+      - 'scripts/mask-summary.sh'
+      - 'reference/pin.txt'
+      - '.github/workflows/masks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: masks-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MASK_KEY: masks-ci-${{ hashFiles('reference/pin.txt', 'scripts/generate-masks.sh', 'tools/csharp-vectors/*.cs', 'tools/csharp-vectors/*.csproj') }}
+
+jobs:
+  audio:
+    name: mask audio
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        id: dotnet
+        with:
+          dotnet-version: 10.0.x
+      - name: Cache the mask audio
+        uses: actions/cache@v4
+        with:
+          path: build/_reference/masks-ci
+          key: ${{ env.MASK_KEY }}-sdk${{ steps.dotnet.outputs.dotnet-version }}
+      - name: Generate the mask audio with the C# reference
+        env:
+          MS110D_MASK_THREADS: "4"
+        run: scripts/generate-masks.sh
+
+  decode:
+    name: masks ${{ matrix.precision }}
+    needs: audio
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        precision: [double, single]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        id: dotnet
+        with:
+          dotnet-version: 10.0.x
+      - name: Restore the mask audio
+        uses: actions/cache/restore@v4
+        with:
+          path: build/_reference/masks-ci
+          key: ${{ env.MASK_KEY }}-sdk${{ steps.dotnet.outputs.dotnet-version }}
+          fail-on-cache-miss: true
+      - name: Configure and build
+        run: |
+          cmake -S . -B build/masks -DCMAKE_BUILD_TYPE=Release -DMS110D_PRECISION=${{ matrix.precision }} -DMS110D_DOTNET_TESTS=OFF -DMS110D_MASK_DIR="$GITHUB_WORKSPACE/build/_reference/masks-ci"
+          cmake --build build/masks -j4 --target ms110d_mask_tests
+      - name: Masks (must not skip)
+        env:
+          MS110D_REQUIRE_REFERENCE: "1"
+          MS110D_MASK_LOG: ${{ github.workspace }}/build/masks-${{ matrix.precision }}.csv
+        run: ctest --test-dir build/masks --output-on-failure -R "^masks_" -j4 --no-tests=error
+      - name: Mask results
+        if: always()
+        run: |
+          touch build/masks-${{ matrix.precision }}.csv
+          scripts/mask-summary.sh build/masks-${{ matrix.precision }}.csv >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: masks-${{ matrix.precision }}
+          path: build/masks-${{ matrix.precision }}.csv
