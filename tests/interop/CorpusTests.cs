@@ -90,7 +90,29 @@ public class CorpusTests(ITestOutputHelper output)
     // ---- the C++ receiver against the same manifests (layer 4) ------------------------------
 
     [Fact]
-    public void CppMeetsTheLayer4RuleOnTheCommittedSet() => CheckCpp(Path.Combine(RepoRoot(), "tests", "data", "corpus"));
+    public void CppMeetsTheLayer4RuleOnTheCommittedSet() => CheckCpp(Path.Combine(RepoRoot(), "tests", "data", "corpus"), floor: false);
+
+    // Accepted difference, issue 68 (remove with corpus-v2, recorded after the stations send the standard pattern):
+    // corpus-v1 is current-pattern audio, so on its non-Long bursts the C++ receiver is held to a floor instead of the
+    // layer 4 rule: it identifies waveform, interleaver and constraint length on every burst, and decodes at least
+    // 95 of every 99 of the C#'s good frames (measured on the fetched corpus: 95 of 99).
+    [Fact]
+    public void Issue68_CppFloorOnCurrentPatternAudio_CommittedSet() => CheckCpp(Path.Combine(RepoRoot(), "tests", "data", "corpus"), floor: true);
+
+    [Fact]
+    public void Issue68_CppFloorOnCurrentPatternAudio_FetchedCorpus()
+    {
+        string dir = Environment.GetEnvironmentVariable("MS110D_CORPUS_DIR")
+            ?? Path.Combine(RepoRoot(), "build", "_corpus", "current");
+        if (!File.Exists(Path.Combine(dir, "manifest.json")))
+        {
+            Assert.False(Environment.GetEnvironmentVariable("MS110D_REQUIRE_CORPUS") == "1",
+                $"no corpus in {dir}; run scripts/fetch-corpus.sh");
+            Assert.Skip($"no corpus in {dir}; run scripts/fetch-corpus.sh to fetch it");
+        }
+
+        CheckCpp(dir, floor: true);
+    }
 
     [Fact]
     public void CppMeetsTheLayer4RuleOnTheFetchedCorpus()
@@ -104,10 +126,10 @@ public class CorpusTests(ITestOutputHelper output)
             Assert.Skip($"no corpus in {dir}; run scripts/fetch-corpus.sh to fetch it");
         }
 
-        CheckCpp(dir);
+        CheckCpp(dir, floor: false);
     }
 
-    void CheckCpp(string dir)
+    void CheckCpp(string dir, bool floor)
     {
         using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, "manifest.json")));
         var pairs = new List<(JsonElement Want, CorpusDecode.Found Got)>();
@@ -150,7 +172,31 @@ public class CorpusTests(ITestOutputHelper output)
         output.WriteLine(summary);
         Console.WriteLine(summary);
         foreach (string p in otherProblems) output.WriteLine("  not asserted (issue 68): " + p);
+        if (floor)
+        {
+            // The accepted difference of issue 68: the non-Long bursts are held to a floor, not to the layer 4 rule.
+            Assert.True(otherPairs.Count > 0, "no non-Long bursts: the floor test has nothing to hold");
+            foreach (var (want, got) in otherPairs)
+            {
+                JsonElement w = want.GetProperty("expected")[0];
+                string id = want.GetProperty("id").GetString()!;
+                Assert.True(got.Wn == w.GetProperty("wn").GetInt32(), $"{id}: waveform");
+                Assert.True(got.Il == w.GetProperty("il").GetString(), $"{id}: interleaver");
+                Assert.True(got.K == w.GetProperty("k").GetInt32(), $"{id}: constraint length");
+            }
+
+            Assert.True(otherGot * 99 >= otherWant * 95,
+                $"good frames {otherGot} of the C#'s {otherWant} are below the issue 68 floor of 95 in 99");
+            return;
+        }
+
+        // The layer 4 rule applies to the Long interleaver bursts; with none in the corpus nothing is asserted, and
+        // the test says so by skipping instead of passing green (see the floor tests for the other bursts).
         Assert.True(problems.Count == 0, string.Join("; ", problems));
+        if (longPairs.Count == 0)
+        {
+            Assert.Skip("no Long interleaver bursts in this corpus; the rest is current-pattern audio held to the floor test (issue 68)");
+        }
     }
 
     // ---- the rule itself, exercised on synthetic candidates --------------------------------
