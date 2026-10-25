@@ -14,7 +14,7 @@
 // good frame as a 4-byte little-endian length then its bytes, in order), corrected, crc_failures, rs_failures and
 // error_free. Each block gets good_frames, the frames that completed in it. bits_hex is dropped.
 // The audio is fed in chunks of 96 samples, then three seconds of silence, then a terminate if a burst is open,
-// as CorpusDecode.Run does. cpu_ms is the processor time of this thread spent in Process() while a burst was open.
+// as CorpusDecode.Run does. cpu_ms is the processor time of this thread spent in Process() from the receiver leaving Searching (preamble reading included, as in the C++ tool) to the burst's end. burst_started and start_sample are the lock, in both tools; the corpus tool's `start` is the earlier moment of leaving Searching, which only matters for cutting bursts out.
 
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -118,7 +118,10 @@ public static class ShadowDecode
             for (int i = 0; i < s.Length; i += chunk)
             {
                 int n = Math.Min(chunk, s.Length - i);
-                bool wasOpen = open;
+                // Processor time is charged to a burst from the moment the receiver leaves Searching (the preamble being
+                // read included), as tools/ms110d-decode does; burst_started itself is raised at the lock, in both tools.
+                bool wasOpen = demod.State != Ms110dRxState.Searching;
+                if (!wasOpen) burstCpu = 0;
                 pos += n;
                 double t0 = CpuMs();
                 demod.Process(s.Slice(i, n));
@@ -132,7 +135,7 @@ public static class ShadowDecode
                 }
                 if (!open && demod.State == Ms110dRxState.Tracking && demod.Lock is { } l)
                 {
-                    open = true; burst++; bursts++; blockIndex = 0; startedAt = pos; burstCpu = 0;
+                    open = true; burst++; bursts++; blockIndex = 0; startedAt = pos;
                     lines.Add($"{{\"ev\":\"burst_started\",\"decoder\":\"cs\",\"burst\":{burst},\"sample\":{pos},\"wn\":{l.WaveformNumber},\"il\":\"{Il(l.Interleaver)}\",\"k\":{l.ConstraintLength},\"cfo_hz\":{F(l.CfoHz)}}}");
                 }
             }

@@ -3,7 +3,8 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 """Runs both decoders over recorded slots and writes the comparison. See docs/dev/shadow.md.
 
-  ms110d-shadow-decode pending          every slot directory with an audio.wav and no compare.md yet
+  ms110d-shadow-decode pending          every slot directory with an audio.wav and no compare.md yet; a slot that has failed
+                                        three times is given up on (failed.json holds the reason; the daily report lists it)
   ms110d-shadow-decode slot DIR         one slot, redone even if it was done before
   ms110d-shadow-decode all              every slot, redone
   ms110d-shadow-decode daily [DATE]     write reports/DATE.md (default: yesterday, UTC) from the slots' jsonl files
@@ -16,7 +17,7 @@ that file. compare.md is written last, so its presence means the slot is done.
 Environment: SHADOW_SLOTS (default /var/lib/ms110d-shadow/slots), SHADOW_REPORTS (default /var/lib/ms110d-shadow/reports),
 SHADOW_HOME (default /opt/ms110d-shadow, holding bin/ms110d-decode, cs/CsharpVectors and compare.py).
 """
-import datetime as dt, fcntl, os, subprocess, sys, time
+import datetime as dt, fcntl, json, os, subprocess, sys, time
 
 HOME = os.environ.get("SHADOW_HOME", "/opt/ms110d-shadow")
 SLOTS = os.environ.get("SHADOW_SLOTS", "/var/lib/ms110d-shadow/slots")
@@ -26,9 +27,30 @@ CS = os.path.join(HOME, "cs", "CsharpVectors")
 COMPARE = os.path.join(HOME, "compare.py")
 
 
+MAX_ATTEMPTS = 3   # a slot that fails this many times is given up on (failed.json says why); `slot` and `all` retry it
+
+
 def run(cmd, out_path):
     with open(out_path, "wb") as out:
-        subprocess.run(cmd, stdout=out, check=True)
+        r = subprocess.run(cmd, stdout=out, stderr=subprocess.PIPE)
+    if r.returncode != 0:
+        raise RuntimeError(f"{os.path.basename(cmd[0])} exited {r.returncode}: {r.stderr.decode(errors='replace').strip()[-300:]}")
+
+
+def record_failure(d, error):
+    path = os.path.join(d, "failed.json")
+    attempts = 0
+    if os.path.exists(path):
+        attempts = json.load(open(path)).get("attempts", 0)
+    with open(path, "w") as f:
+        json.dump({"attempts": attempts + 1, "max_attempts": MAX_ATTEMPTS, "error": error,
+                   "last": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}, f)
+    return attempts + 1
+
+
+def given_up(d):
+    path = os.path.join(d, "failed.json")
+    return os.path.exists(path) and json.load(open(path)).get("attempts", 0) >= MAX_ATTEMPTS
 
 
 def do_slot(d):
@@ -47,7 +69,10 @@ def do_slot(d):
                 os.remove(f)
     for name in ("cxx.jsonl", "cs.jsonl", "compare.md"):   # compare.md last: it marks the slot done
         os.replace(os.path.join(d, "." + name), os.path.join(d, name))
-    print(f"{os.path.basename(d)}: done in {time.time() - t0:.0f} s", flush=True)
+    if os.path.exists(os.path.join(d, "failed.json")):
+        os.remove(os.path.join(d, "failed.json"))
+    bursts = sum(1 for line in open(os.path.join(d, "cs.jsonl")) if '"ev":"burst_completed"' in line)
+    print(f"{os.path.basename(d)}: done in {time.time() - t0:.0f} s, {bursts} bursts", flush=True)
 
 
 def slot_dirs():
@@ -77,14 +102,22 @@ def main():
         return
     dirs = ([sys.argv[2]] if cmd == "slot" else
             slot_dirs() if cmd == "all" else
-            [d for d in slot_dirs() if not os.path.exists(os.path.join(d, "compare.md"))])
-    failed = 0
+            [d for d in slot_dirs() if not os.path.exists(os.path.join(d, "compare.md")) and not given_up(d)])
+    if cmd in ("slot", "all"):   # an explicit run retries slots that were given up on
+        for d in dirs:
+            if os.path.exists(os.path.join(d, "failed.json")):
+                os.remove(os.path.join(d, "failed.json"))
+    done = failed = 0
     for d in dirs:
         try:
             do_slot(d)
+            done += 1
         except Exception as e:   # keep going: one bad slot must not block the rest
             failed += 1
-            print(f"{os.path.basename(d)}: FAILED: {e}", file=sys.stderr, flush=True)
+            n = record_failure(d, str(e))
+            print(f"{os.path.basename(d)}: FAILED (attempt {n} of {MAX_ATTEMPTS}"
+                  f"{', giving up' if n >= MAX_ATTEMPTS else ''}): {e}", file=sys.stderr, flush=True)
+    print(f"{cmd}: {done} slots done, {failed} failed", flush=True)
     sys.exit(1 if failed else 0)
 
 

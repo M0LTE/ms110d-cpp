@@ -131,7 +131,6 @@ struct Tool {
                     ++burst;
                     ++bursts;
                     started_at = e.sample;
-                    burst_cpu = 0;
                     std::printf("{\"ev\":\"burst_started\",\"decoder\":\"cxx\",\"burst\":%d,\"sample\":%lld,\"wn\":%d,"
                                 "\"il\":\"%s\",\"k\":%d,\"cfo_hz\":%.3f}\n",
                                 burst, static_cast<long long>(e.sample), e.waveform, il_name(e.interleaver),
@@ -182,6 +181,7 @@ struct Tool {
             size_t done = 0;
             while (done < part.size()) {
                 bool open = rx.state() != RxState::Searching;
+                if (!open) burst_cpu = 0;  // a burst's time starts on leaving the search, preamble reading included
                 double t0 = cpu_ms();
                 size_t used = 0;
                 rx.process(part.subspan(done), used);

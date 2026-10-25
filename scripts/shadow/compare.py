@@ -139,8 +139,10 @@ def analyse(cs_events, cxx_events):
                      "problems": probs, "short": short,
                      "same_frames": a["frames_sha256"] == b["frames_sha256"]})
     for a in cs_alone:
+        # As CorpusTests does: a burst the C++ missed counts as all its good frames short.
+        miss = [f"missed burst, {a['good_frames']} frames short"] if a["good_frames"] > 1 else []
         rows.append({"start": a["start_sample"], "cls": "C# lock only", "cs": a, "cxx": None,
-                     "problems": [], "short": a["good_frames"], "same_frames": False})
+                     "problems": miss, "short": a["good_frames"], "same_frames": False})
     for b in cxx_alone:
         rows.append({"start": b["start_sample"], "cls": "C++ lock only", "cs": None, "cxx": b,
                      "problems": [], "short": 0, "same_frames": False})
@@ -156,7 +158,7 @@ def totals(rows):
         t[r["cls"]] += 1
         t["cs_frames"] += r["cs"]["good_frames"] if r["cs"] else 0
         t["cxx_frames"] += r["cxx"]["good_frames"] if r["cxx"] else 0
-        t["short"] += r["short"] if r["cs"] and r["cxx"] else 0
+        t["short"] += r["short"]
         t["problems"] += len(r["problems"])
         if r["cs"] and r["cxx"] and r["cs"]["good_frames"] and not r["same_frames"] and r["cs"]["good_frames"] == r["cxx"]["good_frames"]:
             t["frames_differ"] += 1
@@ -242,15 +244,43 @@ def unexplained(rows):
     return out
 
 
+def unfinished_slots(slots_dir, day):
+    """Every filed slot of the day (it has a meta.json) with no comparison, and why."""
+    out = []
+    for n in sorted(os.listdir(slots_dir)):
+        d = os.path.join(slots_dir, n)
+        if not (n.startswith(day) and os.path.exists(os.path.join(d, "meta.json"))):
+            continue
+        if os.path.exists(os.path.join(d, "cxx.jsonl")) and os.path.exists(os.path.join(d, "cs.jsonl")) and os.path.exists(os.path.join(d, "compare.md")):
+            continue
+        fail = os.path.join(d, "failed.json")
+        if not os.path.exists(os.path.join(d, "audio.wav")):
+            why = "no audio was filed for this slot"
+        elif os.path.exists(fail):
+            f = json.load(open(fail))
+            why = f"failed {f['attempts']} times, last error: {f['error']}"
+            if f["attempts"] >= f.get("max_attempts", 3):
+                why += " (given up)"
+        else:
+            why = "not decoded yet"
+        out.append((n, why))
+    return out
+
+
 def daily_report(slots_dir, date):
     day = date.replace("-", "")
     names = sorted(n for n in os.listdir(slots_dir) if n.startswith(day) and
                    os.path.exists(os.path.join(slots_dir, n, "cxx.jsonl")) and os.path.exists(os.path.join(slots_dir, n, "cs.jsonl")))
     iso = f"{day[:4]}-{day[4:6]}-{day[6:8]}"
     L = [f"# Shadow receiver, {iso}", ""]
+    missing = unfinished_slots(slots_dir, day)
+    tail = []
+    if missing:
+        tail = ["## Slots with no comparison", ""] + [f"- {n}: {why}" for n, why in missing] + [""]
     if not names:
         L.append("No slot with both decodes on this day.")
-        return "\n".join(L) + "\n"
+        L.append("")
+        return "\n".join(L + tail) + "\n"
     allrows, per_slot, flagged = [], [], []
     cs_total = cxx_total = audio_total = cs_burst = cxx_burst = 0.0
     versions = {}
@@ -271,7 +301,7 @@ def daily_report(slots_dir, date):
     L.append(f"{len(names)} slots, {t['bursts']} bursts: {t['both']} decoded by both decoders, {t['C# only']} by C# only, "
              f"{t['C++ only']} by C++ only, {t['neither']} by neither; {t['C# lock only']} locked by C# only, {t['C++ lock only']} by C++ only.")
     L.append("")
-    L.append(f"Good IL2P frames: C# {t['cs_frames']}, C++ {t['cxx_frames']} (C++ short of the C# on paired bursts: {t['short']}"
+    L.append(f"Good IL2P frames: C# {t['cs_frames']}, C++ {t['cxx_frames']} (C++ short of the C#, bursts it missed included: {t['short']}"
              + (", over the 2 percent budget" if budget_problem(t) else ", within the 2 percent budget") + "). "
              f"Layer 4 rule problems: {t['problems']}. Differences to look at: {len(flagged)}.")
     L.append("")
@@ -315,7 +345,7 @@ def daily_report(slots_dir, date):
     else:
         L.append("No differences to look at: every burst either decoded the same frames or neither decoder had a good frame.")
         L.append("")
-    return "\n".join(L)
+    return "\n".join(L + tail)
 
 
 def main():
