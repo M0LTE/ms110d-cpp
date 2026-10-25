@@ -158,7 +158,7 @@ The two implementations must agree exactly on the bits on the wire, closely on t
 
 This library sends and expects the mini-probe pattern that MIL-STD-188-110D defines. The C# reference does not send it yet: up to 0.2.1 its transmitter shifts some mini-probes at the selected interleaver's boundary instead of the long interleaver's. The two patterns are the same on the long interleaver and on WN0, and differ on ultra-short, short and medium. What that means today:
 
-- A C# 0.2.1 receiver decodes this library's bursts on every interleaver, because it accepts both patterns. Older C# receivers decode its ultra-short, short and medium bursts less well.
+- A C# 0.2.1 receiver decodes this library's bursts on every interleaver, because it accepts both patterns. Older C# receivers expect the old pattern, so they may decode its ultra-short, short and medium bursts less well.
 - This library decodes C# transmissions on the long interleaver as well as the C# receiver does, but its ultra-short, short and medium bursts less well. GB7RDG's bulletins are short-interleaver bursts from the C#: on 31 recorded ones this library decoded 95 of the 99 good frames that the C# receiver did.
 
 This is a fault in the C# transmitter, not a difference we keep, so it is not listed as a deviation. The C# and GB7RDG are due to switch to the standard pattern; [issue 68](https://github.com/M0LTE/ms110d-cpp/issues/68) tracks it. The details are in [docs/dev/receiver.md](docs/dev/receiver.md#probe-pattern-issue-68).
