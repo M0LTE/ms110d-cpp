@@ -274,6 +274,14 @@ public static class Layer3Analysis
         double? ot = FitThreshold(snr, [.. other.Select(p => (double)p.FrameErrors)], [.. other.Select(p => (double)p.Frames)], target, out _, out string onote, ComparisonExtrapolationDb);
         if (ot is null)
         {
+            // A curve that never loses more frames than the reference at any SNR has no threshold the fit can find
+            // (all zeros is flat) but is not worse: the C++ receiver on standard-pattern ultra-short bursts, which the
+            // C# receiver cannot tell from current-pattern ones (issue 68).
+            if (NeverWorse(reference, other))
+            {
+                return new CellJudgement(Verdict.Pass, null, null, null, "never loses more frames than the reference at any SNR");
+            }
+
             return onote.StartsWith("still above", StringComparison.Ordinal)
                 ? new CellJudgement(Verdict.Fail, null, null, null, "does not reach the target frame loss though the reference does: " + onote)
                 : new CellJudgement(Verdict.Inconclusive, null, null, null, onote);
@@ -282,6 +290,10 @@ public static class Layer3Analysis
         var pd = PairedDifference(reference, other, target);
         return new CellJudgement(Judge(pd.Diff, pd.Low, pd.High, toleranceDb), pd.Diff, pd.Low, pd.High, "");
     }
+
+    /// <summary>True when the other curve loses no more frames than the reference at every SNR point.</summary>
+    public static bool NeverWorse(IReadOnlyList<Layer3Point> reference, IReadOnlyList<Layer3Point> other) =>
+        reference.Count == other.Count && reference.Zip(other).All(p => p.Second.FrameErrors <= p.First.FrameErrors);
 
     /// <summary>One cell's two curves to be compared (reference and other), at the cell's target.</summary>
     public sealed record CellPair(string Id, IReadOnlyList<Layer3Point> Reference, IReadOnlyList<Layer3Point> Other, double Target);
@@ -313,7 +325,7 @@ public static class Layer3Analysis
             double? b = FitThreshold(snr, [.. c.Other.Select(p => (double)p.FrameErrors)], fr, c.Target, out _, out string note, ComparisonExtrapolationDb);
             if (b is null)
             {
-                if (note.StartsWith("still above", StringComparison.Ordinal))
+                if (note.StartsWith("still above", StringComparison.Ordinal) && !NeverWorse(c.Reference, c.Other))
                 {
                     unreached++; // the reference reaches it and this one does not: a failure, not an exclusion
                 }

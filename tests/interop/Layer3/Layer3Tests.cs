@@ -126,6 +126,21 @@ public class Layer3AnalysisTests
         })];
 
     [Fact]
+    public void ACurveThatNeverLosesMoreThanTheReferenceIsNotAFailureAndADeadOneIs()
+    {
+        // The C++ receiver tells the standard mini-probe pattern from the first frame; the C# 0.2.1 receiver cannot on a
+        // one-block ultra-short burst (issue 68), so its curve can sit above the C++ one at every SNR. A curve with no
+        // losses has no threshold for the fit to find, and that must not read as a dead receiver.
+        IReadOnlyList<Layer3Point> reference = Curve("csharp", 0);
+        IReadOnlyList<Layer3Point> perfect = [.. reference.Select(p => P("cpp", p.SnrDb, 0, 100))];
+        Assert.True(Layer3Analysis.NeverWorse(reference, perfect));
+        Assert.Equal(Layer3Analysis.Verdict.Pass, Layer3Analysis.JudgeCell(reference, perfect, 0.1, 0.5).Verdict);
+        IReadOnlyList<Layer3Point> dead = [.. reference.Select(p => P("cpp", p.SnrDb, 60, 100))];
+        Assert.False(Layer3Analysis.NeverWorse(reference, dead));
+        Assert.Equal(Layer3Analysis.Verdict.Fail, Layer3Analysis.JudgeCell(reference, dead, 0.1, 0.5).Verdict);
+    }
+
+    [Fact]
     public void JudgeNeedsTheWholeIntervalAboveToFailAndWithinToPass()
     {
         Assert.Equal(Layer3Analysis.Verdict.Pass, Layer3Analysis.Judge(0.1, -0.2, 0.4, 0.5));

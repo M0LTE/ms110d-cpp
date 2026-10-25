@@ -4,6 +4,8 @@ Issue 28, under epic 23. Code: `tests/interop/Layer3/`. It sends seeded bursts f
 
 The C# transmitter endpoint runs in the C# modulator's internal standard-probe-pattern mode, so both transmitters send the D.5.2.2 pattern (the C# 0.2.1 default differs for the ultra-short, short and medium interleavers; issue 68).
 
+The C++ receiver can beat the C# receiver here: it expects the standard pattern from the first frame, while the C# 0.2.1 receiver starts each burst on the current rule and needs a decisive probe to switch, which a one-block ultra-short burst does not give it. A pairing whose curve loses no more frames than the reference at any SNR is therefore judged Pass in a cell (`Layer3Analysis.NeverWorse`), where a flat curve would otherwise read as a dead receiver; a curve that loses more frames still fails as before.
+
 ## What is measured
 
 - A frame is one burst carrying exactly one interleaver block (payload = block size - 32 bits, so the EOM ends the block), 3 preamble super-frames. It is lost if no burst is decoded or the payload differs in any bit. Bit errors are counted too (a missing decode counts every bit).
