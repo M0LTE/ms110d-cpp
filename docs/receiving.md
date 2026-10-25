@@ -84,7 +84,7 @@ bool feed(Receiver& rx, std::span<const float> chunk) {
 }
 ```
 
-`BurstCompleted::reason` is why it ended: `Eom` (the normal way), `MaxInputDataBlocks`, `Terminated` (you called `terminate()`), `SignalLost`, or `SignalAbsent` (the mini-probes looked like noise for 16 s). `reset()` goes back to the start of a stream; `state()` is `Searching`, `ReadingPreamble` or `Tracking`; `carrier_detect()` is true from a found preamble until the burst ends.
+`BurstCompleted::reason` is why it ended: `Eom` (the normal way), `MaxInputDataBlocks`, `Terminated` (you called `terminate()`), `SignalLost`, or `SignalAbsent` (the mini-probes looked like noise for 16 s). `reset()` goes back to the start of a stream; `state()` is `Searching`, `ReadingPreamble` or `Tracking`; `carrier_detect()` is true from a preamble peak until the burst ends.
 
 ## Memory
 
@@ -97,7 +97,7 @@ All working memory is the one block you give `configure`, and nothing is allocat
 | `Medium` | 14.8 MiB |
 | `Long` | 58.2 MiB |
 
-These are the same in the single precision build to within 5 KiB.
+The single precision build needs about 5 KiB less.
 
 The default accepts everything, as the C# does, and needs the 58.2 MiB. If you only expect short bursts, say so. Ask `Receiver::storage_bytes(options, bytes)` for the exact figure. Most of it is the decoder's store for a block, which is why single precision saves almost nothing here. [Microcontroller](microcontroller.md) says what that means for small boards.
 
@@ -118,9 +118,9 @@ A burst whose interleaver is longer than `max_interleaver` is not received, for 
 
 ## Precision
 
-The default (double) build decodes the same bits as the C# receiver on every reference case. The single precision build (`-DMS110D_PRECISION=single`) has the same API, takes the same decisions on clean bursts, and may differ from the C# on a marginal fading burst. Use it where there is no fast double FPU, and expect it to matter for speed, not memory. A program built for one precision fails to link against a library built for the other.
+The default (double) build decodes the same bits as the C# receiver on every reference case, all sent with the standard mini-probe pattern (see the [README](../README.md#the-mini-probe-pattern) for C# transmissions that do not use it). The single precision build (`-DMS110D_PRECISION=single`) has the same API, takes the same decisions on clean bursts, and may differ from the C# on a marginal fading burst. Use it where there is no fast double FPU, and expect it to matter for speed, not memory. A program built for one precision fails to link against a library built for the other.
 
-On a PC the BPSK modes take about 6 to 10% of one core with turbo decoding. Not thread safe: use one receiver from one thread at a time.
+On a PC it is light: 45 minutes of recorded bulletins took about 71 s of processor time on one core (about 3% on average), a little less than the C# receiver. Not thread safe: use one receiver from one thread at a time.
 
 ## From C
 

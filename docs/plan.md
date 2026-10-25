@@ -52,7 +52,7 @@ Design rules so the same code builds on a PC and a Cortex-M7:
 
 ## How we prove compatibility
 
-Four layers of tests, each run on every change, covering every mode (WN0 to WN8, WN13), both interleavers and both codes.
+Four layers of tests, each run on every change, covering every mode (WN0 to WN8, WN13), all four interleavers and both codes.
 
 | Layer | What is compared | Pass means |
 | --- | --- | --- |
@@ -94,7 +94,7 @@ No deviation exists only in prose. Each one is a test with an issue number.
 An STM32H7 Nucleo, wired into the NinoTNC N9600A's dsPIC socket through an adapter, running the same C++ library as the PC build. Only if we decide to run it on hardware ourselves; the adapter design and the NinoTNC schematic are deferred until then.
 
 - **Why the H7.** It has hardware double precision, so it can run the default build unchanged and be held to the same tests. The current dsPIC has 48 KB of RAM and no floating point, far too small.
-- **What already fits.** The NinoTNC sends transmit audio as one filtered PWM pin (RB10, then an 8160 Hz Bessel filter), which a fast timer on the H7 can drive. Its USB serial runs at 57600 baud, plenty for MS110D. With the short interleaver the receiver needs about 60 KB of sample buffer.
+- **What already fits.** The NinoTNC sends transmit audio as one filtered PWM pin (RB10, then an 8160 Hz Bessel filter), which a fast timer on the H7 can drive. Its USB serial runs at 57600 baud, plenty for MS110D. The receiver's memory is not there yet: 4.1 MiB with the short interleaver, mostly the soft decoder (see [microcontroller.md](microcontroller.md)).
 - **What is unknown.** Processor load. On a PC the BPSK modes take 6 to 10% of one Ryzen core with turbo decoding; a Cortex-M7 is many times slower, so this could be tight. The first job on the Nucleo is to measure it.
 - **If it is too slow.** Single precision, a lighter equaliser or skipping the turbo pass, in that order. Each is an accepted deviation with its test, and the shadow receiver measures its cost on real signals.
 - **Scope first.** The BPSK modes (WN1 to WN5) and the short interleaver; denser modes later if the load allows.
@@ -105,7 +105,7 @@ An STM32H7 Nucleo, wired into the NinoTNC N9600A's dsPIC socket through an adapt
 Each stage ends with a merged, reviewed PR and its tests passing. Stages 6 and 7 can run side by side once receive works. Each stage is an epic in the issues.
 
 1. **Ground work.** CI building on Linux x64 and arm64 plus a Cortex-M7 compile check. A tool in the C# repo that writes reference files for every stage. Provenance check of M0LTE.Dsp, Fec and Ofdm. Gate: CI green on an empty library.
-2. **Bits on the wire.** The whole bit pipeline for every mode, both interleavers, both codes. Gate: layer 1 identical on 100,000 random frames per combination.
+2. **Bits on the wire.** The whole bit pipeline for every mode, all four interleavers, both codes. Gate: layer 1 identical on 100,000 random frames per combination.
 3. **Transmit.** Preamble, modulator, EOM and EOT. Gate: layer 2 within tolerance, and the C# demodulator decodes everything the C++ sends.
 4. **Receive, BPSK and Walsh first.** WN0 to WN5, short interleaver, with turbo decoding. Gate: layers 3 and 4 pass for those modes, and the standard's performance masks pass.
 5. **Receive, the rest.** WN6 to WN8 and WN13, the long interleaver, the MFB decoder. Gate: layers 3 and 4 pass for every mode.
@@ -128,3 +128,4 @@ Each stage ends with a merged, reviewed PR and its tests passing. Stages 6 and 7
 - 2026-10-24: the standard's tables are not re-checked during the port, since they were transcribed twice and verified for the C#; the C++ tables are checked against the C# only (Tom).
 - 2026-10-24: layer 4 pass rule made precise. The C# receiver is chaotic on marginal real bursts (tiny audio changes alter bits, but only in frames that fail their CRC anyway), so exact payload equality is required only on error-free bursts; otherwise good-frame counts are compared with a tolerance of one frame per burst and 2% over the corpus. Details in docs/dev/corpus.md.
 - 2026-10-25: performance masks (story 30) run in the stand-alone suite on channel audio made by the C# reference through M0LTE.HfChannel. The pull request job uses 370,000 bits per point (capped at 1300 s of audio, so WN0 to WN2 are compared with the C# but decided only by the long run); the full 3,000,000 bits are a manual workflow. Details in docs/dev/masks.md.
+- 2026-10-25: "both interleavers" corrected to all four (the standard has four and the library does all of them), and the receiver's memory on the H7 updated from the early 60 KB estimate to the measured 4.1 MiB for the short interleaver.

@@ -62,10 +62,10 @@ Nothing is allocated, ever, and nothing throws: all memory is the block given to
 
 | `max_interleaver` | Ring | Equaliser path | Viterbi | SISO | Total |
 | --- | --- | --- | --- | --- | --- |
-| Ultra-short | 128 KiB | 289 KiB | 30 KiB | 771 KiB | 1431392 bytes (1.4 MiB) |
-| Short | 128 KiB | 668 KiB | 102 KiB | 3.0 MiB | 4252272 bytes (4.1 MiB) |
-| Medium | 128 KiB | 2.1 MiB | 390 KiB | 12.0 MiB | 15535776 bytes (14.8 MiB) |
-| Long | 512 KiB | 8.0 MiB | 1.5 MiB | 48.0 MiB | 61063008 bytes (58.2 MiB) |
+| Ultra-short | 128 KiB | 289 KiB | 30 KiB | 771 KiB | 1430848 bytes (1.4 MiB) |
+| Short | 128 KiB | 668 KiB | 102 KiB | 3.0 MiB | 4251728 bytes (4.1 MiB) |
+| Medium | 128 KiB | 2.1 MiB | 390 KiB | 12.0 MiB | 15535232 bytes (14.8 MiB) |
+| Long | 512 KiB | 8.0 MiB | 1.5 MiB | 48.0 MiB | 61062464 bytes (58.2 MiB) |
 
 (double build; the chain BCJR is 17 KiB in each.) The SISO decoder's forward metrics for a whole block dominate, as docs/dev/soft-decoders.md says; windowing it for a microcontroller is issue 44. The decoders now take caller storage (`storage_bytes()` and `configure()` on each, allocating nothing); the allocating constructors remain for the tests. Only one burst is decoded at a time, so there is one Viterbi and one SISO, set up for the burst's code at each detection in storage sized for K = 9, where the internal equaliser path had a pair for each code: that saves the K = 7 pair (about 0.8 MiB with the short interleaver).
 

@@ -15,11 +15,12 @@ Nothing is released yet. What is on `main` so far:
 ### Added
 
 - An installable CMake library for PC and Cortex-M7, in single or double precision, with a C interface for other languages and .NET interop tests.
-- Transmit: payload bits in, 9600 Hz audio out, in C++ and C, matching the C# reference audio.
+- Transmit: payload bits in, 9600 Hz audio out, in C++ and C, matching the C# reference audio (with the standard mini-probe pattern).
 - Receive building blocks: soft-decision decoders, a decision-feedback equaliser, preamble search and waveform identification, WN0 receive, and the equaliser receive path for WN1 to 8 and 13 with the turbo stage, the 8PSK salvage and ensemble and the MFB block decoder, expecting the standard mini-probe pattern (bit for bit with the C# on every reference case and on a corpus of fading, offset and drifting channels).
-- Receive: the public receiver in C++ (`Receiver`) and C (`ms110d_rx_*`), audio in, events out (burst started, block decoded, burst completed, optional soft values), with the C#'s options and one shared receive front end; the same bits as the C# receiver on every reference case.
+- Receive: the public receiver in C++ (`Receiver`) and C (`ms110d_rx_*`), audio in, events out (burst started, block decoded, burst completed, optional soft values), with the C#'s options and one shared receive front end; the same bits as the C# receiver on every reference case (standard mini-probe pattern).
 - User documentation: a README with install and quick starts in C++ and C, guides to the waveforms, transmitting, receiving and microcontroller builds, with every snippet compiled and run by the tests.
 - Tests that compare the bits on the wire and the audio with the C# reference.
+- A command line decoder, `ms110d-decode` (`-DMS110D_BUILD_TOOLS=ON`), and a shadow receiver that runs it beside the C# on recorded GB7RDG bulletins and writes a daily comparison.
 - The standard's D-LXIV performance masks (AWGN and Poor channel, WN0 to 8 and 13) and the D-LXV static channel for WN2, run by the C++ tests alone on channel audio made by the C# reference, with a long mode for the full counts.
 
 [Unreleased]: https://github.com/M0LTE/ms110d-cpp/commits/main

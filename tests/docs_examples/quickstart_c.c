@@ -1,8 +1,8 @@
 // Copyright (C) 2026 Thomas Fanning
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-/* The C quick start from the README, compiled and run by ctest so it cannot rot. The regions
-   between the snippet markers are checked to appear word for word in the README. */
+/* The C quick start from docs/c-quickstart.md, compiled and run by ctest so it cannot rot. The
+   regions between the snippet markers are checked to appear word for word in that page. */
 
 #include <m0lte/ms110d/ms110d.h>
 

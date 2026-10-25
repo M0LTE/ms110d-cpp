@@ -28,9 +28,9 @@ You give each transmitter or receiver one block of memory, `storage_bytes()` lon
 
 ```cpp
 // A receiver for the ultra-short interleaver only, in a static array (no heap, no allocation).
-// 1431392 bytes is what storage_bytes() says for these options in the default build; configure()
+// 1430848 bytes is what storage_bytes() says for these options in the default build; configure()
 // answers BufferTooSmall if the array is too small, so a wrong figure is caught at start-up.
-alignas(8) static std::array<std::uint8_t, 1431392> rx_memory;
+alignas(8) static std::array<std::uint8_t, 1430848> rx_memory;
 
 bool start_receiver(Receiver& rx) {
     RxOptions options;
@@ -43,7 +43,7 @@ The transmit example in [transmitting](transmitting.md) is the same idea with st
 
 ## Current memory figures
 
-Receive, default build (single is within 6 KiB of these):
+Receive, default build (single needs about 5 KiB less):
 
 | `max_interleaver` | Total | Of which the SISO decoder |
 |---|---|---|

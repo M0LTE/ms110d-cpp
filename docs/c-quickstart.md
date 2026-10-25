@@ -1,6 +1,6 @@
 # Quick start in C
 
-The same transmit and receive as the [README](../README.md) quick start, through `m0lte/ms110d/ms110d.h` (link the shared library `m0lte::ms110d_c`). Payload is one bit per byte (0 or 1) and the audio is 9600 Hz `float`. Here the library allocates the handle once, in `create`; for no heap at all see `ms110d_tx_init` and `ms110d_rx_init` in the header. The code is `tests/docs_examples/quickstart_c.c`, built and run by the tests.
+The same transmit and receive as the [README](../README.md) quick start, through `m0lte/ms110d/ms110d.h` (link the shared library `m0lte::ms110d_c`; as a subproject, add `-DMS110D_BUILD_C_SHARED=ON` to get it). The code needs `<stdint.h>` and `<stdlib.h>` as well. Payload is one bit per byte (0 or 1) and the audio is 9600 Hz `float`. Here the library allocates the handle once, in `create`; for no heap at all see `ms110d_tx_init` and `ms110d_rx_init` in the header. The code is `tests/docs_examples/quickstart_c.c`, built and run by the tests.
 
 ```c
 /* Payload bits (one per byte, 0 or 1) in, 9600 Hz audio out. Returns the sample count, 0 on
