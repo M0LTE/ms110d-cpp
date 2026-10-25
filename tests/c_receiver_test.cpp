@@ -167,7 +167,7 @@ void require_file(const std::string& path) {
 }  // namespace
 
 TEST_CASE("reference receive through the C interface: every case decodes as the C# does", "[reference][c_receiver]") {
-    const std::filesystem::path dir = ms110d_test::reference_dir_or_skip();
+    const std::filesystem::path dir = ms110d_test::standard_reference_dir_or_skip();
     require_file(MS110D_CSHARP_RX_TURBO);
     const auto expected = load_turbo(MS110D_CSHARP_RX_TURBO);
     const auto index = ms110d_test::load_index(dir);
@@ -181,7 +181,7 @@ TEST_CASE("reference receive through the C interface: every case decodes as the 
     for (const auto& name : index.cases) {
         INFO("case " << name);
         const ms110d_test::ReferenceCase c(dir / name, name);
-        std::vector<float> audio = c.real32("audio_f32le");
+        std::vector<float> audio = c.standard_real32("audio_f32le");
         audio.resize(audio.size() + 9600, 0.0f);
         const auto sent = c.bytes("payload_bits");
         ms110d_rx* rx = (cases % 2 == 0) ? created.rx : built.rx;

@@ -59,6 +59,8 @@ The tool (`tools/csharp-vectors`) is pinned to the NuGet package `M0LTE.Ms110d` 
 
 `tests/wn0_receiver_test.cpp` compares the WN 0 receiver with three more dumps from the same tool (`wn0`, `wn0-awgn`, `wn0-poor`), regenerated when the pin moves; the commands, and `scripts/generate-wn0-poor.sh` for the Poor channel corpus that is not committed, are in docs/dev/wn0-receiver.md.
 
+The receive dumps (`rx`, `rx-awgn`, `rx-turbo`, `rx-options`) and the corpus run the C# receiver over the standard-pattern audio of the reference cases (`scripts/generate-rx-dumps.sh` calls `scripts/generate-standard-reference.sh` first), with the C# receiver's pattern evidence resolved in advance (docs/dev/dfe-receiver.md); the C++ receiver expects the standard pattern only (issue 68).
+
 `tests/dfe_receiver_test.cpp` compares the equaliser receive path with two more (`rx`, `rx-awgn`), and `tests/dfe_turbo_test.cpp` the shipped receiver with `rx-turbo` and the `rx-corpus` of channel and standard probe pattern bursts; none is committed: `scripts/generate-rx-dumps.sh` makes them in the reference cache (docs/dev/dfe-receiver.md).
 
 The layer 4 real-audio corpus follows the same pattern (pinned in `reference/corpus.txt`, fetched by `scripts/fetch-corpus.sh`); see [corpus.md](corpus.md).

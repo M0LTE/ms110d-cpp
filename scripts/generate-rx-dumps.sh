@@ -32,6 +32,8 @@ if [ "$force" = 0 ] && [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$want" ] && [ -
 fi
 
 export DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
+# The receive dumps run the C# receiver on the reference cases' standard-pattern audio (issue 68).
+"$src/scripts/generate-standard-reference.sh" "$cache"
 rm -f "$stamp"
 dotnet run -c Release --project "$src/tools/csharp-vectors" -- rx "$cache/ref" > "$cache/csharp-rx.txt.tmp"
 dotnet run -c Release --project "$src/tools/csharp-vectors" -- rx-awgn "$cache/ref" > "$cache/csharp-rx-awgn.txt.tmp"

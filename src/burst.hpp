@@ -7,7 +7,7 @@
 // each interleaver block, otherwise an initial mini-probe and per frame U data symbols plus a
 // mini-probe, the probe before a Long interleaver boundary cyclically shifted (D.5.2.2), and the
 // last probe extended by 32 symbols as the EOT marker. Which probes are shifted is the standard
-// rule, whatever interleaver is selected: see probe_is_shifted below and issue 68.
+// rule, whatever interleaver is selected: see probe_is_shifted in probe_rule.hpp and issue 68.
 //
 // The input is the wire-order (interleaved) bits of each block, as produced by the FEC stage,
 // one bit per byte. Output goes to a Sink, so a caller can write bytes, feed a pulse shaper or
@@ -21,6 +21,7 @@
 
 #include "framing.hpp"
 #include "preamble.hpp"
+#include "probe_rule.hpp"
 #include "scrambler.hpp"
 #include "tables.hpp"
 #include "trinomial_scrambler.hpp"
@@ -56,16 +57,6 @@ struct BurstLayout {
 // Nothing is returned for a waveform or interleaver the library does not define, a constraint
 // length other than 7 or 9, or preamble settings out of range.
 std::optional<BurstLayout> burst_layout(const TxSettings& config, std::size_t payload_bits) noexcept;
-
-// Whether the probe after data frame g (numbered from 0 across the whole burst) is the shifted
-// one. This is the D.5.2.2 standard rule: shifted only when g mod L == L - 2, L the frame count
-// of the waveform's LONG interleaver, whatever interleaver is selected. The probe that ends the
-// preamble is never shifted, and the EOT is a cyclic extension of the last probe as sent. The
-// C# 0.2.1 transmitter instead shifts at the selected interleaver's boundary, (g + 2) % F == 0;
-// the two coincide for the Long interleaver (issue 68).
-constexpr bool probe_is_shifted(std::int64_t frame_number, int long_frames) noexcept {
-    return frame_number % long_frames == long_frames - 2;
-}
 
 // One mini-probe of k symbols, shifted or not, followed by `extra` further symbols of the same
 // cyclic extension (the EOT marker is 32).

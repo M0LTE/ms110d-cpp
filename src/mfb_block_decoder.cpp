@@ -3,7 +3,7 @@
 #include "mfb_block_decoder.hpp"
 
 #include "dfe_receiver.hpp"
-#include "probe_pattern.hpp"
+#include "probe_rule.hpp"
 #include "scrambler.hpp"
 #include "tables.hpp"
 
@@ -190,10 +190,10 @@ NetComplex MfbBlockDecoder::point(int q) const noexcept {
 }
 
 // The probe at anchor p of a block: the one before frame p, or for p == frames the one after the
-// last frame; shifted as the burst's probe pattern says.
+// last frame; shifted by the standard rule (probe_rule.hpp).
 bool MfbBlockDecoder::probe_is_boundary(int p, int frames) const noexcept {
     const std::int64_t after = block_base_ + (p < frames ? p - 1 : frames - 1);
-    return pattern_->boundary(after);
+    return probe_is_shifted(after, long_frames_);
 }
 
 void MfbBlockDecoder::probe_symbols(bool boundary, NetComplex* out) const noexcept {
@@ -237,7 +237,7 @@ bool MfbBlockDecoder::decode_block(const DfeReceiver& rx, const std::int64_t* fr
     const int n = static_cast<int>(hc_end - hc0);
     last_hc0_ = hc0;
     last_n_ = n;
-    pattern_ = &rx.pattern_;
+    long_frames_ = rx.long_frames_;
     block_base_ = static_cast<std::int64_t>(rx.block_index_) * frames;
     for (std::int64_t hc = hc0; hc < hc_end; ++hc) {
         const dsp::ComplexF v = rx.read_t2(static_cast<double>(hc));

@@ -9,8 +9,8 @@
 //   InitializeDfe   tap counts and ridges per probe length, the least-squares solve over the
 //                   last preamble super-frame and the first mini-probe, RLS seeding, the probe
 //                   statistics the collapse and signal-lost tests are measured against;
-//   ProcessFrame    per frame: the probe pattern score where the two shifted-probe conventions
-//                   disagree (ProbePattern), the probe-anchored solve, collapse detection and the
+//   ProcessFrame    per frame: the probe-anchored solve (the standard probe pattern only,
+//                   probe_rule.hpp, issue 68), collapse detection and the
 //                   fresh re-solve, the phase re-anchor, the carrier trim from the tap rotation,
 //                   the fading statistic, the data span by the three-pass static path, the
 //                   probe-anchored tap trajectory (fading) or the QAM path, soft values,
@@ -46,7 +46,7 @@
 #include "fec/tail_biting_viterbi.hpp"
 #include "mfb_block_decoder.hpp"
 #include "interleaver.hpp"
-#include "probe_pattern.hpp"
+#include "probe_rule.hpp"
 #include "puncture.hpp"
 #include "rx_stream.hpp"
 #include "scrambler.hpp"
@@ -147,7 +147,6 @@ struct DfeFrameTrace {
     double tau = 0;
     double presence = 0;
     double presence_plain = 0;
-    double pattern_evidence = 0;
     bool fading = false;             // the excursion detector's state
     bool fading_latched = false;     // the path taken
     bool fresh_solve = false;
@@ -265,7 +264,8 @@ public:
 
     std::int64_t t2_written() const noexcept { return stream_ == nullptr ? 0 : stream_->written(); }
     const DfeReceiverStats& stats() const noexcept { return stats_; }
-    const ProbePattern& probe_pattern() const noexcept { return pattern_; }
+    // Whether the probe after burst data frame g is the shifted one (the standard rule, issue 68).
+    bool probe_shifted_after(std::int64_t g) const noexcept { return probe_is_shifted(g, long_frames_); }
 
     // Diagnostic hook, called once per frame (null for none).
     void set_frame_trace(DfeFrameTraceFn fn, void* context) noexcept {
@@ -291,7 +291,6 @@ private:
     void fill_window(double symbol_chip, EqSample* window) const noexcept;
     void initialize_dfe() noexcept;
     void process_frame() noexcept;
-    double score_probe_patterns(std::int64_t probe_chip, std::int64_t frame_number) noexcept;
     const ComplexF* probe(bool shifted) const noexcept { return shifted ? probe_shifted_.data() : probe_plain_.data(); }
     void start_presence_window() noexcept;
     double probe_presence(std::int64_t probe_chip, const ComplexF* probe, double& plain) noexcept;
@@ -391,7 +390,7 @@ private:
     Scrambler scrambler_{};
     std::int64_t frame_chip_ = 0;
     int frame_in_block_ = 0;
-    ProbePattern pattern_{};
+    int long_frames_ = 1;  // frames of the Long interleaver: the shift period of the standard probe pattern
     int bad_probes_ = 0;
     double probe_mse_ = 0;
     double probe_gain_ref_ = 0;
@@ -433,7 +432,6 @@ private:
     // Scratch, kept in the object so nothing is on a small stack.
     std::array<EqSample, eq_max_taps> window_{};
     std::array<EqSample, eq_max_taps> past_{};
-    std::array<EqSample, eq_max_taps> past2_{};
     std::array<EqSample, eq_max_taps> start_taps_{};
     std::array<EqSample, eq_max_taps> end_taps_{};
     std::array<EqSample, eq_max_taps> traj_end_{};

@@ -79,6 +79,7 @@ static class RxDump
     static Run Demodulate(float[] audio, bool disableTurbo)
     {
         var demod = new Ms110dDemodulator(new Ms110dDemodOptions { DisableTurbo = disableTurbo });
+        StandardTx.ResolvePatternToStandard(demod);  // the C++ expects the standard pattern from the first frame (issue 68)
         var run = new Run();
         double lastPresence = 0, lastPlain = 0;
         demod.PresenceTraced += (_, plain, presence) =>
@@ -254,7 +255,7 @@ static class RxDump
         foreach (string name in File.ReadAllLines(Path.Combine(refDir, "index.txt"))
                      .Where(l => Regex.IsMatch(l, @"^case=wn[1-5]_(short|ultrashort)_")).Select(l => l[5..]))
         {
-            float[] audio = ReadAudio(Path.Combine(refDir, name, "13_audio.f32"));
+            float[] audio = ReadAudio(StandardTx.AudioPath(refDir, name));
             // Room after the burst for the last block to complete.
             float[] padded = new float[audio.Length + 9600];
             audio.CopyTo(padded, 0);
@@ -302,7 +303,7 @@ static class RxDump
         foreach ((int wn, double[] snrs) in AwgnPoints)
         {
             string name = $"wn{wn}_short_k7_s1_p100";
-            float[] baseAudio = ReadAudio(Path.Combine(refDir, name, "13_audio.f32"));
+            float[] baseAudio = ReadAudio(StandardTx.AudioPath(refDir, name));
             double power = baseAudio.Select(x => (double)x * x).Average();
             sb.Append($"base {name} {baseAudio.Length} leadin {LeadIn} leadout {LeadOut}\n");
             for (int p = 0; p < snrs.Length; p++)
@@ -365,7 +366,7 @@ static class RxDump
         foreach ((int wn, double snr) in new[] { (2, -3.0), (4, 3.0) })
         {
             string name = $"wn{wn}_short_k7_s2_p{(wn == 2 ? 448 : 1248)}";
-            float[] baseAudio = ReadAudio(Path.Combine(refDir, name, "13_audio.f32"));
+            float[] baseAudio = ReadAudio(StandardTx.AudioPath(refDir, name));
             double power = baseAudio.Select(x => (double)x * x).Average();
             int cut = baseAudio.Length / 2;
             const int cutLeadOut = 20 * 9600;

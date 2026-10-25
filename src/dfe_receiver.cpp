@@ -371,7 +371,7 @@ bool DfeReceiver::start(const DfeStart& s) noexcept {
     data_start_chip_ = s.data_start_chip;
     block_llr_count_ = 0;
     block_index_ = 0;
-    pattern_.configure(il_.frames, long_il->frames);
+    long_frames_ = long_il->frames;
     burst_bits_ = 0;
     eom_tail_len_ = 0;
     block_frames_ = 0;
@@ -547,37 +547,6 @@ void DfeReceiver::initialize_dfe() noexcept {
     frame_in_block_ = 0;
 }
 
-// ------------------------------------------------------------------ probe pattern
-
-// The C# ScoreProbePatterns: each hypothesis for the probe after frame g is run through the
-// equaliser with its own probe as the feedback history and compared with its own probe. Returns
-// (mse_current - mse_standard) / sum, positive when the standard pattern fits better, 0 when
-// neither fits. Read-only on the equaliser.
-double DfeReceiver::score_probe_patterns(std::int64_t probe_chip, std::int64_t frame_number) noexcept {
-    const ComplexF* current = probe(pattern_.current(frame_number));
-    const ComplexF* standard = probe(pattern_.standard(frame_number));
-    const std::span<const EqSample> window{window_.data(), static_cast<std::size_t>(nff_)};
-    const std::span<const EqSample> past_current{past_.data(), static_cast<std::size_t>(nfb_)};
-    const std::span<const EqSample> past_standard{past2_.data(), static_cast<std::size_t>(nfb_)};
-    double mse_current = 0;
-    double mse_standard = 0;
-    for (int i = nfb_; i < mode_.k; ++i) {
-        fill_window(static_cast<double>(probe_chip + i), window_.data());
-        for (int j = 0; j < nfb_; ++j) {
-            past_[static_cast<std::size_t>(j)] = eq(current[i - 1 - j]);
-            past2_[static_cast<std::size_t>(j)] = eq(standard[i - 1 - j]);
-        }
-        mse_current += static_cast<double>(dsp::mag2(cf(dfe_.equalise(window, past_current)) - current[i]));
-        mse_standard += static_cast<double>(dsp::mag2(cf(dfe_.equalise(window, past_standard)) - standard[i]));
-    }
-
-    // A faded or noisy probe fits neither hypothesis and must not tip the sum.
-    const double rows = mode_.k - nfb_;
-    if (std::min(mse_current, mse_standard) > 0.5 * rows) return 0;
-    const double total = mse_current + mse_standard;
-    return total > 0 ? (mse_current - mse_standard) / total : 0;
-}
-
 // ------------------------------------------------------------------ one frame
 
 void DfeReceiver::process_frame() noexcept {
@@ -595,11 +564,7 @@ void DfeReceiver::process_frame() noexcept {
     // weight; the ridge (anchored to the current taps) handles its rank deficiency.
     const std::int64_t probe_chip = frame_chip_ + mode.u;
     const std::int64_t frame_number = (static_cast<std::int64_t>(block_index_) * il_.frames) + frame_in_block_;
-    if (pattern_.needs_evidence(frame_number)) {
-        // The two shifted-probe conventions disagree here: let the received probe pick.
-        pattern_.add_evidence(score_probe_patterns(probe_chip, frame_number));
-    }
-    const bool shifted = pattern_.boundary(frame_number);
+    const bool shifted = probe_is_shifted(frame_number, long_frames_);  // the standard pattern only (issue 68)
     const ComplexF* pr = probe(shifted);
     dfe_.snapshot_taps(start_taps);
     ComplexF probe_phase{0, 0};
@@ -862,7 +827,6 @@ void DfeReceiver::process_frame() noexcept {
         t.tau = tau_;
         t.presence = presence;
         t.presence_plain = plain_presence;
-        t.pattern_evidence = pattern_.evidence();
         t.fading = fading_;
         t.fading_latched = fading;
         t.fresh_solve = fresh_solve;
@@ -1362,7 +1326,6 @@ void DfeReceiver::end_burst(DfeEndReason reason, std::int64_t payload_bits) noex
     active_ = false;
     tracking_initialized_ = false;
     agc_gain_ = 1.0f;
-    pattern_.reset();  // the C# EndBurst forgets the evidence
 }
 
 }  // inline namespace

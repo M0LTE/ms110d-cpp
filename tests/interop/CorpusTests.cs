@@ -12,7 +12,10 @@ namespace Ms110dInterop.Tests;
 // checked: the small set committed under tests/data/corpus (always present), and the full one
 // fetched by scripts/fetch-corpus.sh (skipped when absent; MS110D_REQUIRE_CORPUS=1 makes absence
 // a failure). The C++ receiver (through the C interface) is then held to the layer 4 rule against
-// the same manifests.
+// the same manifests, on the Long interleaver bursts only: the C++ receiver expects the standard
+// mini-probe pattern alone, and corpus-v1 is current-pattern audio (the C# 0.2.1 transmitter shifts
+// at the selected interleaver's boundary), so for the other interleavers the comparison is measured
+// and reported, not asserted, until a corpus recorded after GB7RDG switches replaces it (issue 68).
 public class CorpusTests(ITestOutputHelper output)
 {
     static string RepoRoot()
@@ -131,11 +134,22 @@ public class CorpusTests(ITestOutputHelper output)
                 $"C++ bursts={got.Count} wn={first.Wn} {first.Reason} blocks={first.Blocks} good={first.GoodFrames} crc_failures={first.CrcFailures}");
         }
 
-        List<string> problems = Layer4Rule.Evaluate(pairs);
+        // corpus-v1 is current-pattern audio: only the Long interleaver, where the two patterns coincide, is held
+        // to the layer 4 rule. The other bursts are measured with the same rule and reported (issue 68).
+        var longPairs = pairs.Where(p => p.Want.GetProperty("expected")[0].GetProperty("il").GetString() == "Long").ToList();
+        var otherPairs = pairs.Where(p => p.Want.GetProperty("expected")[0].GetProperty("il").GetString() != "Long").ToList();
+        List<string> problems = Layer4Rule.Evaluate(longPairs);
+        List<string> otherProblems = Layer4Rule.Evaluate(otherPairs);
+        int otherWant = otherPairs.Sum(p => p.Want.GetProperty("expected")[0].GetProperty("good_frames").GetInt32());
+        int otherGot = otherPairs.Sum(p => Math.Min(p.Got.GoodFrames, p.Want.GetProperty("expected")[0].GetProperty("good_frames").GetInt32()));
         string summary = $"layer 4, C++ receiver: {pairs.Count} bursts, good frames {gotFrames} of the C#'s {wantFrames}, " +
-            $"same end and block count on {sameEnd}, error-free payloads equal {errorFreeSame} of {errorFree}; rule problems {problems.Count}";
+            $"same end and block count on {sameEnd}, error-free payloads equal {errorFreeSame} of {errorFree}. " +
+            $"Asserted on the {longPairs.Count} Long interleaver bursts: rule problems {problems.Count}. " +
+            $"NOT asserted on the {otherPairs.Count} other bursts (current mini-probe pattern audio, the C++ expects the standard one, issue 68): " +
+            $"good frames {otherGot} of {otherWant}, rule problems {otherProblems.Count}";
         output.WriteLine(summary);
         Console.WriteLine(summary);
+        foreach (string p in otherProblems) output.WriteLine("  not asserted (issue 68): " + p);
         Assert.True(problems.Count == 0, string.Join("; ", problems));
     }
 

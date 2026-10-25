@@ -288,7 +288,7 @@ void DfeReceiver::turbo_core(const ComplexF* expected_all, const float* symbol_v
             }
         }
         const std::int64_t base = static_cast<std::int64_t>(block_index_) * il_.frames;
-        const ComplexF* preceding_probe = probe(pattern_.boundary(base + f - 1));
+        const ComplexF* preceding_probe = probe(probe_shifted_after(base + f - 1));
 
         // The shortening solve's rows: the feedback columns carry the wire-domain history (the
         // probe tail before u = 0).
@@ -315,7 +315,7 @@ void DfeReceiver::turbo_core(const ComplexF* expected_all, const float* symbol_v
         }
         if (qam) {
             // QAM16: the bounding probes' rows keep a label-free truth floor in the solve.
-            const ComplexF* following_probe = probe(pattern_.boundary(base + f));
+            const ComplexF* following_probe = probe(probe_shifted_after(base + f));
             for (int p = 0; p < 2; ++p) {
                 const ComplexF* pr = p == 0 ? preceding_probe : following_probe;
                 const std::int64_t probe_chip = p == 0 ? frame_chip - K : frame_chip + U;
@@ -625,7 +625,7 @@ int DfeReceiver::frozen_probe_rows(int f, int shift) noexcept {
     dfe_.begin_training();
     int rows = 0;
     for (int p = 0; p < 2; ++p) {
-        const ComplexF* pr = probe(pattern_.boundary(base + f + p - 1));
+        const ComplexF* pr = probe(probe_shifted_after(base + f + p - 1));
         const std::int64_t probe_chip = p == 0 ? frame_chip - K : frame_chip + mode_.u;
         for (int i = fb; i < K; ++i) {
             if (!have_samples_for_chip(static_cast<double>(probe_chip + i + shift + 2))) continue;
@@ -667,8 +667,8 @@ void DfeReceiver::turbo_frozen_probe_pass() noexcept {
     for (int f = 0; f < il_.frames; ++f) {
         const std::int64_t frame_chip = block_frame_chips_[static_cast<std::size_t>(f)];
         const std::int64_t base = static_cast<std::int64_t>(block_index_) * il_.frames;
-        const ComplexF* preceding_probe = probe(pattern_.boundary(base + f - 1));
-        const ComplexF* following_probe = probe(pattern_.boundary(base + f));
+        const ComplexF* preceding_probe = probe(probe_shifted_after(base + f - 1));
+        const ComplexF* following_probe = probe(probe_shifted_after(base + f));
 
         const int solve_rows = frozen_probe_rows(f, 0);
         if (solve_rows == 0) {
