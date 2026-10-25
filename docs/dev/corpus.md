@@ -27,6 +27,8 @@ The C# receiver is sensitive on marginal bursts: noise at -100 dBFS on the input
 
 A burst flagged `dropout` overlaps a stream dropout or fall-behind reported in the recorder's log, so audio may be missing from it. One such burst is kept on purpose, as the dropout case.
 
+The live comparison of both decoders over whole slots is docs/dev/shadow.md.
+
 ## The layer 4 rule
 
 How the C++ receiver is held to the C# on this corpus (decided with the maintainer; `Layer4Rule` in `tests/interop/CorpusTests.cs` implements it, checks that the C# meets it against its own manifest, and holds the C++ receiver to it):

@@ -100,6 +100,7 @@ if(MS110D_BUILD_C_SHARED)
   endif()
 endif()
 
+# The tool is added before the tests so they can see its target.
 # The shadow receiver's command line decoder (docs/dev/shadow.md). Off unless asked for.
 option(MS110D_BUILD_TOOLS "Build the command line tools (ms110d-decode)" OFF)
 if(MS110D_BUILD_TOOLS)
