@@ -187,7 +187,6 @@ struct Carver {
 // Where every piece of the caller's block goes. carve_all lays them out in one order, for sizing
 // (a null base) and for carving.
 struct Layout {
-    ComplexF* ring;
     std::uint8_t* dfe;
     float *block_llrs, *deinterleaved, *mother;
     std::uint8_t* info;
@@ -200,7 +199,6 @@ struct Layout {
 
 Layout carve_all(Carver& c, const Sizes& s, std::size_t mfb_bytes) noexcept {
     Layout l{};
-    l.ring = c.take<ComplexF>(s.ring);
     l.dfe = c.take<std::uint8_t>(s.dfe);
     l.block_llrs = c.take<float>(s.size_bits);
     l.deinterleaved = c.take<float>(s.size_bits);
@@ -260,8 +258,8 @@ std::size_t DfeReceiver::storage_bytes(const DfeReceiverConfig& config) noexcept
 }
 
 bool DfeReceiver::configure(const DfeReceiverConfig& config, std::span<std::uint8_t> storage,
-                            const DfeDecoders& decoders) noexcept {
-    ring_ = nullptr;
+                            const DfeDecoders& decoders, RxStream& stream) noexcept {
+    stream_ = nullptr;
     active_ = false;
     const std::size_t need = storage_bytes(config);
     const DfeDecoders& d = decoders;
@@ -271,8 +269,12 @@ bool DfeReceiver::configure(const DfeReceiverConfig& config, std::span<std::uint
         return false;
     }
     if (config.max_input_data_blocks < 0) return false;
-    if (!front_end_.configure(config.roll_off)) return false;
+    const int pricing = static_cast<int>(config.noise_pricing);
+    if (pricing < 0 || pricing > 2) return false;
+    if (config.has_rls_forgetting_factor && !std::isfinite(config.rls_forgetting_factor)) return false;
+    if (config.has_track_ridge && !std::isfinite(config.track_ridge)) return false;
     const Sizes s = sizes_for(config.max_interleaver);
+    if (!stream.configured() || stream.size() < s.ring) return false;
     void* where = storage.data();
     std::size_t space = storage.size();
     if (std::align(alignof(double), need - alignof(double), where, space) == nullptr) return false;
@@ -304,22 +306,18 @@ bool DfeReceiver::configure(const DfeReceiverConfig& config, std::span<std::uint
     fetched2_ = l.fetched2;
     coded_ = l.coded;
     punctured_bits_ = l.punctured_bits;
-    ring_size_ = s.ring;
     max_size_bits_ = s.size_bits;
     max_input_bits_ = s.input_bits;
     max_block_symbols_ = s.symbols;
     config_ = config;
     decoders_ = decoders;
-    ring_ = l.ring;
+    stream_ = &stream;
     reset();
     return true;
 }
 
 void DfeReceiver::reset() noexcept {
-    if (ring_ == nullptr) return;
-    front_end_.reset();
-    std::fill(ring_, ring_ + ring_size_, ComplexF{});
-    written_ = 0;
+    if (stream_ == nullptr) return;
     active_ = false;
     tracking_initialized_ = false;
     pending_block_ = false;
@@ -330,7 +328,7 @@ void DfeReceiver::reset() noexcept {
 // ------------------------------------------------------------------ the burst
 
 bool DfeReceiver::start(const DfeStart& s) noexcept {
-    if (ring_ == nullptr || active_ || pending_block_ || pending_end_) return false;
+    if (stream_ == nullptr || active_ || pending_block_ || pending_end_) return false;
     const auto mode = mode_3k(s.waveform);
     if (!mode || mode->wn == 0 || static_cast<int>(s.interleaver) > static_cast<int>(config_.max_interleaver)) return false;
     const auto il = interleaver_3k(s.waveform, s.interleaver);
@@ -388,16 +386,20 @@ bool DfeReceiver::start(const DfeStart& s) noexcept {
 }
 
 std::size_t DfeReceiver::push_audio(std::span<const float> audio) noexcept {
-    if (ring_ == nullptr || pending_block_ || pending_end_) return 0;
+    if (stream_ == nullptr || pending_block_ || pending_end_) return 0;
     std::size_t used = 0;
     for (const float sample : audio) {
         ++used;
-        ComplexF t2;
-        if (!front_end_.push(sample, t2)) continue;
-        push_t2(t2);
+        if (!stream_->push(sample)) continue;
+        on_t2();
         if (pending_block_ || pending_end_) break;
     }
     return used;
+}
+
+void DfeReceiver::terminate() noexcept {
+    if (stream_ == nullptr || !active_) return;
+    end_burst(DfeEndReason::Terminated, burst_bits_);
 }
 
 DfeEvent DfeReceiver::event() const noexcept {
@@ -414,9 +416,7 @@ void DfeReceiver::take_event() noexcept {
     }
 }
 
-void DfeReceiver::push_t2(ComplexF sample) noexcept {
-    ring_[static_cast<std::size_t>(written_) & (ring_size_ - 1)] = sample;
-    ++written_;
+void DfeReceiver::on_t2() noexcept {
     if (active_) try_track();
 }
 
@@ -435,12 +435,13 @@ void DfeReceiver::try_track() noexcept {
 
 bool DfeReceiver::have_samples_for_chip(double chip) const noexcept {
     const double pos = chip0_ + (2.0 * chip) + tau_;  // the C# PositionOfChip
-    return written_ > static_cast<std::int64_t>(std::ceil(pos)) + interp_half + 1;
+    return stream_->written() > static_cast<std::int64_t>(std::ceil(pos)) + interp_half + 1;
 }
 
 ComplexF DfeReceiver::interpolate(double pos) const noexcept {
     const auto i0 = static_cast<std::int64_t>(std::floor(pos));
     const double frac = pos - static_cast<double>(i0);
+    const std::int64_t written = stream_->written();
     ComplexF acc{0, 0};
     for (int j = -interp_half + 1; j <= interp_half; ++j) {
         const double u = j - frac;
@@ -452,9 +453,9 @@ ComplexF DfeReceiver::interpolate(double pos) const noexcept {
         }
         const std::int64_t idx = i0 + j;
         // Look-back bound: every read is of a sample the ring still holds.
-        assert(idx < 0 || idx >= written_ || written_ - idx <= static_cast<std::int64_t>(ring_size_));
-        if (idx >= 0 && idx < written_) {
-            acc = acc + (ring_[static_cast<std::size_t>(idx) & (ring_size_ - 1)] * static_cast<float>(w));
+        assert(idx < 0 || idx >= written || written - idx <= static_cast<std::int64_t>(stream_->size()));
+        if (idx >= 0 && idx < written) {
+            acc = acc + (stream_->at(idx) * static_cast<float>(w));
         }
     }
     return acc;
@@ -486,7 +487,7 @@ void DfeReceiver::initialize_dfe() noexcept {
     nfb_ = p.fb_taps;
     ff_lead_ = p.lead;
     init_ridge_ = p.init_ridge;
-    track_ridge_ = p.track_ridge;
+    track_ridge_ = config_.has_track_ridge ? config_.track_ridge : p.track_ridge;  // the C# TrackRidge
     dfe_.configure(nff_, nfb_, dfe_storage_);
 
     // Known symbols for chips [dataStart - 576, dataStart + K): the final super-frame (count 0)
@@ -510,7 +511,9 @@ void DfeReceiver::initialize_dfe() noexcept {
     }
 
     // RLS forgetting tied to the frame: lambda = 1 - ln 10 / U (the C# default policy).
-    dfe_.begin_rls(static_cast<float>(1.0 - (std::log(10.0) / mode_.u)), 1.0f);
+    dfe_.begin_rls(config_.has_rls_forgetting_factor ? config_.rls_forgetting_factor
+                                                     : static_cast<float>(1.0 - (std::log(10.0) / mode_.u)),
+                   1.0f);
     dfe_.seed_rls_from_training(init_ridge_, 1.0f, 0.0f);
     dfe_.solve_training(init_ridge_, false, 0.0f);
     dfe_.begin_training();
@@ -843,7 +846,7 @@ void DfeReceiver::process_frame() noexcept {
     if (trace_fn_ != nullptr) {
         DfeFrameTrace& t = trace_;
         t.frame_chip = frame_chip_;
-        t.at_t2 = written_;
+        t.at_t2 = stream_->written();
         t.probe_gain = probe_gain;
         t.pre_mse = pre_mse;
         t.probe_energy = probe_energy_mean;
@@ -885,7 +888,8 @@ void DfeReceiver::process_frame() noexcept {
         collapse_armed_ = true;
     }
 
-    if (signal_absent(presence)) {
+    // The statistic is kept either way; PresenceReleaseOff only stops it ending the burst.
+    if (signal_absent(presence) && !config_.presence_release_off) {
         ++stats_.signal_absent_releases;
         end_burst(DfeEndReason::SignalAbsent, burst_bits_);
         return;
@@ -1304,7 +1308,7 @@ void DfeReceiver::finish_block() noexcept {
     }
 
     block_.index = block_index_;
-    block_.at_t2 = written_;
+    block_.at_t2 = stream_->written();
     block_.info = {info_, input};
     block_.llrs = {first_pass_llrs_, size};
     pending_block_ = true;
@@ -1352,7 +1356,7 @@ void DfeReceiver::end_burst(DfeEndReason reason, std::int64_t payload_bits) noex
     end_.reason = reason;
     end_.blocks = block_index_;
     end_.payload_bits = payload_bits;
-    end_.at_t2 = written_;
+    end_.at_t2 = stream_->written();
     pending_end_ = true;
     active_ = false;
     tracking_initialized_ = false;

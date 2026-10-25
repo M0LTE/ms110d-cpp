@@ -42,7 +42,7 @@ struct Run {
     std::int64_t t2 = 0;
 };
 
-Run run_detector(PreambleDetector& d, const std::vector<float>& audio, double threshold, std::size_t chunk) {
+Run run_detector(StandalonePreambleDetector& d, const std::vector<float>& audio, double threshold, std::size_t chunk) {
     PreambleDetectorConfig cfg;
     cfg.sync_threshold = threshold;
     REQUIRE(d.configure(cfg));
@@ -145,7 +145,7 @@ InterleaverKind kind_from_name(const std::string& s) {
     return InterleaverKind::Long;
 }
 
-auto make_detector() { return std::make_unique<PreambleDetector>(); }
+auto make_detector() { return std::make_unique<StandalonePreambleDetector>(); }
 
 }  // namespace
 
@@ -522,7 +522,7 @@ TEST_CASE("preamble detector: a default constructed detector detects at the defa
     std::vector<float> audio(n);
     REQUIRE(tx.modulate(bits, audio, n) == Status::Ok);
 
-    PreambleDetector det;  // no configure call
+    StandalonePreambleDetector det;  // no configure call
     CHECK(det.configured());
     std::size_t at = 0;
     while (at < audio.size() && !det.has_detection()) at += det.process(std::span<const float>(audio).subspan(at));

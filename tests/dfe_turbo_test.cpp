@@ -105,6 +105,7 @@ const char* reason_name(DfeEndReason r) {
         case DfeEndReason::MaxInputDataBlocks: return "MaxInputDataBlocks";
         case DfeEndReason::SignalLost: return "SignalLost";
         case DfeEndReason::SignalAbsent: return "SignalAbsent";
+        case DfeEndReason::Terminated: return "Terminated";
     }
     return "?";
 }
@@ -561,9 +562,9 @@ TEST_CASE("reference demodulator: nothing allocates over the whole corpus, every
     m0lte::fec::TailBitingSisoDecoder s9(m0lte::fec::k9_561_753, bits);
     BasicChainBcjr<float> chain(DfeReceiver::max_frame_symbols, 16);
     DfeDecoders dec{&k7, &k9, &s7, &s9, &chain};
-    std::vector<std::uint8_t> storage(DfeReceiver::storage_bytes(config));
-    auto detector = std::make_unique<PreambleDetector>();
-    auto receiver = std::make_unique<DfeReceiver>();
+    std::vector<std::uint8_t> storage(StandaloneDfeReceiver::storage_bytes(config));
+    auto detector = std::make_unique<StandalonePreambleDetector>();
+    auto receiver = std::make_unique<StandaloneDfeReceiver>();
     REQUIRE(receiver->configure(config, storage, dec));
 
     std::size_t allocations = 0;

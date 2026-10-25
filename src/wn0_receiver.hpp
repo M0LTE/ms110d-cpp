@@ -15,6 +15,9 @@
 // Walsh decisions; deinterleaved_block() puts a block into code order and decode_block() runs
 // the tail-biting Viterbi decoder (src/fec) on it.
 //
+// The samples come from the shared receive front end and ring (rx_stream.hpp) the receiver is bound
+// to at configure(); StandaloneWn0Receiver below carries its own for use on its own.
+//
 // No allocation, no exceptions; every buffer is in the object or given by the caller.
 
 #include <m0lte/ms110d/config.hpp>
@@ -22,6 +25,7 @@
 #include "fec/tail_biting_viterbi.hpp"
 #include "interleaver.hpp"
 #include "modulator.hpp"
+#include "rx_stream.hpp"
 #include "tables.hpp"
 #include "trinomial_scrambler.hpp"
 
@@ -91,24 +95,29 @@ public:
     static constexpr int fingers = 13;
     static constexpr int neg_fingers = 6;
     static constexpr int rake_chips = chips_per_symbol + fingers - 1;
-    // Half-chip samples kept (a power of two). A symbol reads 2 * 44 + 8 of them; the caller
-    // must keep step()ing between pushes so that the unread part never exceeds this.
+    // Half-chip samples the stream must keep at least (a power of two). A symbol reads 2 * 44 + 8
+    // of them; the driver must keep step()ing between pushes so that the unread part never
+    // exceeds the stream's ring.
     static constexpr std::size_t ring_size = 4096;
 
-    // Designs the receive pulse for the roll-off (must match the transmitter's; 0.35 is the
-    // standard's) and clears all state. False, unconfigured, if the roll-off is not valid.
-    bool configure(double roll_off) noexcept;
-    bool configured() const noexcept { return taps_ != 0; }
+    // Binds the receiver to the shared stream (configured, at least ring_size samples, kept in
+    // place) and drops any burst. False, unconfigured, if the stream does not fit.
+    bool configure(RxStream& stream) noexcept;
+    bool configured() const noexcept { return stream_ != nullptr; }
 
-    // Clears the front end and drops any burst. The half-chip counter restarts at 0.
+    // Drops any burst (the stream is the driver's to reset).
     void reset() noexcept;
 
-    // Feeds audio at 9600 Hz. Samples older than ring_size half-chips behind the newest are
-    // overwritten (and read as zero): step() often enough that this never matters.
+    // Ends the burst now (the terminate command): inactive until the next start().
+    void stop() noexcept;
+
+    // Feeds audio at 9600 Hz into the bound stream, for a receiver that is its only reader.
+    // Samples older than the ring behind the newest are overwritten (and read as zero): step()
+    // often enough that this never matters.
     void push_audio(std::span<const float> audio) noexcept;
 
     // Half-chip samples made so far.
-    std::int64_t half_chips_written() const noexcept { return written_; }
+    std::int64_t half_chips_written() const noexcept { return stream_ == nullptr ? 0 : stream_->written(); }
 
     // Begins a burst. block_llrs is the caller's buffer for one block's soft values, at least
     // interleaver.size_bits() long and kept in place until the burst ends; it is overwritten
@@ -156,21 +165,11 @@ private:
     Cx interpolate(double pos) const noexcept;
     bool have_samples_for_chip(double chip) const noexcept;
 
-    static constexpr std::size_t ring_mask = ring_size - 1;
     // The longest WN 0 interleaver (Table D-XXXVII, long): 1152 bits.
     static constexpr std::size_t max_block_bits = 1152;
 
-    // Front end.
-    std::array<float, max_pulse_taps> pulse_{};
-    std::array<real, max_pulse_taps> hist_re_{};
-    std::array<real, max_pulse_taps> hist_im_{};
-    std::array<Cx, 16> mix_{};
-    std::array<Cx, ring_size> ring_{};
-    std::size_t taps_ = 0;
-    std::size_t hist_pos_ = 0;
-    unsigned mix_phase_ = 0;
-    bool decimate_toggle_ = false;
-    std::int64_t written_ = 0;
+    // Front end: the shared stream.
+    RxStream* stream_ = nullptr;
 
     // Walsh demodulator.
     Trinomial159Scrambler scrambler_{};
@@ -192,6 +191,23 @@ private:
     std::span<real> block_{};
     std::array<float, max_block_bits> soft_{};  // deinterleaved block as float, for the decoder
     Wn0Symbol last_{};
+};
+
+// A WN 0 receiver with its own front end and ring, for use on its own (tests and tools): the same
+// interface, with configure() taking the roll-off and reset() covering the stream too.
+class StandaloneWn0Receiver : public Wn0Receiver {
+public:
+    bool configure(double roll_off) noexcept {
+        stream_.configure(roll_off);  // on failure the stream is unconfigured, so the next fails too
+        return Wn0Receiver::configure(stream_);
+    }
+    void reset() noexcept {
+        stream_.reset();
+        Wn0Receiver::reset();
+    }
+
+private:
+    OwnedRxStream<Wn0Receiver::ring_size> stream_{};
 };
 
 }  // inline namespace
