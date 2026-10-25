@@ -8,10 +8,10 @@
 
 #include "alloc_guard.hpp"
 #include "dfe_receiver.hpp"
+#include "probe_rule.hpp"
 #include "bcjr.hpp"
 #include "fec/tail_biting_siso.hpp"
 #include "fec/tail_biting_viterbi.hpp"
-#include "probe_pattern.hpp"
 #include "puncture.hpp"
 #include "framing.hpp"
 #include "preamble_detector.hpp"
@@ -193,7 +193,7 @@ double rel(double a, double b) { return std::abs(a - b) / (1.0 + std::abs(b)); }
 
 // The worst differences seen, for the summary line.
 struct Worst {
-    double llr = 0, omega = 0, theta = 0, tau = 0, ref = 0, mse = 0, presence = 0, evidence = 0, taps = 0, floor = 0;
+    double llr = 0, omega = 0, theta = 0, tau = 0, ref = 0, mse = 0, presence = 0, taps = 0, floor = 0;
     long tap_hash_equal = 0, tap_hash_total = 0;
 };
 
@@ -201,7 +201,7 @@ struct Worst {
 
 TEST_CASE("reference demodulator: every WN 1 to 5 ultra-short and short case against the C# frame by frame",
           "[dfe_receiver]") {
-    const fs::path dir = ms110d_test::reference_dir_or_skip();
+    const fs::path dir = ms110d_test::standard_reference_dir_or_skip();
     require_dump(MS110D_CSHARP_RX_DUMP);
     const std::vector<CsCase> cases = load_clean_dump();
     REQUIRE(cases.size() == 41);
@@ -210,14 +210,14 @@ TEST_CASE("reference demodulator: every WN 1 to 5 ultra-short and short case aga
     for (const CsCase& c : cases) {
         INFO("case " << c.name);
         const ms110d_test::ReferenceCase rc(dir / c.name, c.name);
-        std::vector<float> audio = rc.real32("audio_f32le");
+        std::vector<float> audio = rc.standard_real32("audio_f32le");
         audio.resize(audio.size() + 9600, 0.0f);
         const ms110d_test::RxRun r = driver.run(audio);
         REQUIRE(r.detected);
         CHECK(r.detection.waveform == c.wn);
 
-        // Frames: the same frames at the same samples, the same decisions about fading, collapse
-        // and the probe pattern, and the tracking state within the tolerances of the doc.
+        // Frames: the same frames at the same samples, the same decisions about fading and collapse,
+        // on the standard probe pattern audio (issue 68), and the tracking state within the tolerances of the doc.
         REQUIRE(r.frames.size() == c.frames.size());
         for (std::size_t i = 0; i < c.frames.size(); ++i) {
             INFO("frame " << i);
@@ -236,7 +236,6 @@ TEST_CASE("reference demodulator: every WN 1 to 5 ultra-short and short case aga
             w.mse = std::max(w.mse, rel(f.probe_mse, g.d("probemse")));
             w.floor = std::max(w.floor, rel(f.fade_floor, g.d("floor")));
             w.presence = std::max({w.presence, rel(f.presence, g.d("presence")), rel(f.presence_plain, g.d("plain"))});
-            w.evidence = std::max(w.evidence, std::abs(f.pattern_evidence - g.d("evidence")));
             w.taps = std::max(w.taps, rel(tap_energy(f), g.d("tapenergy")));
             // The printed diagnostics (3 or 4 decimals in the C# line).
             CHECK(std::abs(f.probe_gain - g.d("gain")) <= 0.5e-3 + 1e-6);
@@ -280,8 +279,8 @@ TEST_CASE("reference demodulator: every WN 1 to 5 ultra-short and short case aga
         CHECK(got == payload);
     }
     std::printf("dfe receiver vs C#, 41 clean cases: soft values %.3g, omega %.3g, theta %.3g rad, tau %.3g, refs %.3g, "
-                "probe mse %.3g, fade floor %.3g, presence %.3g, evidence %.3g, tap energy %.3g, tap hashes equal %ld of %ld\n",
-                w.llr, w.omega, w.theta, w.tau, w.ref, w.mse, w.floor, w.presence, w.evidence, w.taps, w.tap_hash_equal,
+                "probe mse %.3g, fade floor %.3g, presence %.3g, tap energy %.3g, tap hashes equal %ld of %ld\n",
+                w.llr, w.omega, w.theta, w.tau, w.ref, w.mse, w.floor, w.presence, w.taps, w.tap_hash_equal,
                 w.tap_hash_total);
     // Measured here: 0 for everything in the default build (bit for bit, every tap hash equal), and
     // at most 8.3e-7 in the single build. The bounds leave room for another machine's libm, whose
@@ -294,14 +293,13 @@ TEST_CASE("reference demodulator: every WN 1 to 5 ultra-short and short case aga
     CHECK(w.ref <= soft_bound);
     CHECK(w.mse <= soft_bound);
     CHECK(w.presence <= soft_bound);
-    CHECK(w.evidence <= soft_bound);
     CHECK(w.taps <= soft_bound);
     CHECK(w.floor <= soft_bound);
 }
 
 TEST_CASE("reference demodulator: seeded AWGN and cut bursts on WN 1 to 5 against the C#, decisions exact",
           "[dfe_receiver]") {
-    const fs::path dir = ms110d_test::reference_dir_or_skip();
+    const fs::path dir = ms110d_test::standard_reference_dir_or_skip();
     require_dump(MS110D_CSHARP_RX_AWGN);
     std::ifstream in(MS110D_CSHARP_RX_AWGN);
     REQUIRE(in.good());
@@ -332,7 +330,7 @@ TEST_CASE("reference demodulator: seeded AWGN and cut bursts on WN 1 to 5 agains
             cut = -1;
             if (kind == "cutbase") s >> k3 >> cut >> k4 >> tone_amp >> k5 >> tone_hz;
             const ms110d_test::ReferenceCase rc(dir / base_name, base_name);
-            base = rc.real32("audio_f32le");
+            base = rc.standard_real32("audio_f32le");
             payload = rc.bytes("payload_bits");
             REQUIRE(base.size() == n);
         } else if (kind == "point") {
@@ -373,7 +371,6 @@ TEST_CASE("reference demodulator: seeded AWGN and cut bursts on WN 1 to 5 agains
             worst_last = std::max({worst_last, rel(f.omega, std::stod(kv.at("omega"))),
                                    std::abs(f.theta_base - std::stod(kv.at("theta"))), std::abs(f.tau - std::stod(kv.at("tau"))),
                                    rel(f.probe_gain_ref, std::stod(kv.at("gainref"))),
-                                   std::abs(f.pattern_evidence - std::stod(kv.at("evidence"))),
                                    rel(f.presence, std::stod(kv.at("presence"))), rel(tap_energy(f), std::stod(kv.at("tapenergy")))});
             CHECK(f.fading_latched == (kv.at("latched") == "1"));
         } else if (kind == "block") {
@@ -797,25 +794,21 @@ TEST_CASE("dfe receiver: soft depuncturing inverts the puncture map", "[dfe_rece
     }
 }
 
-TEST_CASE("dfe receiver: the two probe pattern rules and the evidence", "[dfe_receiver]") {
-    ProbePattern p;
-    p.configure(16, 256);  // WN 1 short
-    CHECK_FALSE(p.boundary(-1));
-    CHECK(p.current(14));
-    CHECK_FALSE(p.standard(14));
-    CHECK(p.standard(254));
-    CHECK(p.current(254));
-    CHECK(p.needs_evidence(14));
-    CHECK_FALSE(p.needs_evidence(254));
-    CHECK(p.boundary(14));  // the current rule until the standard one is proven
-    p.add_evidence(0.49);
-    CHECK(p.boundary(14));
-    p.add_evidence(0.02);
-    CHECK_FALSE(p.boundary(14));  // switched at +0.5
-    p.add_evidence(-4.0);
-    CHECK(p.locked());
-    CHECK_FALSE(p.needs_evidence(14));
-    CHECK(p.boundary(14));
-    p.configure(256, 256);  // Long: the rules agree everywhere
-    for (std::int64_t g = -1; g < 600; ++g) CHECK_FALSE(p.needs_evidence(g));
+TEST_CASE("dfe receiver: the probe pattern is the standard one only", "[dfe_receiver]") {
+    // D.5.2.2 as the receiver and the transmitter share it (src/probe_rule.hpp, issue 68): the probe after
+    // data frame f is shifted only when f mod L == L - 2, L the Long interleaver's frames, whatever
+    // interleaver is selected; the probe ending the preamble (f = -1) never.
+    for (const int L : {256, 128, 64}) {
+        CHECK_FALSE(probe_is_shifted(-1, L));
+        int shifted = 0;
+        for (std::int64_t f = 0; f < 5 * L; ++f) {
+            const bool want = f % L == L - 2;
+            CHECK(probe_is_shifted(f, L) == want);
+            shifted += probe_is_shifted(f, L) ? 1 : 0;
+        }
+        CHECK(shifted == 5);
+    }
+    // The C# 0.2.1 default for a short interleaver of WN 1 (16 frames) would shift at frame 14; the standard does not.
+    CHECK_FALSE(probe_is_shifted(14, 256));
+    CHECK(probe_is_shifted(254, 256));
 }

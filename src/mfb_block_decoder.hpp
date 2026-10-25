@@ -69,7 +69,6 @@ inline double magnitude(NetComplex v) noexcept {
     return large * std::sqrt(1.0 + (ratio * ratio));
 }
 
-class ProbePattern;
 
 #ifdef MS110D_SINGLE_PRECISION
 inline namespace v_single {
@@ -184,7 +183,7 @@ private:
     double es_ = 0;
     bool window_set_ = false;
     int l_min_ = 0;
-    const ProbePattern* pattern_ = nullptr;
+    int long_frames_ = 1;
     std::int64_t block_base_ = 0;
     std::int64_t last_hc0_ = 0;
     int last_n_ = 0;

@@ -27,6 +27,13 @@ if (args.Length > 2 && args[0] == "shadow" && (args[1] == "decode" || args[1] ==
     return;
 }
 
+// "standard-reference" mode: the reference cases' probes and audio with the standard probe pattern, see StandardReference.cs.
+if (args.Length > 2 && args[0] == "standard-reference")
+{
+    StandardReference.Run(args[1], args[2]);
+    return;
+}
+
 // "tables" mode: the mode/table dump for tests/data/csharp-tables-0.2.1.txt (see TablesDump.cs).
 if (args.Length > 0 && args[0] == "tables")
 {

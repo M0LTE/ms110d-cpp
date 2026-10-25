@@ -119,7 +119,9 @@ TEST_CASE("reference preamble symbols match the generator", "[reference]") {
 }
 
 TEST_CASE("reference whole burst symbol streams and probe values match", "[reference]") {
-    const fs::path dir = ms110d_test::reference_dir_or_skip();
+    // The symbol stream is the same in both probe patterns; the probe values are those of the C# in
+    // its standard-pattern mode (the C++ sends the standard pattern, issue 68).
+    const fs::path dir = ms110d_test::standard_reference_dir_or_skip();
     int checked = 0;
     for (const ReferenceCase& c : load_cases(dir)) {
         INFO("case " << c.name());
@@ -145,7 +147,7 @@ TEST_CASE("reference whole burst symbol streams and probe values match", "[refer
         REQUIRE(sink.symbols.size() == burst.size());
         CHECK(sink.symbols == burst);
 
-        const auto probes = c.complex32("probe_values_cf32le");
+        const auto probes = c.standard_complex32("probe_values_cf32le");
         REQUIRE(sink.probes.size() == probes.size());
         bool probes_equal = true;
         for (std::size_t i = 0; i < probes.size(); ++i) {
@@ -451,7 +453,7 @@ struct ModulatorSink {
 }  // namespace
 
 TEST_CASE("reference end to end: framing into the modulator reproduces the reference audio", "[reference][modulator]") {
-    const fs::path dir = ms110d_test::reference_dir_or_skip();
+    const fs::path dir = ms110d_test::standard_reference_dir_or_skip();
     constexpr double tolerance = 1e-6;  // the modulator's documented per-sample tolerance
     std::size_t cases = 0;
     double worst = 0;
@@ -481,7 +483,7 @@ TEST_CASE("reference end to end: framing into the modulator reproduces the refer
         mod.read(std::span<real>(audio).subspan(at));
         CHECK(mod.done());
 
-        const auto ref = c.real32("audio_f32le");
+        const auto ref = c.standard_real32("audio_f32le");
         REQUIRE(audio.size() == ref.size());
         double err = 0;
         for (std::size_t i = 0; i < ref.size(); ++i) {

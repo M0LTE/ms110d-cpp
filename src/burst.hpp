@@ -5,8 +5,9 @@
 // The whole burst's symbol stream, before pulse shaping (D.5.2, D.5.2.2, D.5.4.4), as the C#
 // Ms110dModulator.BuildSymbols builds it: preamble, then for WN 0 the Walsh channel symbols of
 // each interleaver block, otherwise an initial mini-probe and per frame U data symbols plus a
-// mini-probe, the probe before an interleaver boundary cyclically shifted, and the last probe
-// extended by 32 symbols as the EOT marker.
+// mini-probe, the probe before a Long interleaver boundary cyclically shifted (D.5.2.2), and the
+// last probe extended by 32 symbols as the EOT marker. Which probes are shifted is the standard
+// rule, whatever interleaver is selected: see probe_is_shifted in probe_rule.hpp and issue 68.
 //
 // The input is the wire-order (interleaved) bits of each block, as produced by the FEC stage,
 // one bit per byte. Output goes to a Sink, so a caller can write bytes, feed a pulse shaper or
@@ -20,6 +21,7 @@
 
 #include "framing.hpp"
 #include "preamble.hpp"
+#include "probe_rule.hpp"
 #include "scrambler.hpp"
 #include "tables.hpp"
 #include "trinomial_scrambler.hpp"
@@ -40,6 +42,7 @@ struct BurstLayout {
     Mode mode;
     InterleaverKind interleaver_kind;
     InterleaverParams interleaver;
+    int long_frames;               // frames of the waveform's Long interleaver, the shift period
     bool append_eot;
     std::size_t blocks;            // interleaver blocks after EOM and zero fill
     std::size_t framed_bits;       // blocks * interleaver.input_bits
@@ -54,13 +57,6 @@ struct BurstLayout {
 // Nothing is returned for a waveform or interleaver the library does not define, a constraint
 // length other than 7 or 9, or preamble settings out of range.
 std::optional<BurstLayout> burst_layout(const TxSettings& config, std::size_t payload_bits) noexcept;
-
-// Whether the probe after frame f of an interleaver block of `frames` frames is the shifted
-// one. This is the C# rule, kept as it is (see issue 16): the probe after the second to last
-// frame of every block of the chosen interleaver, so with one frame per block every probe.
-constexpr bool probe_is_shifted(int frame_in_block, int frames_per_block) noexcept {
-    return (frame_in_block + 2) % frames_per_block == 0;
-}
 
 // One mini-probe of k symbols, shifted or not, followed by `extra` further symbols of the same
 // cyclic extension (the EOT marker is 32).
@@ -99,7 +95,7 @@ void write_walsh_symbol(std::span<const std::uint8_t> wire_bits, std::size_t ind
 }
 
 // One data frame of a WN 1 and up block: U unknown symbols, scrambled afresh (D.5.1.3), then
-// the mini-probe (shifted before an interleaver boundary), extended by the 32 symbol EOT
+// the mini-probe (shifted before a Long interleaver boundary), extended by the 32 symbol EOT
 // marker after the very last frame of the burst. Frames are independent, so a transmitter can
 // produce a burst a frame at a time. `wire_bits` is the whole block (layout.interleaver.size_bits
 // bits), `frame` is 0 to layout.interleaver.frames - 1 and block_index below layout.blocks;
@@ -135,7 +131,8 @@ void write_frame(const BurstLayout& layout, std::size_t block_index, int frame,
         }
     }
     const bool last = block_index + 1 == layout.blocks && frame == layout.interleaver.frames - 1;
-    write_probe(mode.k, probe_is_shifted(frame, layout.interleaver.frames), last && layout.append_eot ? 32 : 0, sink);
+    const std::int64_t frame_number = static_cast<std::int64_t>(block_index) * layout.interleaver.frames + frame;
+    write_probe(mode.k, probe_is_shifted(frame_number, layout.long_frames), last && layout.append_eot ? 32 : 0, sink);
 }
 
 // Symbols of one interleaver block: `wire_bits` is exactly layout.interleaver.size_bits bits.

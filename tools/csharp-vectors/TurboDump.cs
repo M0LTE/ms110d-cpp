@@ -8,7 +8,7 @@
 //   rx-corpus  <out-stem>  fresh bursts, never committed (scripts/generate-rx-corpus.sh): the
 //                          Poor channel (M0LTE.HfChannel) on every equaliser mode, and bursts
 //                          sent with the D.5.2.2 standard probe pattern through the C#
-//                          modulator's internal test switch, clean and in noise. Audio as 16 bit
+//                          modulator's internal test switch (every burst, issue 68), clean and in noise. Audio as 16 bit
 //                          samples in <stem>.i16le, results in <stem>.txt.
 // Run from the repo root: dotnet run -c Release --project tools/csharp-vectors -- rx-turbo <ref-dir>
 //
@@ -141,6 +141,7 @@ static class TurboDump
     static Run Demodulate(float[] audio)
     {
         var demod = new Ms110dDemodulator();
+        StandardTx.ResolvePatternToStandard(demod);  // the C++ expects the standard pattern from the first frame (issue 68)
         var run = new Run();
         var frameHash = new Fnv();
         int frames = 0;
@@ -180,7 +181,7 @@ static class TurboDump
             double mse = (double)Get(demod, "_probeMse")!, floor = (double)Get(demod, "_fadeFloor")!;
             bool latched = (bool)Get(demod, "_fadingLatched")!;
             double evidence = (double)Get(Get(demod, "_probePattern")!, "_evidence")!;
-            foreach (double d in new[] { omega, theta, tau, gainRef, energyRef, mse, floor, presence, plain, evidence })
+            foreach (double d in new[] { omega, theta, tau, gainRef, energyRef, mse, floor, presence, plain })  // not the pattern evidence: the C++ has no pattern hypotheses (issue 68)
             {
                 frameHash.Add(d);
             }
@@ -312,7 +313,7 @@ static class TurboDump
                      .Where(l => l.StartsWith("case=wn", StringComparison.Ordinal) && !l.StartsWith("case=wn0_", StringComparison.Ordinal))
                      .Select(l => l[5..]))
         {
-            float[] audio = ReadAudio(Path.Combine(refDir, name, "13_audio.f32"));
+            float[] audio = ReadAudio(StandardTx.AudioPath(refDir, name));
             float[] padded = new float[audio.Length + 9600];
             audio.CopyTo(padded, 0);
             sb.Append($"case {name} ");
@@ -466,13 +467,13 @@ static class TurboDump
             {
                 for (int n = 0; n < 2; n++)
                 {
-                    Burst($"poor-wn{wn}-{(int)kind}-{n}", wn, kind, false, "poor", MaskSnr(wn) + (n == 0 ? 8 : 12), 20000 + (100 * wn) + (10 * (int)kind) + n, 2);
+                    Burst($"poor-wn{wn}-{(int)kind}-{n}", wn, kind, true, "poor", MaskSnr(wn) + (n == 0 ? 8 : 12), 20000 + (100 * wn) + (10 * (int)kind) + n, 2);
                 }
             }
 
             if (wn >= 5)
             {
-                Burst($"poor-wn{wn}-2", wn, Ms110dInterleaverKind.Medium, false, "poor", MaskSnr(wn) + 10, 21000 + wn, 1);
+                Burst($"poor-wn{wn}-2", wn, Ms110dInterleaverKind.Medium, true, "poor", MaskSnr(wn) + 10, 21000 + wn, 1);
             }
 
             // Moderate and shifted-Poor multipath with the carrier 20 Hz off, either way: the fade
@@ -480,17 +481,17 @@ static class TurboDump
             for (int n = 0; n < 2; n++)
             {
                 double hz = n == 0 ? 20.0 : -20.0;
-                Burst($"mod-wn{wn}-{n}", wn, Ms110dInterleaverKind.Short, false, "moderate", MaskSnr(wn) + 6, 22000 + (10 * wn) + n, 3, hz);
-                Burst($"shift-wn{wn}-{n}", wn, Ms110dInterleaverKind.Short, false, "poor-shift", MaskSnr(wn) + 10, 23000 + (10 * wn) + n, 3, -hz);
+                Burst($"mod-wn{wn}-{n}", wn, Ms110dInterleaverKind.Short, true, "moderate", MaskSnr(wn) + 6, 22000 + (10 * wn) + n, 3, hz);
+                Burst($"shift-wn{wn}-{n}", wn, Ms110dInterleaverKind.Short, true, "poor-shift", MaskSnr(wn) + 10, 23000 + (10 * wn) + n, 3, -hz);
 
                 // A carrier drifting at 4 Hz per second, either way: past the 3 Hz clamp on the
                 // receiver's carrier trim within the burst ("offset_hz" is the ramp here).
-                Burst($"drift-wn{wn}-{n}", wn, Ms110dInterleaverKind.Short, false, "drift", MaskSnr(wn) + 6, 24000 + (10 * wn) + n, 3, n == 0 ? 4.0 : -4.0);
+                Burst($"drift-wn{wn}-{n}", wn, Ms110dInterleaverKind.Short, true, "drift", MaskSnr(wn) + 6, 24000 + (10 * wn) + n, 3, n == 0 ? 4.0 : -4.0);
             }
         }
 
-        // The standard probe pattern: every mode, ultra-short, short and medium, clean; short in
-        // noise at the mask plus 3 dB. A current-pattern twin of each noisy one for comparison.
+        // Every burst is sent with the standard probe pattern (the C++ receiver expects only that one, issue 68).
+        // Here: every mode, ultra-short, short and medium, clean; short in noise at the mask plus 3 dB.
         foreach (int wn in Waveforms)
         {
             foreach (Ms110dInterleaverKind kind in new[] { Ms110dInterleaverKind.UltraShort, Ms110dInterleaverKind.Short, Ms110dInterleaverKind.Medium })
@@ -499,7 +500,6 @@ static class TurboDump
             }
 
             Burst($"std-awgn-wn{wn}", wn, Ms110dInterleaverKind.Short, true, "awgn", MaskSnr(wn) + 3, 31000 + wn, 2);
-            Burst($"cur-awgn-wn{wn}", wn, Ms110dInterleaverKind.Short, false, "awgn", MaskSnr(wn) + 3, 31000 + wn, 2);
         }
 
         // Fading on, off and on again, long enough at each stage for the detector's 24 frame enter
@@ -508,7 +508,7 @@ static class TurboDump
         {
             for (int n = 0; n < 2; n++)
             {
-                Burst($"onoff-wn{wn}-{n}", wn, Ms110dInterleaverKind.Short, false, "onoff", MaskSnr(wn) + 8 + (4 * n), 25000 + (10 * wn) + n, 24);
+                Burst($"onoff-wn{wn}-{n}", wn, Ms110dInterleaverKind.Short, true, "onoff", MaskSnr(wn) + 8 + (4 * n), 25000 + (10 * wn) + n, 24);
             }
         }
 
@@ -523,7 +523,7 @@ static class TurboDump
         // 40019 has two offers and adopts one, 40027 offers and adopts none.
         foreach ((int seed, double snr) in new[] { (40007, 13.0), (40020, 13.0), (40012, 13.0), (40008, 15.0), (40019, 15.0), (40036, 17.0), (40027, 13.0), (40038, 19.0) })
         {
-            Burst($"relock-wn7-{seed}", 7, Ms110dInterleaverKind.Short, false, "poor", snr, seed, 3);
+            Burst($"relock-wn7-{seed}", 7, Ms110dInterleaverKind.Short, true, "poor", snr, seed, 3);
         }
 
         // Found by search for the boundaries of two constants: fade detector excursions with the counter
@@ -535,7 +535,7 @@ static class TurboDump
             (7, "poor", 13.0, 50044, 3), (7, "poor", 15.0, 50130, 3), (7, "poor", 17.0, 50015, 3),
         })
         {
-            Burst($"edge-wn{wn}-{channel}-{seed}", wn, Ms110dInterleaverKind.Short, false, channel, snr, seed, blocks);
+            Burst($"edge-wn{wn}-{channel}-{seed}", wn, Ms110dInterleaverKind.Short, true, channel, snr, seed, blocks);
         }
 
         File.WriteAllText(stem + ".txt", text.ToString());

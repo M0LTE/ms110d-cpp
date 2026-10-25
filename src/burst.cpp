@@ -11,6 +11,8 @@ std::optional<BurstLayout> burst_layout(const TxSettings& config, std::size_t pa
     if (!mode) return std::nullopt;
     const auto il = interleaver_3k(config.waveform_number, config.interleaver);
     if (!il) return std::nullopt;
+    const auto long_il = interleaver_3k(config.waveform_number, InterleaverKind::Long);
+    if (!long_il) return std::nullopt;
     if (config.constraint_length != 7 && config.constraint_length != 9) return std::nullopt;
     if (config.tlc_blocks < 0 || config.tlc_blocks > 255 || config.preamble_superframes < 1 || config.preamble_superframes > 32) {
         return std::nullopt;
@@ -20,6 +22,7 @@ std::optional<BurstLayout> burst_layout(const TxSettings& config, std::size_t pa
     l.mode = *mode;
     l.interleaver_kind = config.interleaver;
     l.interleaver = *il;
+    l.long_frames = long_il->frames;
     l.append_eot = config.append_eot;
     l.blocks = framed_block_count(payload_bits, config.append_eom, static_cast<std::size_t>(il->input_bits));
     l.framed_bits = l.blocks * static_cast<std::size_t>(il->input_bits);

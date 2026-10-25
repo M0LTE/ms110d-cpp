@@ -13,7 +13,6 @@
 #include "fec/tail_biting_siso.hpp"
 #include "fec/tail_biting_viterbi.hpp"
 #include "preamble_detector.hpp"
-#include "probe_pattern.hpp"
 #include "reference_files.hpp"
 #include "rx_driver.hpp"
 
@@ -74,7 +73,7 @@ std::string frame_hash(const std::vector<DfeFrameTrace>& frames, std::size_t fro
     for (std::size_t i = from; i < to; ++i) {
         const DfeFrameTrace& t = frames[i];
         for (const double d : {t.omega, t.theta_base, t.tau, t.probe_gain_ref, t.probe_energy_ref, t.probe_mse,
-                               t.fade_floor, t.presence, t.presence_plain, t.pattern_evidence}) {
+                               t.fade_floor, t.presence, t.presence_plain}) {
             f.add(d);
         }
         for (int k = 0; k < t.tap_count; ++k) {
@@ -287,7 +286,7 @@ void compare(const CsBurst& c, const ms110d_test::RxRun& r, Tally& t, const std:
             const auto d = [&k](const char* key) { return std::stod(k.last.at(key)); };
             t.last_state = std::max({t.last_state, rel(f.omega, d("omega")), std::abs(f.theta_base - d("theta")),
                                      std::abs(f.tau - d("tau")), rel(f.probe_gain_ref, d("gainref")),
-                                     rel(f.presence, d("presence")), std::abs(f.pattern_evidence - d("evidence"))});
+                                     rel(f.presence, d("presence"))});
             CHECK(f.fading_latched == (k.last.at("latched") == "1"));
         }
 
@@ -418,7 +417,7 @@ void check_tally(const Tally& t, long max_bursts_diff) {
 
 TEST_CASE("reference demodulator: the shipped receiver on every WN 1 to 8 and 13 reference case against the C#",
           "[dfe_turbo]") {
-    const fs::path dir = ms110d_test::reference_dir_or_skip();
+    const fs::path dir = ms110d_test::standard_reference_dir_or_skip();
     require_file(MS110D_CSHARP_RX_TURBO);
     const std::vector<CsBurst> cases = load(MS110D_CSHARP_RX_TURBO, "case");
     REQUIRE(cases.size() == 112);
@@ -426,7 +425,7 @@ TEST_CASE("reference demodulator: the shipped receiver on every WN 1 to 8 and 13
     Tally t;
     for (const CsBurst& c : cases) {
         const ms110d_test::ReferenceCase rc(dir / c.label, c.label);
-        std::vector<float> audio = rc.real32("audio_f32le");
+        std::vector<float> audio = rc.standard_real32("audio_f32le");
         audio.resize(audio.size() + 9600, 0.0f);
         const auto payload = rc.bytes("payload_bits");
         compare(c, driver.run(audio), t, &payload);
@@ -449,8 +448,8 @@ TEST_CASE("reference demodulator: Poor, Moderate and shifted multipath with carr
     REQUIRE(bin.good());
     ms110d_test::RxDriver driver(InterleaverKind::Medium);
     Tally t;
-    long clamp_frames = 0, fade_enters = 0, fade_exits = 0, fade_reentries = 0, floor_recoveries = 0, std_switched = 0,
-         std_bursts = 0, cur_kept = 0, cur_bursts = 0, std_long_bursts = 0, std_long_reached = 0;
+    long clamp_frames = 0, fade_enters = 0, fade_exits = 0, fade_reentries = 0, floor_recoveries = 0, std_long_bursts = 0,
+         std_long_reached = 0;
     const double window_3hz = 2.0 * std::numbers::pi * 3.0 / (2.0 * 2400);
     for (const CsBurst& c : bursts) {
         const long long offset = std::stoll(c.head.at("offset"));
@@ -482,9 +481,11 @@ TEST_CASE("reference demodulator: Poor, Moderate and shifted multipath with carr
                 if (f.fade_floor > p.fade_floor && !f.fresh_solve) ++floor_recoveries;
             }
         }
-        // The standard pattern: the receiver switches to it and decodes; the current one it keeps.
+        // Every corpus burst is sent with the standard pattern, the only one the receiver expects (issue 68).
+        // The "std-" bursts are clean or mild, and must decode; the others are as hard as the channel makes them
+        // and are only compared with the C#.
         const bool standard = c.head.at("standard") == "1";
-        const bool disagree = c.head.at("il") != "3";  // the rules agree everywhere only for Long
+        REQUIRE(standard);
         if (c.label.rfind("std-long-", 0) == 0) {
             // Long enough to reach the probe only the standard rule shifts: frame L - 2 of the burst.
             ++std_long_bursts;
@@ -492,23 +493,7 @@ TEST_CASE("reference demodulator: Poor, Moderate and shifted multipath with carr
             REQUIRE(long_il);
             if (r.frames.size() >= static_cast<std::size_t>(long_il->frames)) ++std_long_reached;
         }
-        if (disagree && !r.frames.empty()) {
-            const double evidence = r.frames.back().pattern_evidence;
-            if (standard) {
-                ++std_bursts;
-                if (evidence >= ProbePattern::switch_evidence) {
-                    ++std_switched;
-                } else if (std::getenv("MS110D_TURBO_DEBUG") != nullptr) {
-                    std::printf("  standard pattern not taken: %s, evidence %.3f, %zu frames\n", c.label.c_str(), evidence,
-                                r.frames.size());
-                }
-            } else if (c.label.rfind("cur-", 0) == 0) {
-                ++cur_bursts;
-                if (evidence < ProbePattern::switch_evidence) ++cur_kept;
-            }
-        }
-        if (standard) {
-            // Every standard pattern burst decodes, in both builds.
+        if (c.label.rfind("std-", 0) == 0) {
             INFO("burst " << c.label);
             REQUIRE(r.ended);
             CHECK(r.end.reason == DfeEndReason::Eom);
@@ -521,10 +506,8 @@ TEST_CASE("reference demodulator: Poor, Moderate and shifted multipath with carr
     print("shipped receiver vs C#, corpus", t);
     check_tally(t, 24);  // worst measured 20 of 166
     std::printf("corpus coverage: frames at the 3 Hz carrier clamp %ld, fade entries %ld, exits %ld, re-entries %ld, fade floor "
-                "recoveries %ld; standard pattern bursts switched %ld of %ld (%ld of %ld long ones reach frame L - 2), current "
-                "pattern bursts kept %ld of %ld\n",
-                clamp_frames, fade_enters, fade_exits, fade_reentries, floor_recoveries, std_switched, std_bursts, std_long_reached,
-                std_long_bursts, cur_kept, cur_bursts);
+                "recoveries %ld; %ld of %ld long standard pattern bursts reach frame L - 2\n",
+                clamp_frames, fade_enters, fade_exits, fade_reentries, floor_recoveries, std_long_reached, std_long_bursts);
     CHECK(clamp_frames > 0);
     CHECK(fade_enters > 0);
     CHECK(fade_exits > 0);
@@ -535,12 +518,6 @@ TEST_CASE("reference demodulator: Poor, Moderate and shifted multipath with carr
     CHECK(t.relock_adopted > 0);
     CHECK(t.relock_adopted < t.relock_offers);  // offers refused as well as taken
     CHECK(floor_recoveries > 0);
-    CHECK(std_bursts == 39);
-    // All but two: WN 1 and WN 2 with the ultra-short interleaver and two blocks offer only two
-    // disagreeing probes, whose scores sum to 0.40 against the 0.5 needed to switch (the same in the
-    // C#, frame for frame); both still decode their payload.
-    CHECK(std_switched == std_bursts - 2);
-    CHECK(cur_kept == cur_bursts);
     CHECK(t.outcomes["reverted"] > 0);
     CHECK(t.outcomes["salvaged"] > 0);
     CHECK(t.mfb_selected > 0);
