@@ -9,6 +9,8 @@
 # This works on whole strings, not lists, because code and markdown are full of semicolons and
 # square brackets, which CMake lists treat specially.
 
+cmake_minimum_required(VERSION 3.22)
+
 # CMake regex brackets take no escapes, so a newline in a bracket needs the real character.
 set(NL "\n")
 
@@ -57,7 +59,7 @@ foreach(pair IN LISTS PAIRS)
     endif()
     string(SUBSTRING "${after}" 0 ${end} body)
     # Drop the partial line holding the end marker's comment opener.
-    string(REGEX REPLACE "[^${NL}]*$" "" body "${body}")
+    string(REGEX REPLACE "[^${NL}]+$" "" body "${body}")
     # Other snippet markers nested inside this one are not part of its text.
     string(REGEX REPLACE "[^${NL}]*snippet-(begin|end) [^${NL}]*${NL}" "" body "${body}")
     _normalise("${body}" nb)
