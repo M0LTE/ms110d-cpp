@@ -103,6 +103,48 @@ jobs:
           path: build/layer3-results
           if-no-files-found: ignore
 
+  masks:
+    name: performance masks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Cache the mask audio
+        uses: actions/cache@v4
+        with:
+          path: build/_reference/masks-ci
+          key: masks-ci-${{ hashFiles('reference/pin.txt', 'scripts/generate-masks.sh', 'tools/csharp-vectors/*.cs', 'tools/csharp-vectors/*.csproj') }}
+      - name: Generate the mask audio with the C# reference
+        env:
+          MS110D_MASK_THREADS: "4"
+        run: scripts/generate-masks.sh
+      - name: Configure and build the double precision tests
+        run: |
+          cmake -S . -B build/masks-double -DCMAKE_BUILD_TYPE=Release -DMS110D_DOTNET_TESTS=OFF -DMS110D_MASK_DIR="$GITHUB_WORKSPACE/build/_reference/masks-ci"
+          cmake --build build/masks-double -j4 --target ms110d_mask_tests
+      - name: Configure and build the single precision tests
+        run: |
+          cmake -S . -B build/masks-single -DCMAKE_BUILD_TYPE=Release -DMS110D_PRECISION=single -DMS110D_DOTNET_TESTS=OFF -DMS110D_MASK_DIR="$GITHUB_WORKSPACE/build/_reference/masks-ci"
+          cmake --build build/masks-single -j4 --target ms110d_mask_tests
+      - name: Masks in double precision (must not skip)
+        env:
+          MS110D_REQUIRE_REFERENCE: "1"
+          MS110D_MASK_LOG: ${{ github.workspace }}/build/masks-double.csv
+        run: ctest --test-dir build/masks-double --output-on-failure -R "^masks" -j4 --no-tests=error
+      - name: Masks in single precision (must not skip)
+        env:
+          MS110D_REQUIRE_REFERENCE: "1"
+          MS110D_MASK_LOG: ${{ github.workspace }}/build/masks-single.csv
+        run: ctest --test-dir build/masks-single --output-on-failure -R "^masks" -j4 --no-tests=error
+      - name: Mask results
+        if: always()
+        run: |
+          touch build/masks-double.csv build/masks-single.csv
+          scripts/mask-summary.sh build/masks-double.csv build/masks-single.csv >> "$GITHUB_STEP_SUMMARY"
+
   reference:
     name: reference files
     runs-on: ubuntu-24.04

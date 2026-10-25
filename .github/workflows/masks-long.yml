@@ -1,0 +1,91 @@
+name: Performance masks (long)
+
+# The full counts of the C# repo's mask tests: 3,000,000 payload bits per point, 600 s simulated on the Poor channel.
+# By hand only. One job per point; each makes its audio with the C# reference, then decodes it in double and single
+# precision. See docs/dev/masks.md.
+on:
+  workflow_dispatch:
+    inputs:
+      points:
+        description: "Comma separated point ids (for example awgn-wn3,poor-wn5); empty for all 25"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      points: ${{ steps.pick.outputs.points }}
+    steps:
+      - id: pick
+        env:
+          WANT: ${{ inputs.points }}
+        run: |
+          all='["awgn-wn0","awgn-wn1","awgn-wn2","awgn-wn3","awgn-wn4","awgn-wn5","awgn-wn6","awgn-wn7","awgn-wn8","awgn-wn13","poor-wn0","poor-wn1","poor-wn2","poor-wn3","poor-wn4","poor-wn5","poor-wn6","poor-wn7","poor-wn8","poor-wn13","static-wn2","below-awgn-wn2","below-awgn-wn6","below-poor-wn3","below-poor-wn5"]'
+          if [ -z "$WANT" ]; then
+            echo "points=$all" >> "$GITHUB_OUTPUT"
+          else
+            echo "points=$(echo "$WANT" | tr -d ' ' | jq -R -c 'split(",")')" >> "$GITHUB_OUTPUT"
+          fi
+
+  point:
+    name: ${{ matrix.point }}
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 345
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        point: ${{ fromJSON(needs.plan.outputs.points) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Generate this point with the C# reference
+        env:
+          MS110D_MASK_THREADS: "4"
+        run: scripts/generate-masks.sh --profile long build/_reference ${{ matrix.point }}
+      - name: Build the double and single precision tests
+        run: |
+          for p in double single; do
+            cmake -S . -B build/masks-$p -DCMAKE_BUILD_TYPE=Release -DMS110D_PRECISION=$p -DMS110D_DOTNET_TESTS=OFF -DMS110D_MASK_DIR="$GITHUB_WORKSPACE/build/_reference/masks-long"
+            cmake --build build/masks-$p -j4 --target ms110d_mask_tests
+          done
+      - name: Decode in double and single precision
+        env:
+          MS110D_REQUIRE_REFERENCE: "1"
+        run: |
+          mkdir -p build/out
+          MS110D_MASK_LOG="$GITHUB_WORKSPACE/build/out/${{ matrix.point }}-double.csv" ctest --test-dir build/masks-double --output-on-failure -R "mask ${{ matrix.point }}$" --no-tests=error &
+          pd=$!
+          MS110D_MASK_LOG="$GITHUB_WORKSPACE/build/out/${{ matrix.point }}-single.csv" ctest --test-dir build/masks-single --output-on-failure -R "mask ${{ matrix.point }}$" --no-tests=error &
+          ps=$!
+          rc=0
+          wait "$pd" || rc=1
+          wait "$ps" || rc=1
+          exit $rc
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: masks-${{ matrix.point }}
+          path: build/out
+          if-no-files-found: warn
+
+  summary:
+    needs: point
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: masks-*
+          path: ${{ runner.temp }}/rows
+          merge-multiple: true
+      - name: Table
+        run: scripts/mask-summary.sh "$RUNNER_TEMP"/rows/*.csv >> "$GITHUB_STEP_SUMMARY"
