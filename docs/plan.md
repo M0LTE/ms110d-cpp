@@ -23,10 +23,10 @@ Concretely, the two must agree on:
 
 ## Licensing
 
-Public under AGPL-3.0-or-later, the same as the C#, with separate commercial licences offered by the copyright holder.
+Public under AGPL-3.0-or-later, the same as the C#, with separate commercial licences offered by the copyright holder at any time, whatever the version.
 
 - Every commit in M0LTE.Ms110d is the copyright holder's, and its PROVENANCE.md records that no third-party source was consulted: constants come from the published standard, the DSP from textbooks.
-- To confirm before the first commercial deal: M0LTE.Dsp, M0LTE.Fec and M0LTE.Ofdm carry the same clean provenance.
+- M0LTE.Dsp and M0LTE.Fec are confirmed clean (#9); the only codec2-derived dependency, M0LTE.Ofdm, was removed from M0LTE.Ms110d in 0.2.0 (#55).
 - Outside contributions only with a contributor licence agreement, or not at all, so the commercial route stays open.
 - This repo has its own [PROVENANCE.md](../PROVENANCE.md) saying it is a port of the C# reference plus the standard, and nothing else.
 
@@ -111,7 +111,7 @@ Each stage ends with a merged, reviewed PR and its tests passing. Stages 6 and 7
 5. **Receive, the rest.** WN6 to WN8 and WN13, the long interleaver, the MFB decoder. Gate: layers 3 and 4 pass for every mode.
 6. **Shadow receiver.** Both decoders on GB7RDG's live bulletins. Gate: two weeks with no unexplained differences.
 7. **Nucleo.** If we go to hardware: buy a NUCLEO-H743ZI2 and measure the load first, then PWM transmit, audio receive and KISS over the NinoTNC's USB serial. On-air receive test before any transmitting. Gate: frames exchanged with a pdn-soundmodem station on air.
-8. **Release 1.0.** Version 1.0 of the library with the API locked; commercial licences available from this point.
+8. **Release 1.0.** Version 1.0 of the library with the API locked.
 
 ## Decisions
 
@@ -129,3 +129,4 @@ Each stage ends with a merged, reviewed PR and its tests passing. Stages 6 and 7
 - 2026-10-24: layer 4 pass rule made precise. The C# receiver is chaotic on marginal real bursts (tiny audio changes alter bits, but only in frames that fail their CRC anyway), so exact payload equality is required only on error-free bursts; otherwise good-frame counts are compared with a tolerance of one frame per burst and 2% over the corpus. Details in docs/dev/corpus.md.
 - 2026-10-25: performance masks (story 30) run in the stand-alone suite on channel audio made by the C# reference through M0LTE.HfChannel. The pull request job uses 370,000 bits per point (capped at 1300 s of audio, so WN0 to WN2 are compared with the C# but decided only by the long run); the full 3,000,000 bits are a manual workflow. Details in docs/dev/masks.md.
 - 2026-10-25: "both interleavers" corrected to all four (the standard has four and the library does all of them), and the receiver's memory on the H7 updated from the early 60 KB estimate to the measured 4.1 MiB for the short interleaver.
+- 2026-10-25: commercial licences can be offered at any point, irrespective of version number (Tom); stage 8 no longer ties them to 1.0.
