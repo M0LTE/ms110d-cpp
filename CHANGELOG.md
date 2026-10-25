@@ -6,6 +6,10 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 Nothing is released yet. What is on `main` so far:
 
+### Changed
+
+- Behaviour change: the transmitter sends the MIL-STD-188-110D standard mini-probe boundary pattern. The probe after data frame f (numbered from 0 over the burst) is cyclically shifted only when f mod L == L - 2, L being the frame count of the waveform's Long interleaver, whatever interleaver is selected. Before, the probe was shifted before the selected interleaver's boundary, as the C# 0.2.1 transmitter still does; the two are the same for the Long interleaver, so only ultra-short, short and medium bursts change (issue 68).
+
 ### Added
 
 - An installable CMake library for PC and Cortex-M7, in single or double precision, with a C interface for other languages and .NET interop tests.

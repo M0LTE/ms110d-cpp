@@ -75,7 +75,11 @@ ReferenceCase::ReferenceCase(fs::path dir, std::string name)
     : dir_(std::move(dir)), name_(std::move(name)), manifest_(Manifest::load(dir_ / "manifest.txt")) {}
 
 std::vector<std::uint8_t> ReferenceCase::raw(const std::string& stage, std::size_t element_size) const {
-    const std::string data = read_file(dir_ / manifest_.str("file." + stage));
+    return raw_at(dir_ / manifest_.str("file." + stage), stage, element_size);
+}
+
+std::vector<std::uint8_t> ReferenceCase::raw_at(const fs::path& file, const std::string& stage, std::size_t element_size) const {
+    const std::string data = read_file(file);
     const long long count = manifest_.integer("count." + stage);
     if (data.size() != static_cast<std::size_t>(count) * element_size) {
         throw std::runtime_error(name_ + ": stage " + stage + " has " + std::to_string(data.size()) +
@@ -89,7 +93,26 @@ std::vector<std::uint8_t> ReferenceCase::bytes(const std::string& stage) const {
 }
 
 std::vector<float> ReferenceCase::real32(const std::string& stage) const {
-    const auto b = raw(stage, 4);
+    return decode_real32(raw(stage, 4));
+}
+
+std::vector<float> ReferenceCase::standard_real32(const std::string& stage) const {
+    return decode_real32(raw_at(standard_dir() / manifest_.str("file." + stage), stage, 4));
+}
+
+std::vector<std::complex<float>> ReferenceCase::complex32(const std::string& stage) const {
+    return decode_complex32(raw(stage, 8));
+}
+
+std::vector<std::complex<float>> ReferenceCase::standard_complex32(const std::string& stage) const {
+    return decode_complex32(raw_at(standard_dir() / manifest_.str("file." + stage), stage, 8));
+}
+
+fs::path ReferenceCase::standard_dir() const {
+    return standard_root(dir_.parent_path()) / name_;
+}
+
+std::vector<float> ReferenceCase::decode_real32(const std::vector<std::uint8_t>& b) {
     std::vector<float> out(b.size() / 4);
     for (std::size_t i = 0; i < out.size(); ++i) {
         // Little-endian float32; build the word explicitly so big-endian hosts also work.
@@ -101,8 +124,7 @@ std::vector<float> ReferenceCase::real32(const std::string& stage) const {
     return out;
 }
 
-std::vector<std::complex<float>> ReferenceCase::complex32(const std::string& stage) const {
-    const auto b = raw(stage, 8);
+std::vector<std::complex<float>> ReferenceCase::decode_complex32(const std::vector<std::uint8_t>& b) {
     std::vector<std::complex<float>> out(b.size() / 8);
     for (std::size_t i = 0; i < out.size(); ++i) {
         float parts[2];
@@ -133,6 +155,23 @@ fs::path reference_dir_or_skip() {
         FAIL("MS110D_REQUIRE_REFERENCE is set but MS110D_REFERENCE_DIR does not hold the reference files");
     }
     SKIP("reference files not generated (run scripts/generate-reference.sh, see docs/dev/reference-files.md)");
+    return {};
+}
+
+fs::path standard_root(const fs::path& reference_dir) {
+    return reference_dir.parent_path() / "standard";
+}
+
+fs::path standard_reference_dir_or_skip() {
+    const fs::path dir = reference_dir_or_skip();
+    if (fs::exists(standard_root(dir) / load_index(dir).cases.front() / "13_audio.f32")) {
+        return dir;
+    }
+    const char* require = std::getenv("MS110D_REQUIRE_REFERENCE");
+    if (require != nullptr && *require != '\0' && std::strcmp(require, "0") != 0) {
+        FAIL("MS110D_REQUIRE_REFERENCE is set but the standard-pattern reference files are absent (scripts/generate-standard-reference.sh)");
+    }
+    SKIP("standard-pattern reference files not generated (run scripts/generate-standard-reference.sh, see docs/dev/reference-files.md)");
     return {};
 }
 

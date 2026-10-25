@@ -250,6 +250,88 @@ TEST_CASE("reference mini-probes follow the probe tables and the boundary rule",
     CHECK(checked > 100);
 }
 
+TEST_CASE("standard-pattern probes: the C# in standard mode differs from its default exactly where predicted", "[reference][issue-68]") {
+    // The C++ sends the D.5.2.2 standard pattern (issue 68); the C# 0.2.1 default shifts at the selected
+    // interleaver's boundary. For data frame g (numbered from 0 over the burst), the default shifts the
+    // probe after it when (g + 2) % F == 0 (F the selected interleaver's frames) and the standard when
+    // g % L == L - 2 (L the Long interleaver's frames). The rules are written out again here, not taken
+    // from the library. Every probe of the standard-mode files must follow the standard rule, every probe
+    // of the default files the default rule, so the two sets differ at exactly the predicted probes, and
+    // the audio differs exactly in the cases that have such a probe.
+    const fs::path dir = ms110d_test::standard_reference_dir_or_skip();
+    int checked = 0;
+    int cases_with_difference = 0;
+    for (const ReferenceCase& c : load_cases(dir)) {
+        const Manifest& m = c.manifest();
+        const int wn = static_cast<int>(m.integer("wn"));
+        const auto default_audio = c.real32("audio_f32le");
+        const auto standard_audio = c.standard_real32("audio_f32le");
+        REQUIRE(default_audio.size() == standard_audio.size());
+        if (wn == 0) {
+            CHECK(default_audio == standard_audio);  // no mini-probes in WN 0
+            continue;
+        }
+        INFO("case " << c.name());
+        const auto mode = mode_3k(wn);
+        const auto il = interleaver_3k(wn, kind_from_name(m.str("interleaver")));
+        const auto long_il = interleaver_3k(wn, InterleaverKind::Long);
+        const tables::ProbeSpec* spec = tables::find_probe_spec(mode->k);
+        REQUIRE(spec != nullptr);
+        const auto default_probes = c.complex32("probe_values_cf32le");
+        const auto standard_probes = c.standard_complex32("probe_values_cf32le");
+        REQUIRE(default_probes.size() == standard_probes.size());
+        const long long blocks = m.integer("blocks");
+        const int k = mode->k;
+        const int eot = static_cast<int>(m.integer("eot_extension_symbols"));
+
+        std::size_t at = 0;
+        const auto probe_matches = [&](const std::vector<std::complex<float>>& values, int length, bool shifted) {
+            bool ok = at + static_cast<std::size_t>(length) <= values.size();
+            for (int i = 0; ok && i < length; ++i) {
+                const auto want = tables::probe_symbol(*spec, i, shifted);
+                ok = values[at + static_cast<std::size_t>(i)].real() == want.real() &&
+                     values[at + static_cast<std::size_t>(i)].imag() == want.imag();
+            }
+            return ok;
+        };
+        // The initial probe is unshifted in both.
+        CHECK(probe_matches(default_probes, k, false));
+        CHECK(probe_matches(standard_probes, k, false));
+        at += static_cast<std::size_t>(k);
+        int differing = 0;
+        for (long long b = 0; b < blocks; ++b) {
+            for (int f = 0; f < il->frames; ++f) {
+                const long long g = b * il->frames + f;
+                const bool default_shift = (g + 2) % il->frames == 0;
+                const bool standard_shift = g % long_il->frames == long_il->frames - 2;
+                const bool last = b == blocks - 1 && f == il->frames - 1;
+                const int length = k + (last ? eot : 0);
+                REQUIRE(probe_matches(default_probes, length, default_shift));
+                REQUIRE(probe_matches(standard_probes, length, standard_shift));
+                if (default_shift != standard_shift) {
+                    // Only ever a default shift the standard does not make: F divides L.
+                    CHECK((default_shift && !standard_shift));
+                    ++differing;
+                }
+                at += static_cast<std::size_t>(length);
+            }
+        }
+        CHECK(at == default_probes.size());
+        // The Long interleaver has one rule; the shorter ones differ wherever a block boundary falls
+        // off the Long boundary.
+        if (m.str("interleaver") == "long") CHECK(differing == 0);
+        if (differing == 0) {
+            CHECK(default_audio == standard_audio);
+        } else {
+            CHECK(default_audio != standard_audio);
+            ++cases_with_difference;
+        }
+        ++checked;
+    }
+    CHECK(checked > 100);
+    CHECK(cases_with_difference > 20);
+}
+
 TEST_CASE("reference preamble starts with the TLC and Fixed sections from the tables", "[reference]") {
     const fs::path dir = ms110d_test::reference_dir_or_skip();
     for (const ReferenceCase& c : load_cases(dir)) {

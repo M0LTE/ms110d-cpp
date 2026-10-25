@@ -153,6 +153,8 @@ There is a C version of the same quick start in [docs/c-quickstart.md](docs/c-qu
 
 The two implementations must agree exactly on the bits on the wire, closely on the transmitted audio, and within 0.5 dB on receive performance, on simulated HF channels and on real off-air recordings. Any difference we keep on purpose is written down as a named test. See [docs/plan.md](docs/plan.md#how-we-prove-compatibility).
 
+One difference from the C# 0.2.1 transmitter is deliberate: this library sends the standard MIL-STD-188-110D mini-probe boundary pattern (the probe is cyclically shifted only at the Long interleaver's boundary), where the C# 0.2.1 shifts at the selected interleaver's boundary. The two are identical for the Long interleaver. See [docs/dev/transmitter.md](docs/dev/transmitter.md) and issue 68.
+
 ## Licence
 
 Copyright (C) 2026 Thomas Fanning.
