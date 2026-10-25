@@ -1,0 +1,14 @@
+[Unit]
+Description=Run the C# and C++ MS110D decoders over newly filed shadow slots
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ms110d-shadow-decode pending
+Nice=10
+CPUWeight=20
+IOSchedulingClass=idle
+MemoryMax=900M
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/ms110d-shadow /opt/ms110d-shadow

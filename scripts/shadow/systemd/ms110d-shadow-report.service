@@ -1,0 +1,11 @@
+[Unit]
+Description=Write the shadow receiver's daily report for yesterday (UTC)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ms110d-shadow-decode daily
+Nice=10
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/ms110d-shadow /opt/ms110d-shadow
