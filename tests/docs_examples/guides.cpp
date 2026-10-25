@@ -44,9 +44,9 @@ bool send(const std::vector<std::uint8_t>& payload_bits) {
 
 // snippet-begin mcu_rx
 // A receiver for the ultra-short interleaver only, in a static array (no heap, no allocation).
-// 1431392 bytes is what storage_bytes() says for these options in the default build; configure()
+// 1430848 bytes is what storage_bytes() says for these options in the default build; configure()
 // answers BufferTooSmall if the array is too small, so a wrong figure is caught at start-up.
-alignas(8) static std::array<std::uint8_t, 1431392> rx_memory;
+alignas(8) static std::array<std::uint8_t, 1430848> rx_memory;
 
 bool start_receiver(Receiver& rx) {
     RxOptions options;
@@ -160,6 +160,14 @@ int main() {
     if (to_bytes(to_bits(text)) != text) return 5;
     Receiver mcu;
     if (!start_receiver(mcu)) return 4;
+#ifndef MS110D_SINGLE_PRECISION
+    // The microcontroller guide quotes the exact figure: keep it exact.
+    RxOptions ultra_short;
+    ultra_short.max_interleaver = InterleaverKind::UltraShort;
+    std::size_t ultra_short_bytes = 0;
+    if (Receiver::storage_bytes(ultra_short, ultra_short_bytes) != Status::Ok || ultra_short_bytes != rx_memory.size())
+        return 6;
+#endif
     if (!send(std::vector<std::uint8_t>(800, 1)) || g_played == 0) return 1;
 
     const std::vector<float> audio = make_burst();

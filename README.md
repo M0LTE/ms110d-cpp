@@ -2,7 +2,7 @@
 
 A C++ implementation of the MIL-STD-188-110D Appendix D 3 kHz serial-tone HF modem, built to work on air with the C# reference, [M0LTE.Ms110d](https://github.com/M0LTE/M0LTE.Ms110d). Bits in, 9600 Hz audio out, and back again: no sound card, no KISS, no host application. It is C++20 with no exceptions, no RTTI and no allocation after start-up, so the same code builds for a PC and for a Cortex-M7, and there is a small C interface for other languages.
 
-**Status: transmit and receive work, bit for bit with the C# reference in the default build; not released yet.** The plan is in [docs/plan.md](docs/plan.md) and the work is tracked in the [issues](https://github.com/M0LTE/ms110d-cpp/issues).
+**Status: transmit and receive work and, in the default build, match the C# reference, apart from [one fault in the C# transmitter](#the-mini-probe-pattern). Not released yet.** The plan is in [docs/plan.md](docs/plan.md) and the work is tracked in the [issues](https://github.com/M0LTE/ms110d-cpp/issues).
 
 ## What it does
 
@@ -21,7 +21,7 @@ You need CMake 3.22 and a C++20 compiler. Pick one.
 include(FetchContent)
 FetchContent_Declare(m0lte-ms110d
   GIT_REPOSITORY https://github.com/M0LTE/ms110d-cpp.git
-  GIT_TAG <full-commit-sha>)   # there is no release tag yet; use a release tag once there is one
+  GIT_TAG <full-commit-sha>)
 FetchContent_MakeAvailable(m0lte-ms110d)
 target_link_libraries(my_app PRIVATE m0lte::ms110d)
 ```
@@ -40,7 +40,8 @@ target_link_libraries(my_app PRIVATE m0lte::ms110d)
 **Installed copy.**
 
 ```sh
-cmake -S . -B build && cmake --build build -j4
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DMS110D_BUILD_TESTS=OFF
+cmake --build build -j4
 cmake --install build --prefix /opt/ms110d
 ```
 
@@ -49,9 +50,9 @@ find_package(m0lte-ms110d CONFIG REQUIRED)   # add -DCMAKE_PREFIX_PATH=/opt/ms11
 target_link_libraries(my_app PRIVATE m0lte::ms110d)
 ```
 
-Used as a subproject, only the library is built (no tests). Options: `-DMS110D_PRECISION=single` for single precision (double is the default), `-DMS110D_BUILD_TESTS=OFF` for the library alone. To build and test this repository: `cmake -S . -B build`, `cmake --build build -j4`, `ctest --test-dir build`.
+Build in Release: the receiver is slow without optimisation, and there is no default build type. Options: `-DMS110D_PRECISION=single` for single precision (double is the default), `-DMS110D_BUILD_TESTS=OFF` for the library alone. Used as a subproject (FetchContent or a submodule), only the C++ library is built: no tests, and no C library unless you add `-DMS110D_BUILD_C_SHARED=ON`. To build and test this repository: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release`, `cmake --build build -j4`, `ctest --test-dir build`.
 
-The C interface is the shared library `m0lte::ms110d_c` (header `m0lte/ms110d/ms110d.h`). Use it from C, .NET, Python and so on. The C++ API is the static library `m0lte::ms110d`.
+The C++ API is the static library `m0lte::ms110d`. The C interface is the shared library `m0lte::ms110d_c` (header `m0lte/ms110d/ms110d.h`), for C, .NET, Python and so on; it is built and installed by default when this is the top-level project.
 
 ## Quick start: transmit and receive in C++
 
@@ -151,9 +152,16 @@ There is a C version of the same quick start in [docs/c-quickstart.md](docs/c-qu
 
 ## Compatibility, proven by tests
 
-The two implementations must agree exactly on the bits on the wire, closely on the transmitted audio, and within 0.5 dB on receive performance, on simulated HF channels and on real off-air recordings. Any difference we keep on purpose is written down as a named test. See [docs/plan.md](docs/plan.md#how-we-prove-compatibility).
+The two implementations must agree exactly on the bits on the wire, closely on the transmitted audio, and within 0.5 dB on receive performance, on simulated HF channels and on real off-air recordings. Any difference we keep on purpose is written down as a named test, and [there are none yet](docs/deviations.md). The one difference today is the C#'s fault, below. See [docs/plan.md](docs/plan.md#how-we-prove-compatibility).
 
-One difference from the C# 0.2.1 transmitter is deliberate: this library sends the standard MIL-STD-188-110D mini-probe boundary pattern (the probe is cyclically shifted only at the Long interleaver's boundary), where the C# 0.2.1 shifts at the selected interleaver's boundary. The two are identical for the Long interleaver. The receiver expects the standard pattern only, so until the C# transmitter follows, it hears C# 0.2.1 ultra-short, short and medium interleaver bursts less well than the C# receiver does. See [docs/dev/transmitter.md](docs/dev/transmitter.md), [docs/dev/receiver.md](docs/dev/receiver.md) and issue 68.
+## The mini-probe pattern
+
+This library sends and expects the mini-probe pattern that MIL-STD-188-110D defines. The C# reference does not send it yet: up to 0.2.1 its transmitter shifts some mini-probes at the selected interleaver's boundary instead of the long interleaver's. The two patterns are the same on the long interleaver and on WN0, and differ on ultra-short, short and medium. What that means today:
+
+- A C# 0.2.1 receiver decodes this library's bursts on every interleaver, because it accepts both patterns. Older C# receivers expect the old pattern, so they may decode its ultra-short, short and medium bursts less well.
+- This library decodes C# transmissions on the long interleaver as well as the C# receiver does, but its ultra-short, short and medium bursts less well. GB7RDG's bulletins are short-interleaver bursts from the C#: on 31 recorded ones this library decoded 95 of the 99 good frames that the C# receiver did.
+
+This is a fault in the C# transmitter, not a difference we keep, so it is not listed as a deviation. The C# and GB7RDG are due to switch to the standard pattern; [issue 68](https://github.com/M0LTE/ms110d-cpp/issues/68) tracks it. The details are in [docs/dev/receiver.md](docs/dev/receiver.md#probe-pattern-issue-68).
 
 ## Licence
 

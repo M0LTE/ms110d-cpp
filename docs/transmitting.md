@@ -96,7 +96,7 @@ WN0 needs 5.5 KiB (short) to 7.6 KiB (long). The single precision build needs ab
 
 ## Precision
 
-The default build is double precision and makes the same audio as the C# modulator to within 1e-6 per sample. A single precision build (`-DMS110D_PRECISION=single`) has the same API and is meant for processors without a fast double FPU; its audio was measured within 2e-8 of the C#'s, which is one float step. The audio you get is `float` either way. Do not mix the two: a program built for one precision fails to link against a library built for the other.
+The default build is double precision and makes the same audio as the C# modulator to within 1e-6 per sample, once the C# sends the standard mini-probe pattern (see the [README](../README.md#the-mini-probe-pattern); on the long interleaver it already does). A single precision build (`-DMS110D_PRECISION=single`) has the same API and is meant for processors without a fast double FPU; its audio was measured within 2e-8 of the C#'s, which is one float step. The audio you get is `float` either way. Do not mix the two: a program built for one precision fails to link against a library built for the other.
 
 ## From C
 
