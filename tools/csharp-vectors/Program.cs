@@ -106,6 +106,25 @@ if (args.Length > 1 && args[0] == "rx-corpus")
     return;
 }
 
+// "masks" mode: performance mask audio and the C# error counts, see MaskDump.cs and docs/dev/masks.md.
+if (args.Length > 1 && args[0] == "masks")
+{
+    if (args[1] == "list" && args.Length > 2)
+    {
+        Console.Out.Write(MaskDump.List(args[2]));
+    }
+    else if (args[1] == "write" && args.Length > 3)
+    {
+        MaskDump.Write(args[2], args[3], args[4..]);
+    }
+    else
+    {
+        Console.Error.WriteLine("usage: masks list <profile> | masks write <profile> <dir> [id ...]");
+        Environment.Exit(2);
+    }
+    return;
+}
+
 // "rx-options": the receiver with each instrument option on, see OptionsDump.cs.
 if (args.Length > 3 && args[0] == "rx-options")
 {
