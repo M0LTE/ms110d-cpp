@@ -382,22 +382,23 @@ void print(const char* what, const Tally& t) {
 // same libm on the machine the dumps are made on, as the CI reference job does), so every frame
 // hash must match there; that is what makes a change to any tracking constant fail. The single
 // build differs in the equaliser's sums only, so its frame values are held to a tolerance.
-// `max_diff_quarters`: how many quarters of the bursts the single build may take a different
-// path on (see check_tally's body).
-void check_tally(const Tally& t, int max_diff_quarters) {
+// `max_bursts_diff`: how many bursts the single build may take a different path on (see
+// check_tally's body).
+void check_tally(const Tally& t, long max_bursts_diff) {
     if (strict) {
         CHECK(t.fhash_equal == t.blocks);
         CHECK(t.bursts_diff == 0);
         CHECK(t.payload_right == t.cs_payload_right);
     } else {
         // The single build decodes at least as many bursts right as the C#, give or take one. And it
-        // may take a different path from the C# only on a bounded share of bursts: none of the clean
-        // reference cases, at most a quarter of the channel corpus (measured: 17 of 166 here, about
-        // 10%; the CI runner's libm moves more). The divergence comes from the equaliser's float sums
-        // tipping marginal fading blocks, so it stays a minority; a broken single build would leave
-        // most bursts.
+        // may take a different path from the C# only on a bounded number of bursts: none of the clean
+        // reference cases, and on the channel corpus the worst measured plus a small margin. Measured
+        // (the CI reference job prints the tally): 17 of 166 on one machine, 19 on the CI runner, 20 on
+        // an older CPU without fused multiply-add (the libm's sine and cosine take another path
+        // there). The divergence comes from the equaliser's float sums tipping marginal fading
+        // blocks; a broken single build would leave most bursts.
         CHECK(t.payload_right + 1 >= t.cs_payload_right);
-        CHECK(t.bursts_diff * 4 <= t.bursts * max_diff_quarters);
+        CHECK(t.bursts_diff <= max_bursts_diff);
     }
     if (strict) {
         CHECK(t.first_sum <= 1e-4);
@@ -518,7 +519,7 @@ TEST_CASE("reference demodulator: Poor, Moderate and shifted multipath with carr
         }
     }
     print("shipped receiver vs C#, corpus", t);
-    check_tally(t, 1);
+    check_tally(t, 24);  // worst measured 20 of 166
     std::printf("corpus coverage: frames at the 3 Hz carrier clamp %ld, fade entries %ld, exits %ld, re-entries %ld, fade floor "
                 "recoveries %ld; standard pattern bursts switched %ld of %ld (%ld of %ld long ones reach frame L - 2), current "
                 "pattern bursts kept %ld of %ld\n",

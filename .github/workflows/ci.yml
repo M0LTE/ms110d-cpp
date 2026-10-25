@@ -36,7 +36,8 @@ jobs:
   sanitizers:
     name: sanitizers (address, undefined)
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # The unoptimised instrumented receive tests take well over 20 minutes run one at a time.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Configure
@@ -44,7 +45,7 @@ jobs:
       - name: Build
         run: cmake --build build -j4
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --output-on-failure -j4
 
   consumers:
     name: consumer projects (${{ matrix.precision }})
