@@ -21,7 +21,7 @@
 // afterwards the detector only runs its front end (the T/2 samples stay readable through
 // t2_sample()) until resume_search() sends it back to looking for a preamble.
 //
-// No allocation and no exceptions. The object is about 42 KB without the ring (the stand-alone one
+// No allocation and no exceptions. The object is about 19 KB without the ring (the stand-alone one
 // carries its own 128 KB ring), so keep it off a small stack.
 
 #include <m0lte/ms110d/mode.hpp>

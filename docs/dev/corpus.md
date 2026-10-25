@@ -29,7 +29,7 @@ A burst flagged `dropout` overlaps a stream dropout or fall-behind reported in t
 
 ## The layer 4 rule
 
-How the C++ receiver is held to the C# on this corpus (decided with the maintainer; `Layer4Rule` in `tests/interop/CorpusTests.cs` implements it and checks that the C# meets it against its own manifest, and the C++ side will feed it its own results when the receiver exists):
+How the C++ receiver is held to the C# on this corpus (decided with the maintainer; `Layer4Rule` in `tests/interop/CorpusTests.cs` implements it, checks that the C# meets it against its own manifest, and holds the C++ receiver to it):
 
 - Waveform, interleaver and constraint length match exactly, on every burst.
 - End reason and block count match exactly, except on bursts the manifest says have no good frames.
@@ -80,7 +80,7 @@ reads `reference/corpus.txt`, downloads the asset, checks the tarball hash again
 
 `tests/interop/CorpusTests.cs` is the self-consistency test: for the committed set, and for the fetched corpus when it is present (`MS110D_CORPUS_DIR`, default `build/_corpus/current`; it skips cleanly when absent, and `MS110D_REQUIRE_CORPUS=1` makes absence a failure), it checks each file against its hash and the pinned C# decode against the manifest: waveform, interleaver, K, block count, end reason, good frames, their hash and the symbols corrected for every burst, and the raw payload hash for error-free bursts only (elsewhere it covers frames that fail their CRC, and differed between machines), and then that the C# meets the layer 4 rule. It shares `tools/csharp-vectors/CorpusDecode.cs` with the tool, so the expected results and the check cannot drift apart. Run it with `dotnet run --project tests/interop -c Release -- -class Ms110dInterop.Tests.CorpusTests` (see dotnet-interop.md for the environment).
 
-The C++ comparison against the same manifests is added with the C++ receiver.
+The C++ receiver is held to the layer 4 rule against the same manifests (`CppMeetsTheLayer4RuleOnTheCommittedSet`, `CppMeetsTheLayer4RuleOnTheFetchedCorpus`): `CppCorpusDecode` feeds it through the C interface exactly as `CorpusDecode.Run` feeds the C# (chunks of 96, three seconds of silence, then a terminate if a burst is open) with the same IL2P deframer on its blocks, and the test prints a per-burst line and a summary. The CI reference job runs it on the fetched corpus (must not skip). Measured on corpus-v1: 31 bursts, all 99 good frames the C# has, the same end and block count on every burst, the payload equal on all 6 error-free bursts; no rule problem and no deviation. The committed set: 2 bursts, 7 of 7 frames.
 
 ## Refreshing
 

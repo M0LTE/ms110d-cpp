@@ -22,38 +22,20 @@ Every later entry point follows the conventions below. If a new function cannot,
 
 ## Events: poll and drain
 
-Results the modem produces (a decoded block, a finished burst, soft decisions) are delivered by polling, never by callback. After the caller pushes samples with `ms110d_thing_process(handle, samples, count)`, it calls `ms110d_thing_next_event(handle, &event, ...)` repeatedly until that reports there is nothing left (status `MS110D_OK` with `event.kind == MS110D_EVENT_NONE`). Why not callbacks: a managed callback needs a pinned delegate with a lifetime the library cannot see, allows the library to be re-entered from inside itself, makes exceptions cross the boundary, and does not suit a microcontroller main loop. Polling has none of those problems, and the order of events is simply the queue order.
+Results the modem produces (a burst found, a decoded block, a finished burst, soft decisions) are delivered by polling, never by callback. After the caller pushes samples with `ms110d_rx_process(handle, samples, count, &consumed)`, it calls `ms110d_rx_next_event(handle, &event, ...)` repeatedly until that reports there is nothing left (status `MS110D_OK` with `event.kind == MS110D_RX_EVENT_NONE`). Why not callbacks: a managed callback needs a pinned delegate with a lifetime the library cannot see, allows the library to be re-entered from inside itself, makes exceptions cross the boundary, and does not suit a microcontroller main loop. Polling has none of those problems, and the order of events is simply the queue order.
 
-- **Queue.** The handle owns a fixed-capacity event queue sized at creation. If a caller does not drain and it fills, `process` returns `MS110D_ERR_BUFFER_TOO_SMALL` before consuming input that would overflow it, so nothing is dropped silently.
-- **Event struct.** Plain, with `uint32_t struct_size` first. The caller sets it to the size of the struct it was compiled with; the library fills only that many bytes and never reads or writes beyond it, so a struct can grow in a later version without an ABI bump. `kind` is a `uint32_t` constant, not an enum. Unknown kinds are skipped by the caller.
-- **Payload arrays are copied into caller buffers.** The alternative, a pointer into the handle valid until the next call, is cheaper but is a trap for garbage-collected callers (the array can be read after it was overwritten) and for any caller that queues events. So `next_event` takes the destination buffer and its capacity as parameters; the event reports the length needed. If the buffer is too small the call returns `MS110D_ERR_BUFFER_TOO_SMALL`, fills the length, and leaves the event queued so the caller can retry with a bigger buffer.
-- **Sketch**, based on the C# `Ms110dDemodulator` events `BlockDecoded` (block index and bits), `BurstCompleted` (payload bits, end reason, block count, lock info) and the per-block LLR diagnostics:
+These were open points until the receiver landed (story 27); they are now settled:
 
-      typedef struct ms110d_event {
-          uint32_t struct_size;   /* set by the caller */
-          uint32_t kind;          /* MS110D_EVENT_NONE, _BLOCK_DECODED, _BURST_COMPLETED, _BLOCK_LLRS */
-          int32_t  block_index;   /* BLOCK_DECODED, BLOCK_LLRS */
-          uint32_t payload_len;   /* elements needed in the buffer */
-          int32_t  end_reason;    /* BURST_COMPLETED: which D.5.4.5 exit */
-          int32_t  blocks;        /* BURST_COMPLETED: input-data blocks decoded */
-          /* lock info fields follow, only ever appended */
-      } ms110d_event;
+- **`process` reports what it consumed and stops at events.** It takes samples until one raises events and stops right after that sample, so the queue only ever holds the events of one sample (at most four) and nothing is ever dropped. With events still queued it takes no samples and returns `MS110D_ERR_STATE`. A caller loops `process` and the drain until its chunk is used up.
+- **Every event carries its sample position**: `sample`, the input samples taken when it was raised. Events raised by one sample share it. The C# test tools record the same count, so tests match events one for one.
+- **Burst bits are delivered a block at a time.** `MS110D_RX_EVENT_BLOCK_DECODED` carries a block's info bits; `MS110D_RX_EVENT_BURST_COMPLETED` closes the burst with the reason, the block count and `payload_bits`, and the payload is the block bits in order cut to that length. Nothing has to hold a whole burst, so no maximum burst length is fixed at creation, and the longest single payload is one block (49152 bits).
+- **Soft decisions are switched on at creation** (`soft_decisions` in the options). Off, the soft events are never raised; the receiver keeps the soft values anyway for its own turbo stage, so switching them on costs no memory, only the copies.
 
-      ms110d_status ms110d_demod_next_event(ms110d_demod* h, ms110d_event* ev,
-                                            void* payload, uint32_t payload_capacity);
+The rest of the convention:
 
-  `payload` holds bits (one per byte) for the decoded and completed events and `float` LLRs for the LLR events; which one is given by `kind`. This is a sketch of the convention, not a commitment to those names; the stage that adds the demodulator settles the details and updates this section.
-
-## Open points for the demodulator
-
-To settle in [#27](https://github.com/M0LTE/ms110d-cpp/issues/27), before the first receive entry point lands, so the signatures don't change later:
-
-- `process` reports how many samples it consumed, so a caller can resume after the event queue fills part-way.
-- Every event carries the sample position it relates to, so tests can match events with the C# one for one.
-- A finished burst in C# carries the whole burst's bits. Either the maximum burst length is fixed at creation so the queue can hold it, or bits are delivered one block at a time and the burst event only closes the burst.
-- Soft-decision events are switched on at creation, so a microcontroller build doesn't pay for them.
-
-The preamble detector (docs/dev/preamble-detector.md) settled the first two for its stage: `process` returns samples consumed and stops at a detection, and the detection event carries `detected_at_sample` and the sample position of the data start.
+- **Event struct.** Plain, with `uint32_t struct_size` first. The caller sets it to the size of the struct it was compiled with; one smaller than the first published size is `MS110D_ERR_INVALID_ARGUMENT`. The library writes its fields and zeros any bytes of a larger struct up to `struct_size`, and never writes beyond it, so the struct can grow later without an ABI bump. `kind` is a `uint32_t` constant, not an enum. Unknown kinds are skipped by the caller.
+- **Payload arrays are copied into caller buffers.** The alternative, a pointer into the handle valid until the next call, is cheaper but is a trap for garbage-collected callers (the array can be read after it was overwritten) and for any caller that queues events. So `next_event` takes the destination buffers (bits as one byte per bit, soft values as `float`) and their capacities; the event's `length` is the number of elements. If the buffer is too small (or null) the call returns `MS110D_ERR_BUFFER_TOO_SMALL`, fills the event's fields and the length needed, and leaves the event queued so the caller can retry with a bigger buffer.
+- In C++ the same events come from `Receiver::next_event()` by value, with spans into the receiver valid until the next `process()` or `reset()` (docs/dev/receiver.md).
 
 ## Export
 
@@ -65,6 +47,10 @@ The shared library is built with hidden visibility. Only functions marked `MS110
 
 `ms110d_tx_*` (handle `ms110d_tx`, settings `ms110d_tx_settings`) is the first handle type and the model for the rest: create/destroy, `ms110d_tx_memory_size` plus `ms110d_tx_init` for caller memory, `ms110d_tx_audio_length` for sizing, `ms110d_tx_push_bits` and `ms110d_tx_read` with caller buffers, plus `ms110d_tx_modulate` for a whole burst in one call (`MS110D_ERR_BUFFER_TOO_SMALL` with the length needed in `*written`), no events. `read` with capacity 0 is an error, so a count of 0 written only ever means the burst is finished. The settings struct has `struct_size` first, flags as `int32_t` 0 or 1 and an explicit `reserved` word so the `double` sits at offset 40 on every ABI; `ms110d_tx_settings_default` fills it from the C++ defaults so the two cannot drift. How it works is in docs/dev/transmitter.md. Adding these functions did not need an ABI bump (the library is 0.x), so `MS110D_ABI_VERSION` stays 1.
 
+## Receive
+
+`ms110d_rx_*` (handle `ms110d_rx`, options `ms110d_rx_options`, event `ms110d_rx_event`) follows the transmit handle: create/destroy, `ms110d_rx_memory_size` plus `ms110d_rx_init` for caller memory, `ms110d_rx_options_default` filled from the C++ defaults (the C# `Ms110dDemodOptions`), then `ms110d_rx_process`, `ms110d_rx_next_event`, `ms110d_rx_terminate`, `ms110d_rx_reset` and `ms110d_rx_state`. The options struct follows the settings rules: `struct_size` first, flags as `int32_t` 0 or 1, a C# nullable as a `has_` flag plus its value, an explicit `reserved` word so the two doubles sit at offsets 48 and 56 on every ABI. The event struct is 64 bytes with its 64 bit fields at 8, 40 and 56. Both are in `tests/c_layout_check.c`. The C# options with no counterpart in C are none; this library adds `max_interleaver` (sizes the memory) and `soft_decisions`. These functions are additions, so `MS110D_ABI_VERSION` stays 1 (the library is 0.x). How the receiver works is in docs/dev/receiver.md.
+
 ## Tests
 
-`tests/c_api_test.c` is compiled as C99 (not C++), with warnings as errors, and calls every function including the null and unknown-value cases. Add each new function to it. The header is also under the API lock (docs/dev/api-lock.md), so any change to it fails `api_lock` until the snapshot is deliberately updated. `tests/c_transmitter_test.cpp` (the `ms110d_c_tests` executable) drives the transmit functions through the shared library and compares with the C# reference audio. The .NET project in `tests/interop` calls the same functions through P/Invoke (docs/dev/dotnet-interop.md).
+`tests/c_api_test.c` is compiled as C99 (not C++), with warnings as errors, and calls every function including the null and unknown-value cases. Add each new function to it. `tests/c_receiver_test.cpp` (in `ms110d_c_tests`) decodes every reference case through the C interface alone against the C# receiver's blocks and ends, and covers the buffer, struct size and option rules. The header is also under the API lock (docs/dev/api-lock.md), so any change to it fails `api_lock` until the snapshot is deliberately updated. `tests/c_transmitter_test.cpp` (the `ms110d_c_tests` executable) drives the transmit functions through the shared library and compares with the C# reference audio. The .NET project in `tests/interop` calls the same functions through P/Invoke (docs/dev/dotnet-interop.md).
