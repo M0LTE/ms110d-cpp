@@ -4,7 +4,7 @@
 
 ## What is in it
 
-- The front end: mix the 9600 Hz audio down by 1800 Hz, root-raised-cosine matched filter, keep every second output (4800 Hz, "half-chip" samples) in a ring.
+- The samples: the shared front end and ring (`src/rx_stream.hpp`: mix the 9600 Hz audio down by 1800 Hz, root-raised-cosine matched filter, keep every second output, 4800 Hz "half-chip" samples), as the C# reads its one ring. `StandaloneWn0Receiver` carries its own stream for use on its own.
 - Chip reads: 8-tap windowed-sinc interpolation at the burst's timing, rotated by the carrier model (`theta_base + omega * (pos - chip0)`).
 - The RAKE: 13 fingers at chip delays -6 to +6, Walsh correlation of the descrambled chips (Trinomial scramble from `trinomial_scrambler`), a one-pole decision-directed gain per finger, an MRC statistic per candidate, non-coherent selection for the first 8 symbols, max-log soft values (positive means 0, first value is the di-bit MSB).
 - The decision-directed carrier loop (phase of the combined statistic averaged over 8 symbols retunes `omega` and `theta_base`) and the signal-lost discriminator (90 weak symbols in a row ends the burst).
@@ -19,11 +19,11 @@
 
 ## Memory and allocation
 
-One object: 71504 bytes in the double build, 36424 in the single build (the ring of 4096 half-chip samples is nearly all of it). Nothing is allocated, nothing throws. The caller owns one block of soft values (`interleaver.size_bits()` values, at most 1152 for WN 0). The caller must `step()` between pushes so the unread audio never exceeds the ring (a chunk of up to 3800 audio samples is always safe).
+One object of 5160 bytes, reading the shared ring (at least 4096 half-chip samples; the stand-alone one carries a 32 KB ring). Nothing is allocated, nothing throws. The caller owns one block of soft values (`interleaver.size_bits()` values, at most 1152 for WN 0). The caller must `step()` between pushes so the unread audio never exceeds the ring (a chunk of up to 3800 audio samples is always safe).
 
 ## Precision
 
-The C# uses `float` for samples, chips, correlations and gains, and `double` for the carrier phase model, the interpolation weights, the finger power sums and the signal-lost statistics. The port keeps exactly that split: where the C# has `float` the C++ has `real` (float in the single build, so the same arithmetic; double in the default build, so slightly more accurate than the reference), and where the C# has `double` the C++ has `double`. Float constants of the C# (the gain filter 1/6 and 1/32) are widened, not recomputed in double. The mixer table uses the cosine and sine of the float-rounded phase, like `MathF`. The FIR filter accumulates newest sample first in the same order. The skipped (odd) filter outputs are not computed; they are discarded in the C#, so the result is unchanged.
+The C# uses `float` for samples, chips, correlations and gains, and `double` for the carrier phase model, the interpolation weights, the finger power sums and the signal-lost statistics. The samples are the shared front end's single precision ones, exactly the C#'s (before the front end was shared, this receiver filtered in `real`, so the double build's samples were slightly more precise than the C#'s; the tests passed unchanged either way). From the chips on the port keeps the C#'s split: where the C# has `float` the C++ has `real` (float in the single build, so the same arithmetic; double in the default build, so slightly more accurate than the reference), and where the C# has `double` the C++ has `double`. Float constants of the C# (the gain filter 1/6 and 1/32) are widened, not recomputed in double.
 
 ## Agreement with the C#
 

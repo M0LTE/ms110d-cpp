@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 namespace m0lte::ms110d {
 
@@ -181,12 +182,37 @@ bool Bcjr::equalize(std::span<const std::complex<real>> rx,
 }
 
 template <class T>
-BasicChainBcjr<T>::BasicChainBcjr(std::size_t max_symbols, std::size_t max_constellation)
-    : max_n_(max_symbols), max_m_(max_constellation) {
-    inv2_.resize(std::max<std::size_t>(1, max_n_));
-    alpha_.resize(max_n_ * max_m_);
-    beta_.resize(2 * max_m_);
-    post_.resize(max_m_);
+std::size_t BasicChainBcjr<T>::storage_bytes(std::size_t max_symbols, std::size_t max_constellation) noexcept {
+    const std::size_t reals = std::max<std::size_t>(1, max_symbols) + (max_symbols * max_constellation) +
+                              (2 * max_constellation) + max_constellation;
+    return (reals * sizeof(T)) + alignof(T);
+}
+
+template <class T>
+bool BasicChainBcjr<T>::configure(std::size_t max_symbols, std::size_t max_constellation,
+                                  std::span<std::uint8_t> storage) noexcept {
+    max_n_ = 0;
+    max_m_ = 0;
+    if (storage.size() < storage_bytes(max_symbols, max_constellation)) return false;
+    const auto addr = reinterpret_cast<std::uintptr_t>(storage.data());
+    T* base = reinterpret_cast<T*>(storage.data() + ((alignof(T) - (addr % alignof(T))) % alignof(T)));
+    inv2_ = base;
+    base += std::max<std::size_t>(1, max_symbols);
+    alpha_ = base;
+    base += max_symbols * max_constellation;
+    beta_ = base;
+    base += 2 * max_constellation;
+    post_ = base;
+    max_n_ = max_symbols;
+    max_m_ = max_constellation;
+    return true;
+}
+
+template <class T>
+BasicChainBcjr<T>::BasicChainBcjr(std::size_t max_symbols, std::size_t max_constellation) {
+    const std::size_t bytes = storage_bytes(max_symbols, max_constellation);
+    owned_.resize((bytes + sizeof(T) - 1) / sizeof(T));
+    configure(max_symbols, max_constellation, {reinterpret_cast<std::uint8_t*>(owned_.data()), owned_.size() * sizeof(T)});
 }
 
 template <class T>
@@ -209,7 +235,7 @@ bool BasicChainBcjr<T>::equalize(const Input& in, std::span<T> llrs) noexcept {
     const std::size_t bps = static_cast<std::size_t>(in.bits_per_symbol);
     const bool has_priors = !in.symbol_log_priors.empty();
     const bool has_preceding = !in.preceding.empty();
-    T* inv2 = inv2_.data();
+    T* inv2 = inv2_;
     if (in.noise_var_per_symbol.size() == n && n > 0) {
         for (std::size_t t = 0; t < n; ++t) {
             inv2[t] = static_cast<T>(1.0f) / (static_cast<T>(2.0f) * in.noise_var_per_symbol[t]);
@@ -218,9 +244,9 @@ bool BasicChainBcjr<T>::equalize(const Input& in, std::span<T> llrs) noexcept {
         std::fill_n(inv2, n, static_cast<T>(1.0f) / (static_cast<T>(2.0f) * in.noise_var));
     }
 
-    T* alpha = alpha_.data();
-    T* beta = beta_.data();
-    T* post = post_.data();
+    T* alpha = alpha_;
+    T* beta = beta_;
+    T* post = post_;
 
     for (std::size_t c = 0; c < std::min(delay, n); ++c) {
         const std::size_t len = ((n - c) + delay - 1) / delay;

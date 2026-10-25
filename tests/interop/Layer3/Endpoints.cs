@@ -17,9 +17,8 @@ public interface ILayer3Transmitter
 public sealed record Layer3Decode(byte[]? Payload);
 
 /// <summary>
-/// A receiver under test. The C++ receiver does not exist yet: <see cref="Layer3Endpoints.CppReceiver"/> is
-/// the slot a later story fills (see docs/dev/layer3.md). A receiver that is not available is reported as
-/// such and every pairing that needs it is skipped.
+/// A receiver under test. A receiver that is not available is reported as such and every pairing that needs it
+/// is skipped (see docs/dev/layer3.md).
 /// </summary>
 public interface ILayer3Receiver
 {
@@ -74,7 +73,32 @@ public sealed class CSharpReceiver : ILayer3Receiver
     }
 }
 
-/// <summary>The slot for the C++ receiver, which is being ported. Replace <see cref="Layer3Endpoints.CppReceiver"/>.</summary>
+/// <summary>
+/// The C++ receiver through the C interface, decoding exactly as <see cref="CSharpReceiver"/> does: the audio
+/// then 6000 zero samples, the first burst completed. One receiver per thread, reset between bursts (each is
+/// sized for every interleaver, about 61 MB, so they are not made per call).
+/// </summary>
+public sealed class CppReceiverEndpoint : ILayer3Receiver
+{
+    private readonly ThreadLocal<CppReceiver> _rx = new(() => new CppReceiver(), trackAllValues: false);
+
+    public string Name => "cpp";
+
+    public bool IsAvailable => true;
+
+    public string UnavailableReason => "";
+
+    public Layer3Decode Decode(float[] audio)
+    {
+        CppReceiver rx = _rx.Value!;
+        rx.Reset();
+        var bursts = rx.Process(audio);
+        bursts.AddRange(rx.Process(new float[6000]));
+        return new Layer3Decode(bursts.Count > 0 ? bursts[0].PayloadBits : null);
+    }
+}
+
+/// <summary>A receiver slot with nothing in it (kept for the harness's own tests of an unavailable receiver).</summary>
 public sealed class MissingReceiver(string name, string reason) : ILayer3Receiver
 {
     public string Name => name;
@@ -87,9 +111,7 @@ public sealed class MissingReceiver(string name, string reason) : ILayer3Receive
 }
 
 /// <summary>
-/// The endpoints the harness knows about. The C++ receiver lands here: when it exists, assign a class
-/// implementing <see cref="ILayer3Receiver"/> to <see cref="CppReceiver"/> (one line) and every pairing
-/// that needs it starts running, with no other change.
+/// The endpoints the harness knows about: both transmitters and both receivers, so all four pairings run.
 /// </summary>
 public static class Layer3Endpoints
 {
@@ -97,8 +119,8 @@ public static class Layer3Endpoints
     public static readonly ILayer3Transmitter CppTx = new CppTransmitterEndpoint();
     public static readonly ILayer3Receiver CSharpRx = new CSharpReceiver();
 
-    /// <summary>Not yet available. Filled by the C++ receiver stories under epic 23.</summary>
-    public static ILayer3Receiver CppReceiver { get; set; } = new MissingReceiver("cpp", "the C++ receiver is not ported yet");
+    /// <summary>The C++ receiver through the C interface.</summary>
+    public static ILayer3Receiver CppReceiver { get; set; } = new CppReceiverEndpoint();
 
     public static IReadOnlyList<ILayer3Transmitter> Transmitters => [CSharpTx, CppTx];
 

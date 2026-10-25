@@ -125,7 +125,7 @@ constexpr int all_blocks = 1 << 30;
 // Pushes the audio (then `tail_zeros` samples of silence) in chunks of rotating size, stepping
 // after each, until `want_blocks` blocks are complete, the signal is lost or the audio is used up.
 // Each block is also decoded with the Viterbi decoder.
-Result run_rx(Wn0Receiver& rx, fec::TailBitingViterbiDecoder& dec, const std::vector<float>& audio, const Start& s,
+Result run_rx(StandaloneWn0Receiver& rx, fec::TailBitingViterbiDecoder& dec, const std::vector<float>& audio, const Start& s,
               const Interleaver& il, int want_blocks, std::size_t gains_symbols = 0, std::size_t tail_zeros = 9600) {
     Result r;
     std::vector<real> block(il.size_bits());
@@ -191,7 +191,7 @@ struct Rates {
     double ber() const { return bits ? static_cast<double>(bit_errors) / static_cast<double>(bits) : 0; }
 };
 
-void configured_rx(Wn0Receiver& rx) { REQUIRE(rx.configure(0.35)); }
+void configured_rx(StandaloneWn0Receiver& rx) { REQUIRE(rx.configure(0.35)); }
 
 // Poor channel files made by scripts/generate-wn0-poor.sh. Missing: skip, or fail in CI.
 std::string poor_stem_or_skip() {
@@ -207,7 +207,7 @@ std::string poor_stem_or_skip() {
 TEST_CASE("reference wn0 receiver matches the C# on every WN 0 case's audio", "[reference][wn0]") {
     const fs::path dir = ms110d_test::reference_dir_or_skip();
     const auto lines = read_dump(MS110D_CSHARP_WN0_DUMP);
-    auto rx = std::make_unique<Wn0Receiver>();
+    auto rx = std::make_unique<StandaloneWn0Receiver>();
     configured_rx(*rx);
     int decoded_blocks = 0;
     int cases = 0;
@@ -304,7 +304,7 @@ TEST_CASE("reference wn0 receiver agrees with the C# on seeded AWGN and signal l
     const auto base = c.real32("audio_f32le");
     const auto wire = c.bytes("interleaved_bits");
     const Interleaver il = wn0_interleaver(InterleaverKind::Short);
-    auto rx = std::make_unique<Wn0Receiver>();
+    auto rx = std::make_unique<StandaloneWn0Receiver>();
     configured_rx(*rx);
     fec::TailBitingViterbiDecoder dec(fec::k7_133_171, 40);
 
@@ -448,7 +448,7 @@ TEST_CASE("reference wn0 receiver agrees with the C# on Poor channel bursts", "[
     std::ifstream bin(stem + ".i16le", std::ios::binary);
     REQUIRE(bin.good());
     const Interleaver il = wn0_interleaver(InterleaverKind::Short);
-    auto rx = std::make_unique<Wn0Receiver>();
+    auto rx = std::make_unique<StandaloneWn0Receiver>();
     configured_rx(*rx);
     fec::TailBitingViterbiDecoder dec(fec::k7_133_171, 40);
     std::map<std::string, Rates> cs, cpp;
@@ -579,7 +579,7 @@ TEST_CASE("wn0 receiver decodes the C++ transmitter, clean and in noise as well 
     s.chip0 = 31.5;
     s.data_start = 1728;
     s.il_bits = il.size_bits();
-    auto rx = std::make_unique<Wn0Receiver>();
+    auto rx = std::make_unique<StandaloneWn0Receiver>();
     configured_rx(*rx);
     fec::TailBitingViterbiDecoder dec(fec::k7_133_171, 40);
     const Result clean = run_rx(*rx, dec, audio, s, il, 4);
@@ -629,7 +629,7 @@ TEST_CASE("wn0 receiver decodes the C++ transmitter, clean and in noise as well 
 }
 
 TEST_CASE("wn0 receiver allocates nothing and handles odd calls", "[wn0]") {
-    auto rx = std::make_unique<Wn0Receiver>();
+    auto rx = std::make_unique<StandaloneWn0Receiver>();
     CHECK_FALSE(rx->configure(0.0));
     CHECK_FALSE(rx->configured());
     std::vector<real> block(80);

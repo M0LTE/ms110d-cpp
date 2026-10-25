@@ -2,7 +2,7 @@
 
 A C++ implementation of the **MIL-STD-188-110D Appendix D** 3 kHz serial-tone HF modem, built to be compatible on air with the C# reference, [M0LTE.Ms110d](https://github.com/M0LTE/M0LTE.Ms110d).
 
-**Status: not started.** The plan is in [docs/plan.md](docs/plan.md) and the work is tracked as epics and stories in the [issues](https://github.com/M0LTE/ms110d-cpp/issues).
+**Status: transmit and receive work, bit for bit with the C# reference in the default build; not released yet.** The plan is in [docs/plan.md](docs/plan.md) and the work is tracked as epics and stories in the [issues](https://github.com/M0LTE/ms110d-cpp/issues).
 
 ## What it will be
 
@@ -54,6 +54,41 @@ Payload bits in (one bit per byte, 0 or 1), 9600 Hz audio on the 1800 Hz sub-car
 For a whole burst in one call, like the C# `Modulate`, use `tx.modulate(payload_bits, audio, written)`; if `audio` is too short it returns `BufferTooSmall` and sets `written` to the length needed.
 
 The audio is the same as the C# `Ms110dModulator.Modulate` makes, to within 1e-6 per sample. Nothing throws, and nothing allocates after `configure`. The same thing is available from C as `ms110d_tx_*` in `ms110d.h`, with the library allocating (`ms110d_tx_create`) or the caller supplying the memory (`ms110d_tx_memory_size` and `ms110d_tx_init`); `ms110d_tx_modulate` is the one-shot call. See [docs/dev/transmitter.md](docs/dev/transmitter.md).
+
+## Receiving
+
+9600 Hz audio in, decoded bursts out, by polling for events. The options are the C# `Ms110dDemodOptions`, with the same defaults, plus the longest interleaver to accept (it sizes the memory) and whether to report soft decisions.
+
+    #include <m0lte/ms110d/receiver.hpp>
+    using namespace m0lte::ms110d;
+
+    RxOptions options;                          // the C# defaults
+    options.max_interleaver = InterleaverKind::Short;  // 4.1 MiB; Long accepts everything in 58.2 MiB
+    std::size_t bytes = 0;
+    if (Receiver::storage_bytes(options, bytes) != Status::Ok) { /* bad options */ }
+    std::vector<std::uint8_t> memory(bytes);    // or a static array: the library never allocates
+
+    Receiver rx;
+    if (rx.configure(options, memory) != Status::Ok) { /* bad options or memory */ }
+
+    std::vector<std::uint8_t> payload;
+    // For each chunk of audio, of any size (drain after every process, even one that took it all):
+    std::size_t done = 0;
+    while (done < audio.size()) {
+        std::size_t used = 0;
+        if (rx.process(std::span(audio).subspan(done), used) != Status::Ok) break;  // State: events not taken
+        done += used;                           // it stops after a sample that raised events
+        for (RxEvent e = rx.next_event(); e.kind != RxEventKind::None; e = rx.next_event()) {
+            if (e.kind == RxEventKind::BurstStarted) payload.clear();   // e.waveform, e.interleaver, ...
+            if (e.kind == RxEventKind::BlockDecoded) payload.insert(payload.end(), e.bits.begin(), e.bits.end());
+            if (e.kind == RxEventKind::BurstCompleted) {
+                payload.resize(e.payload_bits);   // the bits before the EOM
+                deliver(payload, e.reason);
+            }
+        }
+    }
+
+In the default build it decodes the same bits as the C# `Ms110dDemodulator`, to the bit. From C it is `ms110d_rx_*`: `ms110d_rx_process` reports the samples it consumed and `ms110d_rx_next_event` copies a block's bits into your buffer (`MS110D_ERR_BUFFER_TOO_SMALL` leaves the event queued and tells you the length). See [docs/dev/receiver.md](docs/dev/receiver.md).
 
 ## Compatibility, proven by tests
 

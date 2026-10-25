@@ -48,13 +48,14 @@
 #include "interleaver.hpp"
 #include "probe_pattern.hpp"
 #include "puncture.hpp"
-#include "rx_front_end.hpp"
+#include "rx_stream.hpp"
 #include "scrambler.hpp"
 
 #include <array>
 #include <complex>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 
 namespace m0lte::ms110d {
@@ -66,6 +67,14 @@ inline namespace v_single {
 #else
 inline namespace v_double {
 #endif
+
+// The C# TurboNsegMode: how the turbo stage prices the noise per segment of a frame.
+enum class DfeNoisePricing {
+    SpikeUp,  // the shipped default ("spikeup", the C# null): a segment's own floor only where it is
+              // above the frame's beyond its 3 sigma band
+    Off,      // "off": the frame constant throughout
+    Spike2s,  // "spike2s": the same test both ways (a measurement variant)
+};
 
 struct DfeReceiverConfig {
     // Roll-off of the receive matched filter (the C# Ms110dDemodOptions.RollOff).
@@ -79,6 +88,16 @@ struct DfeReceiverConfig {
     // The turbo re-equalisation and the MFB block decoder after each block's first decode (the
     // C# DisableTurbo, inverted). Off decodes from the first-pass soft values alone.
     bool turbo = true;
+    // The C# RlsForgettingFactor: replaces the frame-tied 1 - ln 10 / U when set.
+    bool has_rls_forgetting_factor = false;
+    float rls_forgetting_factor = 0.0f;
+    // The C# TrackRidge: replaces the per probe length anchored-solve ridge when set.
+    bool has_track_ridge = false;
+    float track_ridge = 0.0f;
+    // The C# TurboNsegMode.
+    DfeNoisePricing noise_pricing = DfeNoisePricing::SpikeUp;
+    // The C# PresenceReleaseOff: never end a burst as SignalAbsent (the statistic is still kept).
+    bool presence_release_off = false;
 };
 
 // The decoders the receiver uses, the caller's (each allocates its tables when constructed):
@@ -108,7 +127,7 @@ struct DfeStart {
 DfeStart dfe_start_from_detection(const PreambleDetection& detection) noexcept;
 
 // Why a burst ended (the C# Ms110dBurstEndReason, the values that can arise here).
-enum class DfeEndReason { Eom, MaxInputDataBlocks, SignalLost, SignalAbsent };
+enum class DfeEndReason { Eom, MaxInputDataBlocks, SignalLost, SignalAbsent, Terminated };
 
 // What one frame did: the C# FrameDiagnostics point, for tests and diagnostics.
 struct DfeFrameTrace {
@@ -188,6 +207,7 @@ struct DfeReceiverStats {
     std::int64_t turbo_skipped = 0;
     std::int64_t mfb_offered = 0;
     std::int64_t mfb_selected = 0;
+    std::int64_t agc_resolves = 0;      // bursts whose level gain was not 1, counted at the equaliser's start (the C# AgcResolves)
 };
 
 class DfeReceiver {
@@ -196,9 +216,10 @@ public:
     DfeReceiver(const DfeReceiver&) = delete;
     DfeReceiver& operator=(const DfeReceiver&) = delete;
 
-    // Bytes of storage configure() needs (0 if the configuration is not valid).
+    // Bytes of storage configure() needs (0 if the configuration is not valid). The T/2 ring is not
+    // in it: it is the shared stream's.
     static std::size_t storage_bytes(const DfeReceiverConfig& config) noexcept;
-    // T/2 samples kept for a configuration (a power of two).
+    // T/2 samples the shared stream must hold for a configuration (a power of two).
     static std::size_t ring_size_for(InterleaverKind max_interleaver) noexcept;
     // Info bits of the longest block accepted: what the caller's Viterbi and SISO decoders must hold.
     static std::size_t max_input_bits_for(InterleaverKind max_interleaver) noexcept;
@@ -206,14 +227,22 @@ public:
     static constexpr std::size_t max_frame_symbols = 256;
 
     // Sets up in `storage` (at least storage_bytes(), kept in place and used by nothing else) with
-    // the caller's decoders. False, unconfigured, if anything is missing or does not fit.
+    // the caller's decoders, reading the shared stream (configured with the same roll-off, kept in
+    // place). False, unconfigured, if anything is missing or does not fit.
     bool configure(const DfeReceiverConfig& config, std::span<std::uint8_t> storage,
-                   const DfeDecoders& decoders) noexcept;
-    bool configured() const noexcept { return ring_ != nullptr; }
+                   const DfeDecoders& decoders, RxStream& stream) noexcept;
+    bool configured() const noexcept { return stream_ != nullptr; }
 
-    // Back to the start of a stream: front end and ring cleared, the sample count restarts at 0,
-    // any burst dropped, counters zero.
+    // Drops any burst and any pending event, counters zero (the stream is the driver's to reset).
     void reset() noexcept;
+
+    // The terminate command: ends an active burst now (BurstEnded, reason Terminated, with every
+    // bit decoded so far as the payload), as the C# does on the next sample after Terminate().
+    void terminate() noexcept;
+
+    // For the stream's driver: a new T/2 sample has been pushed. Tracks the burst, if one is
+    // active; an event may then be pending.
+    void on_t2() noexcept;
 
     // Begins a burst. Call it as soon as the detector reports one, before pushing the samples after
     // the detection: the C# initialises the equaliser at a fixed point after the data start and the
@@ -223,8 +252,8 @@ public:
     bool start(const DfeStart& start) noexcept;
     bool active() const noexcept { return active_; }
 
-    // Uses audio (9600 Hz), the same stream the detector was given from the same first sample,
-    // and returns how many samples it used: all unless an event was raised (it stops after that
+    // Drives the bound stream itself (for a receiver that is its only reader, as in the tests):
+    // pushes audio (9600 Hz) and returns how many samples it used: all unless an event was raised (it stops after that
     // sample) or one is waiting (then none).
     std::size_t push_audio(std::span<const float> audio) noexcept;
 
@@ -234,7 +263,7 @@ public:
     const DfeBlock& block() const noexcept { return block_; }
     const DfeBurstEnd& burst_end() const noexcept { return end_; }
 
-    std::int64_t t2_written() const noexcept { return written_; }
+    std::int64_t t2_written() const noexcept { return stream_ == nullptr ? 0 : stream_->written(); }
     const DfeReceiverStats& stats() const noexcept { return stats_; }
     const ProbePattern& probe_pattern() const noexcept { return pattern_; }
 
@@ -254,7 +283,6 @@ private:
     static constexpr int max_presence_frames = 400;  // 16 s of the shortest frame (96 symbols)
     static constexpr int max_block_frames = 256;
 
-    void push_t2(ComplexF sample) noexcept;
     void try_track() noexcept;
     bool have_samples_for_chip(double chip) const noexcept;
     ComplexF interpolate(double pos) const noexcept;
@@ -293,12 +321,10 @@ private:
 
     // Configuration.
     DfeReceiverConfig config_{};
-    RxFrontEnd front_end_{};
     DfeDecoders decoders_{};
+    RxStream* stream_ = nullptr;
 
     // Storage carved from the caller's block.
-    ComplexF* ring_ = nullptr;
-    std::size_t ring_size_ = 0;
     std::span<std::uint8_t> dfe_storage_{};
     float* block_llrs_ = nullptr;
     float* deinterleaved_ = nullptr;
@@ -329,9 +355,6 @@ private:
     std::size_t max_input_bits_ = 0;
     double* presence_dft_re_ = nullptr;
     double* presence_dft_im_ = nullptr;
-
-    // Front end and ring.
-    std::int64_t written_ = 0;
 
     // The burst.
     bool active_ = false;
@@ -453,6 +476,40 @@ private:
     DfeFrameTrace trace_{};
     DfeFrameTraceFn trace_fn_ = nullptr;
     void* trace_context_ = nullptr;
+};
+
+// An equaliser receive path with its own front end and ring, for use on its own (the tests): the
+// stream's ring is carved from the front of the same caller storage.
+class StandaloneDfeReceiver : public DfeReceiver {
+public:
+    static std::size_t storage_bytes(const DfeReceiverConfig& config) noexcept {
+        const std::size_t base = DfeReceiver::storage_bytes(config);
+        if (base == 0) return 0;
+        return ring_size_for(config.max_interleaver) * sizeof(dsp::ComplexF) + alignof(dsp::ComplexF) + base;
+    }
+    bool configure(const DfeReceiverConfig& config, std::span<std::uint8_t> storage, const DfeDecoders& decoders) noexcept {
+        // Any failure leaves the base with no storage, so its configure fails and unconfigures it.
+        std::span<std::uint8_t> rest{};
+        const std::size_t need = storage_bytes(config);
+        const std::size_t ring = ring_size_for(config.max_interleaver);
+        void* where = storage.data();
+        std::size_t space = storage.size();
+        if (need != 0 && storage.size() >= need &&
+            std::align(alignof(dsp::ComplexF), ring * sizeof(dsp::ComplexF), where, space) != nullptr) {
+            auto* ring_start = static_cast<dsp::ComplexF*>(where);
+            const auto used = static_cast<std::size_t>(reinterpret_cast<std::uint8_t*>(ring_start + ring) - storage.data());
+            if (stream_.configure(config.roll_off, {ring_start, ring})) rest = storage.subspan(used);
+        }
+        return DfeReceiver::configure(config, rest, decoders, stream_);
+    }
+    void reset() noexcept {
+        stream_.reset();
+        DfeReceiver::reset();
+    }
+    RxStream& stream() noexcept { return stream_; }
+
+private:
+    RxStream stream_{};
 };
 
 }  // inline namespace

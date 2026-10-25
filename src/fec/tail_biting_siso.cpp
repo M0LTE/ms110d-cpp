@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cstdint>
 #include <cmath>
 #include <limits>
 #include <utility>
@@ -28,24 +29,65 @@ inline void branch_metrics(const float* llrs, std::size_t p, float* g) noexcept 
 
 }  // namespace
 
-TailBitingSisoDecoder::TailBitingSisoDecoder(const ConvolutionalCode& code, std::size_t max_block_bits)
-    : code_(code), valid_(code.k >= 2 && code.k <= 16), max_n_(max_block_bits), corr_{} {
-    if (!valid_) {
-        return;
-    }
+namespace {
+
+struct SisoLayout {
+    std::size_t alpha = 0, beta_a = 0, beta_b = 0, outputs = 0, total = 0;
+};
+
+SisoLayout siso_layout(const ConvolutionalCode& code, std::size_t max_n) noexcept {
+    SisoLayout l;
     const std::size_t states = code.states();
-    outputs_.resize(std::size_t{1} << code.k);
-    for (std::uint32_t v = 0; v < outputs_.size(); ++v) {
+    std::size_t at = max_n * states * sizeof(float);
+    l.beta_a = at;
+    at += states * sizeof(float);
+    l.beta_b = at;
+    at += states * sizeof(float);
+    l.outputs = at;
+    at += std::size_t{1} << code.k;
+    l.total = at;
+    return l;
+}
+
+}  // namespace
+
+std::size_t TailBitingSisoDecoder::storage_bytes(const ConvolutionalCode& code, std::size_t max_block_bits) noexcept {
+    if (code.k < 2 || code.k > 16) return 0;
+    return siso_layout(code, max_block_bits).total + alignof(float);
+}
+
+bool TailBitingSisoDecoder::configure(const ConvolutionalCode& code, std::size_t max_block_bits,
+                                      std::span<std::uint8_t> storage) noexcept {
+    valid_ = false;
+    const std::size_t need = storage_bytes(code, max_block_bits);
+    if (need == 0 || storage.size() < need) return false;
+    const auto addr = reinterpret_cast<std::uintptr_t>(storage.data());
+    std::uint8_t* base = storage.data() + ((alignof(float) - (addr % alignof(float))) % alignof(float));
+    const SisoLayout l = siso_layout(code, max_block_bits);
+    code_ = code;
+    max_n_ = max_block_bits;
+    alpha_ = reinterpret_cast<float*>(base + l.alpha);
+    beta_a_ = reinterpret_cast<float*>(base + l.beta_a);
+    beta_b_ = reinterpret_cast<float*>(base + l.beta_b);
+    outputs_ = base + l.outputs;
+    for (std::uint32_t v = 0; v < (std::uint32_t{1} << code.k); ++v) {
         const unsigned t1 = static_cast<unsigned>(std::popcount(v & code.poly_t1)) & 1u;
         const unsigned t2 = static_cast<unsigned>(std::popcount(v & code.poly_t2)) & 1u;
         outputs_[v] = static_cast<std::uint8_t>((t1 << 1) | t2);
     }
-    alpha_.resize(max_n_ * states);
-    beta_a_.resize(states);
-    beta_b_.resize(states);
     for (std::size_t i = 0; i < corr_entries; ++i) {
         corr_[i] = std::log(1.0f + std::exp(-(static_cast<float>(i) * corr_step)));
     }
+    valid_ = true;
+    return true;
+}
+
+TailBitingSisoDecoder::TailBitingSisoDecoder(const ConvolutionalCode& code, std::size_t max_block_bits)
+    : code_(code), max_n_(max_block_bits) {
+    const std::size_t bytes = storage_bytes(code, max_block_bits);
+    if (bytes == 0) return;
+    owned_.resize((bytes + sizeof(float) - 1) / sizeof(float));
+    configure(code, max_block_bits, {reinterpret_cast<std::uint8_t*>(owned_.data()), owned_.size() * sizeof(float)});
 }
 
 float TailBitingSisoDecoder::max_star(float a, float b) const noexcept {
@@ -75,13 +117,13 @@ bool TailBitingSisoDecoder::decode(std::span<const float> mother_llrs, std::span
     const std::size_t half = states >> 1;
     const std::size_t wrap = std::min<std::size_t>(6 * k, n);
     const float* llrs = mother_llrs.data();
-    const std::uint8_t* outputs = outputs_.data();
-    float* alpha_store = alpha_.data();
+    const std::uint8_t* outputs = outputs_;
+    float* alpha_store = alpha_;
     float g[4];
 
     // Forward: alpha over extended stages [-W, N); alpha before branch p is stored at alpha_[p * states].
-    float* cur = beta_a_.data();
-    float* next = beta_b_.data();
+    float* cur = beta_a_;
+    float* next = beta_b_;
     std::fill_n(cur, states, 0.0f);
     for (std::ptrdiff_t i = -static_cast<std::ptrdiff_t>(wrap); i < static_cast<std::ptrdiff_t>(n); ++i) {
         const std::size_t p = i < 0 ? static_cast<std::size_t>(i + static_cast<std::ptrdiff_t>(n)) : static_cast<std::size_t>(i);

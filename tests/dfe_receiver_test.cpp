@@ -184,6 +184,7 @@ const char* reason_name(DfeEndReason r) {
         case DfeEndReason::MaxInputDataBlocks: return "MaxInputDataBlocks";
         case DfeEndReason::SignalLost: return "SignalLost";
         case DfeEndReason::SignalAbsent: return "SignalAbsent";
+        case DfeEndReason::Terminated: return "Terminated";
     }
     return "?";
 }
@@ -641,9 +642,9 @@ TEST_CASE("dfe receiver: nothing allocates after configure", "[dfe_receiver]") {
     dec.siso_k7 = &s7;
     dec.siso_k9 = &s9;
     dec.chain = &chain;
-    std::vector<std::uint8_t> storage(DfeReceiver::storage_bytes(config));
-    auto detector = std::make_unique<PreambleDetector>();
-    auto receiver = std::make_unique<DfeReceiver>();
+    std::vector<std::uint8_t> storage(StandaloneDfeReceiver::storage_bytes(config));
+    auto detector = std::make_unique<StandalonePreambleDetector>();
+    auto receiver = std::make_unique<StandaloneDfeReceiver>();
     REQUIRE(receiver->configure(config, storage, dec));
 
     // WN 1: the largest equaliser (K = 48, 54 taps). WN 6: the QPSK turbo loop. WN 7 near its mask:
@@ -726,8 +727,8 @@ TEST_CASE("dfe receiver: storage, configuration and refusals", "[dfe_receiver]")
     dec.siso_k7 = &s7;
     dec.siso_k9 = &s9;
     dec.chain = &chain;
-    std::vector<std::uint8_t> storage(DfeReceiver::storage_bytes(config));
-    auto rx = std::make_unique<DfeReceiver>();
+    std::vector<std::uint8_t> storage(StandaloneDfeReceiver::storage_bytes(config));
+    auto rx = std::make_unique<StandaloneDfeReceiver>();
     CHECK_FALSE(rx->configure(config, {storage.data(), storage.size() - 1}, dec));
     DfeDecoders missing = dec;
     missing.chain = nullptr;

@@ -29,6 +29,7 @@
 // one object from one thread at a time.
 
 #include <m0lte/ms110d/config.hpp>
+#include <m0lte/ms110d/status.hpp>
 #include <m0lte/ms110d/tx_settings.hpp>
 
 #include <cstddef>
@@ -36,15 +37,6 @@
 #include <span>
 
 namespace m0lte::ms110d {
-
-// Result of a call that can fail. The values equal the C interface's status codes.
-enum class Status : std::int32_t {
-    Ok = 0,
-    InvalidArgument = 1,  // a setting or argument out of range
-    BufferTooSmall = 2,   // more bits than the maximum payload, or storage too small
-    Unsupported = 3,      // a combination the library does not implement
-    State = 4,            // the call does not fit the transmitter's current step
-};
 
 // Sample rate of the audio the transmitter produces.
 inline constexpr int tx_sample_rate_hz = 9600;

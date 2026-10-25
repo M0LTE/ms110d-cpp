@@ -171,9 +171,9 @@ public class Layer3AnalysisTests
     }
 
     [Fact]
-    public void TheCppReceiverSlotIsReportedAsNotAvailableAndItsPairingsAreSkipped()
+    public void AnUnavailableReceiverIsReportedAndItsPairingsAreSkipped()
     {
-        Assert.False(Layer3Endpoints.CppReceiver.IsAvailable);
+        Assert.True(Layer3Endpoints.CppReceiver.IsAvailable);  // the C++ receiver is in the default run
         var spec = new Layer3Spec(3, 0, 7, Layer3Channel.Awgn, [10], 2);
         var r = Layer3Sweep.Run(spec, Layer3Endpoints.Transmitters, [Layer3Endpoints.CSharpRx, new MissingReceiver("cpp", "not yet")]);
         Assert.Equal(["csharp->csharp", "cpp->csharp"], r.Pairings);

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #pragma once
 
-// Test support: the preamble detector and the equaliser receive path run on one stream the way
-// the C# Ms110dDemodulator runs them (the detector's event hands the burst to the receiver at the
+// Test support: the preamble detector and the equaliser receive path run on one shared front end
+// and ring (rx_stream.hpp), the way the C# Ms110dDemodulator runs them (the detector's event hands the burst to the receiver at the
 // very sample the C# locks and re-fits), recording the first burst's frames, blocks and end. The
 // public receive API that does this for real is a later story; this is only for the tests.
 
@@ -12,6 +12,7 @@
 #include "fec/tail_biting_siso.hpp"
 #include "fec/tail_biting_viterbi.hpp"
 #include "preamble_detector.hpp"
+#include "rx_stream.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -64,6 +65,8 @@ private:
     std::unique_ptr<m0lte::ms110d::BasicChainBcjr<float>> chain_;
     std::size_t block_frames_mark_ = 0;
     std::vector<std::uint8_t> storage_;
+    std::vector<m0lte::dsp::ComplexF> ring_;
+    m0lte::ms110d::RxStream stream_{};
     bool trace_frames_;
     RxRun* current_ = nullptr;
 };

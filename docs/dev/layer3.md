@@ -1,6 +1,6 @@
 # Layer 3: cross-decoding harness
 
-Issue 28, under epic 23. Code: `tests/interop/Layer3/`. It sends seeded bursts from a transmitter through the C# HF channel (`M0LTE.HfChannel`) at a ladder of SNRs to a receiver, and records frame and bit errors. The question it answers: do the pairings (C# to C#, C++ to C#, and later C# to C++ and C++ to C++) need the same SNR to reach the same frame loss, to within 0.5 dB?
+Issue 28, under epic 23. Code: `tests/interop/Layer3/`. It sends seeded bursts from a transmitter through the C# HF channel (`M0LTE.HfChannel`) at a ladder of SNRs to a receiver, and records frame and bit errors. The question it answers: do the pairings (C# to C#, C++ to C#, C# to C++ and C++ to C++) need the same SNR to reach the same frame loss, to within 0.5 dB?
 
 ## What is measured
 
@@ -48,7 +48,9 @@ Early versions of the rule read the threshold off the two points either side of 
 
 ## Pairings and the C++ receiver slot
 
-Today: C# to C# and C++ to C#. `Layer3Endpoints.CppReceiver` (`Endpoints.cs`) is a `MissingReceiver`, reported as "not yet available", and the pairings needing it are listed as skipped. The story that ports the C++ receiver sets it to an `ILayer3Receiver` that decodes through the C interface; the other two pairings then run with no other change, and each is judged against C# to C#. A real C++ receiver will not decode frame for frame like the C# one, so its cells will have intervals like the fakes above, and the aggregate is what carries the verdict.
+All four run. `Layer3Endpoints.CppReceiver` (`Endpoints.cs`) is `CppReceiverEndpoint`, the C++ receiver through the C interface (`tests/interop/CppReceiver.cs`), fed exactly as the C# endpoint feeds the C# demodulator (the audio, then 6000 zero samples, the first burst completed), one receiver per thread reused with a reset. Each pairing is judged against C# to C#. A receiver that is not available (`MissingReceiver`) is still reported and its pairings skipped; the harness's own test covers that with a placeholder.
+
+In the default run every C++ pairing decodes frame for frame like C# to C# (the default build's receiver is the C#'s to the bit, docs/dev/receiver.md): on all three cells, 0 differing decodes and a difference of 0.00 dB, PASS. The long run is where a difference would show if the receivers ever diverge (and in the single build, which the CI interop job does not run).
 
 ## Running
 

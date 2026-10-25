@@ -4,27 +4,71 @@
 
 #include <algorithm>
 #include <bit>
+#include <cstdint>
 #include <utility>
 
 namespace m0lte::fec {
 
-TailBitingViterbiDecoder::TailBitingViterbiDecoder(const ConvolutionalCode& code, std::size_t max_block_bits)
-    : code_(code), valid_(code.k >= 2 && code.k <= 16), max_n_(max_block_bits) {
-    if (!valid_) {
-        return;
-    }
+namespace {
+
+// Where each table goes in a block of storage, from offset 0 (8 byte aligned).
+struct ViterbiLayout {
+    std::size_t decisions = 0, metric_a = 0, metric_b = 0, outputs = 0, total = 0;
+};
+
+ViterbiLayout viterbi_layout(const ConvolutionalCode& code, std::size_t max_n) noexcept {
+    ViterbiLayout l;
     const std::size_t k = static_cast<std::size_t>(code.k);
     const std::size_t states = code.states();
-    outputs_.resize(std::size_t{1} << k);
-    for (std::uint32_t v = 0; v < outputs_.size(); ++v) {
+    const std::size_t w = std::min<std::size_t>(6 * k, max_n);
+    l.decisions = 0;
+    std::size_t at = (max_n + 2 * w) * ((states + 63) >> 6) * sizeof(std::uint64_t);
+    l.metric_a = at;
+    at += states * sizeof(float);
+    l.metric_b = at;
+    at += states * sizeof(float);
+    l.outputs = at;
+    at += std::size_t{1} << k;
+    l.total = at;
+    return l;
+}
+
+}  // namespace
+
+std::size_t TailBitingViterbiDecoder::storage_bytes(const ConvolutionalCode& code, std::size_t max_block_bits) noexcept {
+    if (code.k < 2 || code.k > 16) return 0;
+    return viterbi_layout(code, max_block_bits).total + alignof(std::uint64_t);
+}
+
+bool TailBitingViterbiDecoder::configure(const ConvolutionalCode& code, std::size_t max_block_bits,
+                                         std::span<std::uint8_t> storage) noexcept {
+    valid_ = false;
+    const std::size_t need = storage_bytes(code, max_block_bits);
+    if (need == 0 || storage.size() < need) return false;
+    const auto addr = reinterpret_cast<std::uintptr_t>(storage.data());
+    std::uint8_t* base = storage.data() + ((alignof(std::uint64_t) - (addr % alignof(std::uint64_t))) % alignof(std::uint64_t));
+    const ViterbiLayout l = viterbi_layout(code, max_block_bits);
+    code_ = code;
+    max_n_ = max_block_bits;
+    decisions_ = reinterpret_cast<std::uint64_t*>(base + l.decisions);
+    metric_a_ = reinterpret_cast<float*>(base + l.metric_a);
+    metric_b_ = reinterpret_cast<float*>(base + l.metric_b);
+    outputs_ = base + l.outputs;
+    for (std::uint32_t v = 0; v < (std::uint32_t{1} << code.k); ++v) {
         const unsigned t1 = static_cast<unsigned>(std::popcount(v & code.poly_t1)) & 1u;
         const unsigned t2 = static_cast<unsigned>(std::popcount(v & code.poly_t2)) & 1u;
         outputs_[v] = static_cast<std::uint8_t>((t1 << 1) | t2);
     }
-    metric_a_.resize(states);
-    metric_b_.resize(states);
-    const std::size_t w = std::min<std::size_t>(6 * k, max_n_);
-    decisions_.resize((max_n_ + 2 * w) * ((states + 63) >> 6));
+    valid_ = true;
+    return true;
+}
+
+TailBitingViterbiDecoder::TailBitingViterbiDecoder(const ConvolutionalCode& code, std::size_t max_block_bits)
+    : code_(code), max_n_(max_block_bits) {
+    const std::size_t bytes = storage_bytes(code, max_block_bits);
+    if (bytes == 0) return;
+    owned_.resize((bytes + sizeof(std::uint64_t) - 1) / sizeof(std::uint64_t));
+    configure(code, max_block_bits, {reinterpret_cast<std::uint8_t*>(owned_.data()), owned_.size() * sizeof(std::uint64_t)});
 }
 
 bool TailBitingViterbiDecoder::decode(std::span<const float> mother_llrs, std::span<std::uint8_t> info) noexcept {
@@ -40,9 +84,9 @@ bool TailBitingViterbiDecoder::decode(std::span<const float> mother_llrs, std::s
     const std::size_t words = (states + 63) >> 6;
     const std::size_t half = states >> 1;
 
-    std::fill_n(metric_a_.begin(), static_cast<std::ptrdiff_t>(states), 0.0f);
-    float* cur = metric_a_.data();
-    float* next = metric_b_.data();
+    std::fill_n(metric_a_, states, 0.0f);
+    float* cur = metric_a_;
+    float* next = metric_b_;
     float bm[4];
 
     for (std::size_t e = 0; e < steps; ++e) {
@@ -64,7 +108,7 @@ bool TailBitingViterbiDecoder::decode(std::span<const float> mother_llrs, std::s
         bm[2] = -l1 + l2;
         bm[3] = -l1 - l2;
 
-        std::uint64_t* dec = decisions_.data() + e * words;
+        std::uint64_t* dec = decisions_ + e * words;
         for (std::size_t wd = 0; wd < words; ++wd) {
             dec[wd] = 0;
         }
