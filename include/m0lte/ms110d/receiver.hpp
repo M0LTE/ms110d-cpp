@@ -19,7 +19,10 @@
 //                     payload_bits (before the EOM, or all of them without one); the bits are not
 //                     repeated in this event;
 //   - FirstPassSoft, TurboSoft  per block soft values, wire order, positive for bit 0 (the C#
-//                     FirstPassBlockLlrs and TurboBlockLlrs), only when RxOptions::soft_decisions.
+//                     FirstPassBlockLlrs and TurboBlockLlrs), only when RxOptions::soft_decisions;
+//   - BurstRefused    a preamble was identified but its interleaver is longer than
+//                     RxOptions::max_interleaver, so the burst is not received (no C# counterpart:
+//                     the C# accepts every interleaver).
 // Every event carries `sample`, the number of input samples the receiver had taken when it was
 // raised, and the burst's waveform, interleaver, constraint length and carrier offset.
 //
@@ -35,12 +38,14 @@
 //             for (RxEvent e = rx.next_event(); e.kind != RxEventKind::None; e = rx.next_event()) { ... }
 //         }
 // process() stops right after the sample that raised events, so the events never pile up; until
-// they are all taken it takes no more audio (Status::State). The spans in an event point into the
+// they are all taken it takes no more audio (Status::State). Drain after every process() call, also
+// when it consumed everything: the last sample may have raised events. The spans in an event point into the
 // receiver and stay valid until the next process() or reset().
 //
 // Memory. Nothing is allocated, ever, and nothing throws. All working memory is the one block given
 // to configure(), sized by storage_bytes() from the options (mostly from the longest interleaver
-// accepted, RxOptions::max_interleaver; docs/dev/receiver.md has the table). Not thread safe: use one
+// accepted, RxOptions::max_interleaver: from 1.4 MiB for the ultra-short interleaver to 58.2 MiB for
+// the long; docs/dev/receiver.md has the table). Not thread safe: use one
 // object from one thread at a time.
 
 #include <m0lte/ms110d/config.hpp>
@@ -97,8 +102,9 @@ struct RxOptions {
     // Never end a burst as SignalAbsent (the statistic is still computed).
     bool presence_release_off = false;
 
-    // Not in the C#: the longest interleaver accepted. Memory is sized for it; a burst with a longer
-    // one is not received (counted in RxStats::bursts_refused). Long accepts everything, as the C#.
+    // Not in the C#: the longest interleaver accepted, for every waveform. Memory is sized for it; a
+    // burst with a longer one is not received (a BurstRefused event, counted in
+    // RxStats::bursts_refused). Long accepts everything, as the C#.
     InterleaverKind max_interleaver = InterleaverKind::Long;
     // Not in the C#: raise the FirstPassSoft and TurboSoft events.
     bool soft_decisions = false;
@@ -111,6 +117,7 @@ enum class RxEventKind : std::int32_t {
     BurstCompleted = 3,
     FirstPassSoft = 4,
     TurboSoft = 5,
+    BurstRefused = 6,
 };
 
 struct RxEvent {
@@ -118,7 +125,7 @@ struct RxEvent {
     // Input samples taken when the event was raised (the same count for events raised together).
     std::int64_t sample = 0;
 
-    // The burst, as the preamble announced it (every kind but None).
+    // The burst, as the preamble announced it (every kind but None; a refused burst too).
     int waveform = -1;
     InterleaverKind interleaver = InterleaverKind::Short;
     int constraint_length = 0;
@@ -151,11 +158,19 @@ struct RxStats {
     std::int64_t signal_absent_releases = 0;
     std::int64_t mfb_offered = 0;
     std::int64_t mfb_selected = 0;
+    std::int64_t agc_resolves = 0;    // bursts whose input level gain was not 1 (the C# AgcResolves)
     std::int64_t bursts_refused = 0;  // identified, but longer than RxOptions::max_interleaver
+    std::int64_t samples_taken = 0;   // input samples taken
 };
 
 // Sample rate of the audio the receiver takes.
 inline constexpr int rx_sample_rate_hz = 9600;
+
+// The longest event payloads over every mode: info bits of one block (BlockDecoded) and soft values
+// of one block (the soft events), both WN 8 with the long interleaver. Receiver::max_block_bits()
+// and max_soft_values() give the longest for the interleavers a receiver accepts.
+inline constexpr std::size_t rx_max_block_bits = 49152;
+inline constexpr std::size_t rx_max_soft_values = 65536;
 
 #ifdef MS110D_SINGLE_PRECISION
 inline namespace v_single {
@@ -214,6 +229,10 @@ public:
     RxStats stats() const noexcept;
     // Input samples taken since configure() or reset().
     std::int64_t samples_taken() const noexcept;
+    // The longest BlockDecoded bits and soft event values this receiver can raise (0 if not
+    // configured): what a caller's buffers need.
+    std::size_t max_block_bits() const noexcept;
+    std::size_t max_soft_values() const noexcept;
 
 private:
     struct Impl;

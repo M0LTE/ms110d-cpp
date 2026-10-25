@@ -203,7 +203,7 @@ MS110D_API ms110d_status ms110d_tx_remaining(const ms110d_tx* tx, uint32_t* samp
 //   ms110d_rx_options_default(&options);            // the C# Ms110dDemodOptions defaults
 //   ms110d_rx* rx;
 //   ms110d_rx_create(&options, &rx);
-//   uint8_t bits[49152];                             // the longest block (WN 8, long interleaver)
+//   uint8_t bits[MS110D_RX_MAX_BLOCK_BITS];          // the longest block (WN 8, long interleaver)
 //   for each chunk of audio:
 //       uint32_t done = 0;
 //       while (done < count) {
@@ -218,19 +218,24 @@ MS110D_API ms110d_status ms110d_tx_remaining(const ms110d_tx* tx, uint32_t* samp
 //   ms110d_rx_destroy(rx);
 //
 // process stops right after a sample that raised events and, until every event has been taken,
-// takes no more audio (MS110D_ERR_STATE). The events, in the order the C# raises them:
+// takes no more audio (MS110D_ERR_STATE). Drain after every process call, also when it consumed
+// everything: the last sample may have raised events. The events, in the order the C# raises them:
 //   BURST_STARTED    the preamble identified a burst: waveform_number, interleaver,
 //                    constraint_length, cfo_hz;
 //   FIRST_PASS_SOFT, TURBO_SOFT  (only with soft_decisions) a block's soft values, wire order,
 //                    positive for bit 0, copied into `soft`: block_index, length;
 //   BLOCK_DECODED    a block's info bits, one per byte, copied into `bits`: block_index, length;
 //   BURST_COMPLETED  the burst ended: end_reason, blocks, payload_bits. The payload is the burst's
-//                    block bits in order, cut to payload_bits.
+//                    block bits in order, cut to payload_bits;
+//   BURST_REFUSED    a burst was identified but its interleaver is longer than max_interleaver, so
+//                    it is not received (the C# has no counterpart: it accepts every interleaver).
 // Every event has `sample` (input samples taken when it was raised) and the burst's waveform,
 // interleaver, constraint length and carrier offset. Unknown kinds are to be skipped.
 //
-// The handle is sized when it is made, from the options (above all max_interleaver; the long
-// interleaver takes about 61 MB, the short about 4.3 MB) and allocates nothing afterwards.
+// The handle is sized when it is made, from the options (above all max_interleaver: 1.4 MiB for the
+// ultra-short interleaver, 4.1 MiB short, 14.8 MiB medium, 58.2 MiB long) and allocates nothing
+// afterwards. Buffers of MS110D_RX_MAX_BLOCK_BITS bytes and MS110D_RX_MAX_SOFT_VALUES floats hold
+// any event; ms110d_rx_buffer_sizes gives the longest for a handle's interleavers.
 // ---------------------------------------------------------------------------
 
 typedef struct ms110d_rx ms110d_rx;
@@ -251,7 +256,8 @@ enum {
 //   has_rls_forgetting_factor, rls_forgetting_factor  override of 1 - ln 10 / U (default off)
 //   has_track_ridge, track_ridge  override of the anchored-solve ridge (default off)
 //   max_interleaver        longest interleaver accepted, MS110D_INTERLEAVER_* (default long);
-//                          sizes the memory, a longer burst is not received
+//                          sizes the memory; a longer burst, of any waveform, is not received
+//                          (MS110D_RX_EVENT_BURST_REFUSED)
 //   soft_decisions         raise the soft value events (default 0)
 //   sync_threshold         preamble detection threshold (default 0.32)
 //   roll_off               receive filter roll-off, 0.05 to 1 (default 0.35)
@@ -279,8 +285,14 @@ enum {
     MS110D_RX_EVENT_BLOCK_DECODED = 2,
     MS110D_RX_EVENT_BURST_COMPLETED = 3,
     MS110D_RX_EVENT_FIRST_PASS_SOFT = 4,
-    MS110D_RX_EVENT_TURBO_SOFT = 5
+    MS110D_RX_EVENT_TURBO_SOFT = 5,
+    MS110D_RX_EVENT_BURST_REFUSED = 6
 };
+
+// The longest event payloads over every mode (WN 8, long interleaver): info bits of one block and
+// soft values of one block.
+#define MS110D_RX_MAX_BLOCK_BITS 49152u
+#define MS110D_RX_MAX_SOFT_VALUES 65536u
 
 // Why a burst ended (the C# Ms110dBurstEndReason, same order).
 enum {
@@ -343,11 +355,41 @@ MS110D_API ms110d_status ms110d_rx_process(ms110d_rx* rx, const float* samples, 
 // into bits (one per byte) and soft values into soft; ev->length says how many. If the buffer for
 // the event is too small (or null) the result is MS110D_ERR_BUFFER_TOO_SMALL, the event's fields and
 // the length needed are filled in, and the event stays queued, so the call can be repeated with a
-// larger buffer. A struct_size below the size of the first published ms110d_rx_event is
-// MS110D_ERR_INVALID_ARGUMENT. A null bits or soft with capacity 0 is fine for events that do not
+// larger buffer. event->struct_size must be set: 0, or anything below the size of the first
+// published ms110d_rx_event (64 bytes), is MS110D_ERR_INVALID_ARGUMENT and nothing is written. A null bits or soft with capacity 0 is fine for events that do not
 // need it.
 MS110D_API ms110d_status ms110d_rx_next_event(ms110d_rx* rx, ms110d_rx_event* event, uint8_t* bits, uint32_t bits_capacity,
                                               float* soft, uint32_t soft_capacity);
+
+// Takes the next event off the queue without copying it anywhere (a no-op when there is none).
+MS110D_API ms110d_status ms110d_rx_drop_event(ms110d_rx* rx);
+
+// The longest bits (BLOCK_DECODED) and soft values (the soft events) this handle can deliver, for
+// its max_interleaver: what the buffers given to ms110d_rx_next_event need.
+MS110D_API ms110d_status ms110d_rx_buffer_sizes(const ms110d_rx* rx, uint32_t* bits, uint32_t* soft_values);
+
+// Counts since the handle was made or reset: the C# receiver's public counters, and this library's.
+// Output struct: the caller sets struct_size (at least the first published size, 112 bytes); the
+// library fills its fields and zeros the rest up to struct_size.
+typedef struct ms110d_rx_stats {
+    uint32_t struct_size;
+    uint32_t reserved;
+    double peak_search_metric;       // highest matched-filter metric seen
+    int64_t samples_taken;           // input samples taken
+    int64_t turbo_converged;
+    int64_t turbo_reverted;
+    int64_t turbo_salvaged;
+    int64_t turbo_aborted;
+    int64_t turbo_skipped;
+    int64_t collapse_resolves;
+    int64_t signal_absent_releases;
+    int64_t agc_resolves;            // bursts whose input level gain was not 1
+    int64_t mfb_offered;
+    int64_t mfb_selected;
+    int64_t bursts_refused;          // identified, but longer than max_interleaver
+} ms110d_rx_stats;
+
+MS110D_API ms110d_status ms110d_rx_get_stats(const ms110d_rx* rx, ms110d_rx_stats* stats);
 
 // The terminate-receive command: a burst in progress ends on the next sample (BURST_COMPLETED,
 // MS110D_END_TERMINATED).

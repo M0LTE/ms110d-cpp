@@ -69,7 +69,7 @@ _Static_assert(offsetof(ms110d_rx_event, cfo_hz) == 56, "cfo_hz offset");
 _Static_assert(sizeof(int64_t) == 8, "int64_t");
 _Static_assert(MS110D_RX_EVENT_NONE == 0 && MS110D_RX_EVENT_BURST_STARTED == 1 && MS110D_RX_EVENT_BLOCK_DECODED == 2 &&
                    MS110D_RX_EVENT_BURST_COMPLETED == 3 && MS110D_RX_EVENT_FIRST_PASS_SOFT == 4 &&
-                   MS110D_RX_EVENT_TURBO_SOFT == 5,
+                   MS110D_RX_EVENT_TURBO_SOFT == 5 && MS110D_RX_EVENT_BURST_REFUSED == 6,
                "event kinds");
 _Static_assert(MS110D_END_EOM == 0 && MS110D_END_MAX_INPUT_DATA_BLOCKS == 1 && MS110D_END_TERMINATED == 2 &&
                    MS110D_END_SIGNAL_LOST == 3 && MS110D_END_SIGNAL_ABSENT == 4,
@@ -78,3 +78,14 @@ _Static_assert(MS110D_RX_STATE_SEARCHING == 0 && MS110D_RX_STATE_READING_PREAMBL
                "states");
 _Static_assert(MS110D_NOISE_PRICING_SPIKE_UP == 0 && MS110D_NOISE_PRICING_OFF == 1 && MS110D_NOISE_PRICING_SPIKE_2S == 2,
                "noise pricing");
+
+/* Receiver counters: two 4 byte words, then 8 byte fields from offset 8. */
+_Static_assert(sizeof(ms110d_rx_stats) == 112, "ms110d_rx_stats size");
+_Static_assert(offsetof(ms110d_rx_stats, struct_size) == 0, "struct_size is first");
+_Static_assert(offsetof(ms110d_rx_stats, reserved) == 4, "reserved offset");
+_Static_assert(offsetof(ms110d_rx_stats, peak_search_metric) == 8, "peak_search_metric offset");
+_Static_assert(offsetof(ms110d_rx_stats, samples_taken) == 16, "samples_taken offset");
+_Static_assert(offsetof(ms110d_rx_stats, turbo_converged) == 24, "turbo_converged offset");
+_Static_assert(offsetof(ms110d_rx_stats, agc_resolves) == 80, "agc_resolves offset");
+_Static_assert(offsetof(ms110d_rx_stats, bursts_refused) == 104, "bursts_refused offset");
+_Static_assert(MS110D_RX_MAX_BLOCK_BITS == 49152u && MS110D_RX_MAX_SOFT_VALUES == 65536u, "buffer maxima");

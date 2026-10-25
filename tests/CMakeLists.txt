@@ -58,6 +58,7 @@ target_compile_definitions(ms110d_tests PRIVATE
   MS110D_CSHARP_RX_AWGN="${MS110D_RX_DUMP_DIR}/csharp-rx-awgn.txt"
   MS110D_CSHARP_RX_TURBO="${MS110D_RX_DUMP_DIR}/csharp-rx-turbo.txt"
   MS110D_RX_CORPUS_STEM="${MS110D_RX_DUMP_DIR}/rx-corpus"
+  MS110D_RX_OPTIONS_STEM="${MS110D_RX_DUMP_DIR}/rx-options"
   MS110D_CSHARP_DFE_DUMP="${CMAKE_CURRENT_SOURCE_DIR}/data/csharp-dfe-0.2.1.txt"
   MS110D_PIN_FILE="${PROJECT_SOURCE_DIR}/reference/pin.txt")
 ms110d_apply_options(ms110d_tests)

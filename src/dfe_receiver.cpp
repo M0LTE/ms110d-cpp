@@ -481,6 +481,7 @@ void DfeReceiver::initialize_dfe() noexcept {
     // The level gain and the carrier re-fit over the last super-frames happened in the detector,
     // as the C# does them first here.
     omega_acquired_ = omega_;
+    if (agc_gain_ != 1.0f) ++stats_.agc_resolves;  // the C# counts it here, in InitializeDfe
 
     const EqParams p = eq_params_for_probe_length(mode_.k);
     nff_ = p.ff_taps;

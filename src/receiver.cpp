@@ -39,8 +39,8 @@ namespace {
 constexpr int chips_superframe = 576;
 // The longest WN 0 block (Table D-XXXVII, long): 1152 interleaver bits, 576 info bits.
 constexpr std::size_t wn0_max_bits = 1152;
-constexpr std::size_t max_events = 8;
-constexpr std::size_t block_alignment = 16;  // a sample raises at most four (two soft, block, end)
+constexpr std::size_t max_events = 8;  // a sample raises at most four (two soft, block, end)
+constexpr std::size_t block_alignment = 16;
 
 Status validate(const RxOptions& o) noexcept {
     if (o.max_input_data_blocks < 0) return Status::InvalidArgument;
@@ -76,6 +76,21 @@ std::size_t ring_for(InterleaverKind il) noexcept {
 
 std::size_t info_bits_for(InterleaverKind il) noexcept {
     return std::max(DfeReceiver::max_input_bits_for(il), wn0_max_bits / 2);
+}
+
+// The longest block (info bits) and interleaver (soft values) of any mode with an interleaver no
+// longer than `il`.
+void longest_block(InterleaverKind il, std::size_t& info, std::size_t& soft) noexcept {
+    info = 0;
+    soft = 0;
+    for (const Mode& m : modes_3k()) {
+        for (int kind = 0; kind <= static_cast<int>(il); ++kind) {
+            const auto p = interleaver_3k(m.wn, static_cast<InterleaverKind>(kind));
+            if (!p) continue;
+            info = std::max(info, static_cast<std::size_t>(p->input_bits));
+            soft = std::max(soft, static_cast<std::size_t>(p->size_bits));
+        }
+    }
 }
 
 std::size_t align_up(std::size_t n, std::size_t a) noexcept { return (n + a - 1) / a * a; }
@@ -127,6 +142,8 @@ struct Receiver::Impl {
     int eom_tail_len = 0;
     bool terminate_pending = false;
     std::int64_t refused = 0;
+    std::size_t max_block_bits = 0;
+    std::size_t max_soft_values = 0;
     std::int64_t wn0_turbo_skipped = 0;
 
     // Events.
@@ -203,15 +220,20 @@ struct Receiver::Impl {
 
     void on_lock() noexcept {
         const PreambleDetection& d = detector.lock_info();
-        if (d.waveform != 0 && static_cast<int>(d.interleaver) > static_cast<int>(options.max_interleaver)) {
-            ++refused;
-            detector.resume_search();
-            return;
-        }
         waveform = d.waveform;
         interleaver = d.interleaver;
         constraint_length = d.constraint_length;
         cfo_hz = d.cfo_hz_first_fit;
+        // One rule for every waveform, WN 0 included (its own buffers would take any interleaver,
+        // but max_interleaver means the same for every mode).
+        if (static_cast<int>(d.interleaver) > static_cast<int>(options.max_interleaver)) {
+            ++refused;
+            RxEvent r = make(RxEventKind::BurstRefused);
+            r.sample = d.locked_at_sample;
+            push(r);
+            detector.resume_search();
+            return;
+        }
         RxEvent e = make(RxEventKind::BurstStarted);
         e.sample = d.locked_at_sample;
         push(e);
@@ -439,6 +461,7 @@ Status Receiver::configure(const RxOptions& options, std::span<std::uint8_t> sto
     Impl* impl = ::new (base + l.impl) Impl();
     impl->options = options;
     impl->max_info_bits = info_bits_for(options.max_interleaver);
+    longest_block(options.max_interleaver, impl->max_block_bits, impl->max_soft_values);
     impl->viterbi_storage = {base + l.viterbi, l.viterbi_bytes};
     impl->siso_storage = {base + l.siso, l.siso_bytes};
     bool ok = impl->stream.configure(options.roll_off, {reinterpret_cast<dsp::ComplexF*>(base + l.ring), l.ring_n});
@@ -520,11 +543,17 @@ RxStats Receiver::stats() const noexcept {
     s.signal_absent_releases = d.signal_absent_releases;
     s.mfb_offered = d.mfb_offered;
     s.mfb_selected = d.mfb_selected;
+    s.agc_resolves = d.agc_resolves;
     s.bursts_refused = impl_->refused;
+    s.samples_taken = impl_->stream.used();
     return s;
 }
 
 std::int64_t Receiver::samples_taken() const noexcept { return impl_ == nullptr ? 0 : impl_->stream.used(); }
+
+std::size_t Receiver::max_block_bits() const noexcept { return impl_ == nullptr ? 0 : impl_->max_block_bits; }
+
+std::size_t Receiver::max_soft_values() const noexcept { return impl_ == nullptr ? 0 : impl_->max_soft_values; }
 
 }  // inline namespace
 

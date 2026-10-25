@@ -63,7 +63,7 @@ The audio is the same as the C# `Ms110dModulator.Modulate` makes, to within 1e-6
     using namespace m0lte::ms110d;
 
     RxOptions options;                          // the C# defaults
-    options.max_interleaver = InterleaverKind::Short;  // about 4 MB; Long accepts everything in about 58 MB
+    options.max_interleaver = InterleaverKind::Short;  // 4.1 MiB; Long accepts everything in 58.2 MiB
     std::size_t bytes = 0;
     if (Receiver::storage_bytes(options, bytes) != Status::Ok) { /* bad options */ }
     std::vector<std::uint8_t> memory(bytes);    // or a static array: the library never allocates
@@ -72,7 +72,7 @@ The audio is the same as the C# `Ms110dModulator.Modulate` makes, to within 1e-6
     if (rx.configure(options, memory) != Status::Ok) { /* bad options or memory */ }
 
     std::vector<std::uint8_t> payload;
-    // For each chunk of audio, of any size:
+    // For each chunk of audio, of any size (drain after every process, even one that took it all):
     std::size_t done = 0;
     while (done < audio.size()) {
         std::size_t used = 0;

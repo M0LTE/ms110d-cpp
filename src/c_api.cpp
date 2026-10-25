@@ -445,6 +445,40 @@ ms110d_status ms110d_rx_next_event(ms110d_rx* rx, ms110d_rx_event* event, uint8_
     return MS110D_OK;
 }
 
+ms110d_status ms110d_rx_drop_event(ms110d_rx* rx) {
+    if (rx == nullptr) return MS110D_ERR_INVALID_ARGUMENT;
+    (void)rx_of(rx)->next_event();
+    return MS110D_OK;
+}
+
+ms110d_status ms110d_rx_buffer_sizes(const ms110d_rx* rx, uint32_t* bits, uint32_t* soft_values) {
+    if (rx == nullptr || bits == nullptr || soft_values == nullptr) return MS110D_ERR_INVALID_ARGUMENT;
+    *bits = static_cast<uint32_t>(rx_of(rx)->max_block_bits());
+    *soft_values = static_cast<uint32_t>(rx_of(rx)->max_soft_values());
+    return MS110D_OK;
+}
+
+ms110d_status ms110d_rx_get_stats(const ms110d_rx* rx, ms110d_rx_stats* stats) {
+    if (rx == nullptr || stats == nullptr || stats->struct_size < sizeof(ms110d_rx_stats)) return MS110D_ERR_INVALID_ARGUMENT;
+    const m0lte::ms110d::RxStats s = rx_of(rx)->stats();
+    const uint32_t size = stats->struct_size;
+    std::memset(reinterpret_cast<std::uint8_t*>(stats) + sizeof(std::uint32_t), 0, size - sizeof(std::uint32_t));
+    stats->peak_search_metric = s.peak_search_metric;
+    stats->samples_taken = s.samples_taken;
+    stats->turbo_converged = s.turbo_converged;
+    stats->turbo_reverted = s.turbo_reverted;
+    stats->turbo_salvaged = s.turbo_salvaged;
+    stats->turbo_aborted = s.turbo_aborted;
+    stats->turbo_skipped = s.turbo_skipped;
+    stats->collapse_resolves = s.collapse_resolves;
+    stats->signal_absent_releases = s.signal_absent_releases;
+    stats->agc_resolves = s.agc_resolves;
+    stats->mfb_offered = s.mfb_offered;
+    stats->mfb_selected = s.mfb_selected;
+    stats->bursts_refused = s.bursts_refused;
+    return MS110D_OK;
+}
+
 ms110d_status ms110d_rx_terminate(ms110d_rx* rx) {
     if (rx == nullptr) return MS110D_ERR_INVALID_ARGUMENT;
     rx_of(rx)->terminate();

@@ -423,7 +423,102 @@ TEST_CASE("C receive: buffers, struct sizes and options", "[c_receiver]") {
     CHECK(terminated);
     CHECK(ms110d_rx_state(rx, &state) == MS110D_OK);
     CHECK(state == MS110D_RX_STATE_SEARCHING);
+    // Counters: the C++ ones, through a struct with struct_size.
+    ms110d_rx_stats st;
+    st.struct_size = sizeof st;
+    REQUIRE(ms110d_rx_get_stats(rx, &st) == MS110D_OK);
+    CHECK(st.samples_taken == static_cast<int64_t>(at));
+    CHECK(st.turbo_converged == 0);  // counts restart at reset; the terminated burst decoded no block
+    CHECK(st.peak_search_metric > 0.3);
+    CHECK(st.bursts_refused == 0);
+    CHECK(st.reserved == 0);
+    st.struct_size = 8;
+    CHECK(ms110d_rx_get_stats(rx, &st) == MS110D_ERR_INVALID_ARGUMENT);
+    struct BigStats {
+        ms110d_rx_stats base;
+        int64_t extra;
+    } bst;
+    std::memset(&bst, 0xCD, sizeof bst);
+    bst.base.struct_size = sizeof bst;
+    REQUIRE(ms110d_rx_get_stats(rx, &bst.base) == MS110D_OK);
+    CHECK(bst.extra == 0);
+    CHECK(ms110d_rx_get_stats(nullptr, &st) == MS110D_ERR_INVALID_ARGUMENT);
+    CHECK(ms110d_rx_get_stats(rx, nullptr) == MS110D_ERR_INVALID_ARGUMENT);
+
+    // Buffer sizes for this handle (short interleaver at most) and the global maxima.
+    uint32_t need_bits = 0, need_soft = 0;
+    REQUIRE(ms110d_rx_buffer_sizes(rx, &need_bits, &need_soft) == MS110D_OK);
+    CHECK(need_bits > 0);
+    CHECK(need_bits < MS110D_RX_MAX_BLOCK_BITS);
+    CHECK(need_soft < MS110D_RX_MAX_SOFT_VALUES);
+    CHECK(need_soft >= need_bits);
+    CHECK(ms110d_rx_buffer_sizes(nullptr, &need_bits, &need_soft) == MS110D_ERR_INVALID_ARGUMENT);
+    CHECK(ms110d_rx_buffer_sizes(rx, nullptr, &need_soft) == MS110D_ERR_INVALID_ARGUMENT);
+
+    // Dropping events without a buffer: the burst goes by with every event dropped.
+    REQUIRE(ms110d_rx_reset(rx) == MS110D_OK);
+    at = 0;
+    while (at < audio.size()) {
+        REQUIRE(ms110d_rx_process(rx, audio.data() + at, static_cast<uint32_t>(audio.size()) - at, &used) == MS110D_OK);
+        at += used;
+        for (int guard = 0; guard < 8; ++guard) REQUIRE(ms110d_rx_drop_event(rx) == MS110D_OK);
+    }
+    REQUIRE(ms110d_rx_get_stats(rx, &st) == MS110D_ERR_INVALID_ARGUMENT);  // struct_size is still 8
+    st.struct_size = sizeof st;
+    REQUIRE(ms110d_rx_get_stats(rx, &st) == MS110D_OK);
+    CHECK(st.turbo_converged >= 1);
+    CHECK(ms110d_rx_drop_event(nullptr) == MS110D_ERR_INVALID_ARGUMENT);
+
     CHECK(ms110d_rx_terminate(nullptr) == MS110D_ERR_INVALID_ARGUMENT);
     CHECK(ms110d_rx_reset(nullptr) == MS110D_ERR_INVALID_ARGUMENT);
     ms110d_rx_destroy(nullptr);
+}
+
+TEST_CASE("C receive: a burst with a longer interleaver than accepted raises BURST_REFUSED", "[c_receiver]") {
+    ms110d_tx_settings s;
+    REQUIRE(ms110d_tx_settings_default(&s) == MS110D_OK);
+    s.waveform_number = 3;
+    s.interleaver = MS110D_INTERLEAVER_LONG;
+    ms110d_tx* tx = nullptr;
+    REQUIRE(ms110d_tx_create(&s, 200, &tx) == MS110D_OK);
+    std::vector<std::uint8_t> payload(200, 1);
+    uint32_t n = 0, written = 0;
+    REQUIRE(ms110d_tx_audio_length(tx, 200, &n) == MS110D_OK);
+    std::vector<float> audio(3000 + n + 9600, 0.0f);
+    REQUIRE(ms110d_tx_modulate(tx, payload.data(), 200, audio.data() + 3000, n, &written) == MS110D_OK);
+    ms110d_tx_destroy(tx);
+
+    ms110d_rx_options o;
+    REQUIRE(ms110d_rx_options_default(&o) == MS110D_OK);
+    o.max_interleaver = MS110D_INTERLEAVER_SHORT;
+    ms110d_rx* rx = nullptr;
+    REQUIRE(ms110d_rx_create(&o, &rx) == MS110D_OK);
+    uint32_t at = 0, used = 0;
+    int refused = 0, started = 0;
+    ms110d_rx_event ev;
+    while (at < audio.size()) {
+        REQUIRE(ms110d_rx_process(rx, audio.data() + at, static_cast<uint32_t>(audio.size()) - at, &used) == MS110D_OK);
+        at += used;
+        ev.struct_size = sizeof ev;
+        while (ms110d_rx_next_event(rx, &ev, nullptr, 0, nullptr, 0) == MS110D_OK && ev.kind != MS110D_RX_EVENT_NONE) {
+            if (ev.kind == MS110D_RX_EVENT_BURST_STARTED) ++started;
+            if (ev.kind == MS110D_RX_EVENT_BURST_REFUSED) {
+                ++refused;
+                CHECK(ev.waveform_number == 3);
+                CHECK(ev.interleaver == MS110D_INTERLEAVER_LONG);
+                CHECK(ev.constraint_length == 7);
+                CHECK(ev.sample > 3000);
+            }
+            ev.struct_size = sizeof ev;
+        }
+    }
+    CHECK(refused == 1);
+    CHECK(started == 0);
+    ms110d_rx_stats st;
+    st.struct_size = sizeof st;
+    REQUIRE(ms110d_rx_get_stats(rx, &st) == MS110D_OK);
+    CHECK(st.bursts_refused == 1);
+    ev.struct_size = 0;
+    CHECK(ms110d_rx_next_event(rx, &ev, nullptr, 0, nullptr, 0) == MS110D_ERR_INVALID_ARGUMENT);
+    ms110d_rx_destroy(rx);
 }

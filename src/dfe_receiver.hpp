@@ -207,6 +207,7 @@ struct DfeReceiverStats {
     std::int64_t turbo_skipped = 0;
     std::int64_t mfb_offered = 0;
     std::int64_t mfb_selected = 0;
+    std::int64_t agc_resolves = 0;      // bursts whose level gain was not 1, counted at the equaliser's start (the C# AgcResolves)
 };
 
 class DfeReceiver {

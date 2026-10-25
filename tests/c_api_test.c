@@ -325,6 +325,23 @@ static void test_receive(void) {
     CHECK(memcmp(got, payload, BITS) == 0);
     CHECK(ms110d_rx_state(built, &state) == MS110D_OK);
     CHECK(state == MS110D_RX_STATE_SEARCHING);
+    {
+        ms110d_rx_stats st;
+        uint32_t nb = 0, ns = 0;
+        st.struct_size = sizeof st;
+        CHECK(ms110d_rx_get_stats(built, &st) == MS110D_OK);
+        CHECK(st.samples_taken == (int64_t)at);
+        CHECK(st.turbo_skipped >= 1); /* the WN 0 block */
+        CHECK(st.peak_search_metric > 0.3);
+        CHECK(ms110d_rx_get_stats(NULL, &st) == MS110D_ERR_INVALID_ARGUMENT);
+        st.struct_size = 0;
+        CHECK(ms110d_rx_get_stats(built, &st) == MS110D_ERR_INVALID_ARGUMENT);
+        CHECK(ms110d_rx_buffer_sizes(built, &nb, &ns) == MS110D_OK);
+        CHECK(nb > 0 && nb <= MS110D_RX_MAX_BLOCK_BITS && ns <= MS110D_RX_MAX_SOFT_VALUES);
+        CHECK(ms110d_rx_buffer_sizes(NULL, &nb, &ns) == MS110D_ERR_INVALID_ARGUMENT);
+        CHECK(ms110d_rx_drop_event(built) == MS110D_OK);
+        CHECK(ms110d_rx_drop_event(NULL) == MS110D_ERR_INVALID_ARGUMENT);
+    }
     CHECK(ms110d_rx_terminate(built) == MS110D_OK);
     CHECK(ms110d_rx_reset(built) == MS110D_OK);
 

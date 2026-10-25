@@ -99,6 +99,13 @@ if (args.Length > 1 && args[0] == "rx-corpus")
     return;
 }
 
+// "rx-options": the receiver with each instrument option on, see OptionsDump.cs.
+if (args.Length > 3 && args[0] == "rx-options")
+{
+    OptionsDump.Run(args[1], args[2], args[3]);
+    return;
+}
+
 // "dfe" mode: the equaliser driven through scripted scenarios for tests/data/csharp-dfe-0.2.1.txt (see DfeDump.cs).
 if (args.Length > 0 && args[0] == "dfe")
 {

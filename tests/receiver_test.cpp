@@ -585,15 +585,43 @@ TEST_CASE("receiver: bursts one after another in one stream, terminate, the bloc
         CHECK(payload_of(ev, 1) == p2);
         CHECK(payload_of(ev, 2) == p3);
     }
-    SECTION("a burst with a longer interleaver than configured is refused, the others decode") {
+    SECTION("bursts with a longer interleaver than configured are refused with an event, the others decode") {
+        const auto [l3, lp3] = burst(3, InterleaverKind::Long, 200, 4);
+        const auto [l0, lp0] = burst(0, InterleaverKind::Long, 100, 5);
+        std::vector<float> mixed(4000, 0.0f);
+        std::vector<std::size_t> starts;
+        for (const auto* a : {&l3, &a3, &l0}) {
+            starts.push_back(mixed.size());
+            mixed.insert(mixed.end(), a->begin(), a->end());
+            mixed.insert(mixed.end(), 12000, 0.0f);
+        }
         RxOptions o;
-        o.max_interleaver = InterleaverKind::UltraShort;
+        o.max_interleaver = InterleaverKind::Short;
         Made m = make(o);
-        const std::vector<Ev> ev = run(*m.rx, stream);
-        CHECK(m.rx->stats().bursts_refused == 1);  // WN 3 short; WN 0 needs no equaliser storage
-        REQUIRE(count(ev, RxEventKind::BurstCompleted) == 2);
-        CHECK(payload_of(ev, 0) == p2);
-        CHECK(payload_of(ev, 1) == p3);
+        const std::vector<Ev> ev = run(*m.rx, mixed);
+        REQUIRE(count(ev, RxEventKind::BurstRefused) == 2);
+        const Ev* r3 = find(ev, RxEventKind::BurstRefused, 0);
+        CHECK(r3->waveform == 3);
+        CHECK(r3->il == InterleaverKind::Long);
+        CHECK(r3->k == 7);
+        CHECK(r3->sample > static_cast<std::int64_t>(starts[0]));
+        CHECK(r3->sample < static_cast<std::int64_t>(starts[1]));
+        const Ev* r0 = find(ev, RxEventKind::BurstRefused, 1);
+        CHECK(r0->waveform == 0);  // WN 0 is held to the same rule
+        CHECK(r0->il == InterleaverKind::Long);
+        CHECK(r0->sample > static_cast<std::int64_t>(starts[2]));
+        CHECK(m.rx->stats().bursts_refused == 2);
+        REQUIRE(count(ev, RxEventKind::BurstCompleted) == 1);
+        CHECK(count(ev, RxEventKind::BurstStarted) == 1);
+        CHECK(payload_of(ev, 0) == p3);
+        CHECK(m.rx->state() == RxState::Searching);
+        // A receiver taking the long interleaver decodes all three.
+        Made all = make(RxOptions{});
+        const std::vector<Ev> ev2 = run(*all.rx, mixed);
+        REQUIRE(count(ev2, RxEventKind::BurstCompleted) == 3);
+        CHECK(payload_of(ev2, 0) == lp3);
+        CHECK(payload_of(ev2, 2) == lp0);
+        CHECK(count(ev2, RxEventKind::BurstRefused) == 0);
     }
 }
 
@@ -605,6 +633,17 @@ TEST_CASE("receiver: options, storage and misuse", "[receiver]") {
     o.max_interleaver = InterleaverKind::Short;
     REQUIRE(Receiver::storage_bytes(o, short_bytes) == Status::Ok);
     CHECK(short_bytes < bytes);
+    {
+        Made longest = make(RxOptions{});
+        CHECK(longest.rx->max_block_bits() == rx_max_block_bits);
+        CHECK(longest.rx->max_soft_values() == rx_max_soft_values);
+        RxOptions s_opts;
+        s_opts.max_interleaver = InterleaverKind::Short;
+        Made shorter = make(s_opts);
+        CHECK(shorter.rx->max_block_bits() < rx_max_block_bits);
+        CHECK(shorter.rx->max_soft_values() < rx_max_soft_values);
+        CHECK(shorter.rx->max_block_bits() > 0);
+    }
     std::printf("receiver storage: %zu bytes for every interleaver, %zu with the short interleaver at most\n", bytes, short_bytes);
     for (const InterleaverKind il : {InterleaverKind::UltraShort, InterleaverKind::Short, InterleaverKind::Medium, InterleaverKind::Long}) {
         RxOptions x;
@@ -649,7 +688,9 @@ TEST_CASE("receiver: options, storage and misuse", "[receiver]") {
     CHECK(rx.process(zeros, used) == Status::State);
     CHECK(used == 0);
     CHECK(rx.next_event().kind == RxEventKind::None);
+    CHECK(rx.peek_event().kind == RxEventKind::None);
     CHECK(rx.state() == RxState::Searching);
+    CHECK(rx.max_block_bits() == 0);
     rx.terminate();
     rx.reset();
 
@@ -666,6 +707,7 @@ TEST_CASE("receiver: options, storage and misuse", "[receiver]") {
     CHECK(rx.process(zeros, used) == Status::Ok);
     CHECK(used == zeros.size());
     CHECK(rx.samples_taken() == 5000);
+    CHECK(rx.stats().samples_taken == 5000);
     CHECK(rx.next_event().kind == RxEventKind::None);
 
     // Moving hands it over.
@@ -703,4 +745,140 @@ TEST_CASE("receiver: options, storage and misuse", "[receiver]") {
     CHECK(e.waveform == 4);
     CHECK(e.sample == static_cast<std::int64_t>(used));
     CHECK(assigned.process(std::span<const float>(audio.data() + used, audio.size() - used), again) == Status::Ok);
+}
+
+TEST_CASE("reference receiver: each instrument option switched on, against the C#", "[receiver]") {
+    const std::string stem = MS110D_RX_OPTIONS_STEM;
+    const std::string corpus_stem = MS110D_RX_CORPUS_STEM;
+    require_file(stem + ".txt");
+    require_file(stem + ".f32le");
+    require_file(corpus_stem + ".i16le");
+    std::ifstream text(stem + ".txt");
+    std::ifstream cut(stem + ".f32le", std::ios::binary);
+    std::ifstream corpus(corpus_stem + ".i16le", std::ios::binary);
+    REQUIRE((text.good() && cut.good() && corpus.good()));
+
+    // The dump: per burst its audio, then per variant the C#'s blocks, end and counters.
+    struct Variant {
+        std::string name;
+        std::vector<std::string> lines;  // block, end and stats lines as the C# wrote them
+    };
+    struct Burst {
+        std::string label, source;
+        long long offset = 0, samples = 0;
+        std::vector<Variant> variants;
+    };
+    std::vector<Burst> bursts;
+    std::string line;
+    while (std::getline(text, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        std::istringstream s(line);
+        std::string kind, w;
+        s >> kind;
+        if (kind == "burst") {
+            Burst b;
+            s >> b.label >> w >> b.source >> w >> b.offset >> w >> b.samples;
+            bursts.push_back(b);
+        } else if (kind == "variant") {
+            Variant v;
+            s >> v.name;
+            bursts.back().variants.push_back(v);
+        } else {
+            bursts.back().variants.back().lines.push_back(line);
+        }
+    }
+    REQUIRE(bursts.size() > 40);
+
+    auto options_for = [](const std::string& v) {
+        RxOptions o;
+        o.soft_decisions = true;
+        o.max_interleaver = InterleaverKind::Medium;
+        if (v == "rls") o.rls_forgetting_factor = 0.98f;
+        else if (v == "ridge") o.track_ridge = 0.3f;
+        else if (v == "nseg-off") o.turbo_noise_pricing = TurboNoisePricing::Off;
+        else if (v == "nseg-2s") o.turbo_noise_pricing = TurboNoisePricing::Spike2s;
+        else if (v == "presence-off") o.presence_release_off = true;
+        else REQUIRE(v == "base");
+        return o;
+    };
+
+    // What the C++ makes of one burst, in the dump's line format.
+    auto describe = [](const std::vector<Ev>& ev, const RxStats& st) {
+        std::vector<std::string> out;
+        bool ended = false;
+        for (const Ev& e : ev) {
+            if (ended) break;
+            if (e.kind == RxEventKind::BlockDecoded) {
+                const Ev* f = nullptr;
+                const Ev* t = nullptr;
+                for (const Ev& x : ev) {
+                    if (x.block == e.block && x.kind == RxEventKind::FirstPassSoft && f == nullptr) f = &x;
+                    if (x.block == e.block && x.kind == RxEventKind::TurboSoft && t == nullptr) t = &x;
+                }
+                out.push_back("block " + std::to_string(e.block) + " " + bit_hash(e.bits) + " " +
+                              (f != nullptr ? float_hash(f->soft) : "?") + " " + (t != nullptr ? float_hash(t->soft) : "-"));
+            } else if (e.kind == RxEventKind::BurstCompleted) {
+                out.push_back(std::string("end ") + reason_name(e.reason) + " " + std::to_string(e.blocks) + " " +
+                              std::to_string(e.payload_bits));
+                ended = true;
+            }
+        }
+        if (!ended) out.push_back("end None 0 0");
+        out.push_back("stats converged " + std::to_string(st.turbo_converged) + " reverted " + std::to_string(st.turbo_reverted) +
+                      " salvaged " + std::to_string(st.turbo_salvaged) + " aborted " + std::to_string(st.turbo_aborted) +
+                      " skipped " + std::to_string(st.turbo_skipped) + " collapse " + std::to_string(st.collapse_resolves) +
+                      " absent " + std::to_string(st.signal_absent_releases) + " agc " + std::to_string(st.agc_resolves) +
+                      " mfb_offered " + std::to_string(st.mfb_offered) + " mfb_selected " + std::to_string(st.mfb_selected));
+        return out;
+    };
+
+    std::map<std::string, Made> receivers;
+    std::map<std::string, long> runs, equal, cs_changed, agc;
+    for (const Burst& b : bursts) {
+        INFO("burst " << b.label);
+        std::vector<float> audio(static_cast<std::size_t>(b.samples));
+        if (b.source == "corpus") {
+            std::vector<std::int16_t> q(audio.size());
+            corpus.seekg(b.offset);
+            corpus.read(reinterpret_cast<char*>(q.data()), static_cast<std::streamsize>(2 * q.size()));
+            for (std::size_t i = 0; i < q.size(); ++i) audio[i] = static_cast<float>(q[i] / 8192.0);
+        } else {
+            cut.seekg(b.offset);
+            cut.read(reinterpret_cast<char*>(audio.data()), static_cast<std::streamsize>(4 * audio.size()));
+        }
+        REQUIRE((corpus.good() && cut.good()));
+        audio.resize(audio.size() + 9600, 0.0f);
+        const Variant* base = nullptr;
+        for (const Variant& v : b.variants) {
+            if (v.name == "base") base = &v;
+        }
+        REQUIRE(base != nullptr);
+        for (const Variant& v : b.variants) {
+            INFO("variant " << v.name);
+            auto it = receivers.find(v.name);
+            if (it == receivers.end()) it = receivers.emplace(v.name, make(options_for(v.name))).first;
+            Receiver& rx = *it->second.rx;
+            rx.reset();
+            const std::vector<Ev> ev = run(rx, audio);
+            const std::vector<std::string> got = describe(ev, rx.stats());
+            ++runs[v.name];
+            if (got == v.lines) ++equal[v.name];
+            if (strict) CHECK(got == v.lines);
+            if (v.lines != base->lines) ++cs_changed[v.name];  // the option made a difference in the C#
+            agc[v.name] += rx.stats().agc_resolves;
+        }
+    }
+    for (const auto& [name, n] : runs) {
+        std::printf("instrument option %s: %ld bursts, the C++ equal to the C# on %ld; the C# changed by the option on %ld; "
+                    "level gain engaged %ld times\n",
+                    name.c_str(), n, equal[name], cs_changed[name], agc[name]);
+    }
+    // Every option is exercised: it changes the C#'s result on some burst.
+    for (const char* v : {"rls", "ridge", "nseg-off", "nseg-2s", "presence-off"}) CHECK(cs_changed[v] > 0);
+    CHECK(agc["base"] >= 2);  // the weak bursts
+    if (!strict) {
+        // The single build's float sums may move a marginal fading burst (see dfe-receiver.md);
+        // most must still match, as in the internal path's corpus bound.
+        for (const auto& [name, n] : runs) CHECK(equal[name] * 4 >= n * 3);
+    }
 }

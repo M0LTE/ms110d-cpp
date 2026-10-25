@@ -157,8 +157,11 @@ enum {
     MS110D_RX_EVENT_BLOCK_DECODED = 2,
     MS110D_RX_EVENT_BURST_COMPLETED = 3,
     MS110D_RX_EVENT_FIRST_PASS_SOFT = 4,
-    MS110D_RX_EVENT_TURBO_SOFT = 5
+    MS110D_RX_EVENT_TURBO_SOFT = 5,
+    MS110D_RX_EVENT_BURST_REFUSED = 6
 };
+#define MS110D_RX_MAX_BLOCK_BITS 49152u
+#define MS110D_RX_MAX_SOFT_VALUES 65536u
 enum {
     MS110D_END_EOM = 0,
     MS110D_END_MAX_INPUT_DATA_BLOCKS = 1,
@@ -194,6 +197,26 @@ MS110D_API ms110d_status ms110d_rx_init(void* memory, uint32_t bytes, const ms11
 MS110D_API ms110d_status ms110d_rx_process(ms110d_rx* rx, const float* samples, uint32_t count, uint32_t* consumed);
 MS110D_API ms110d_status ms110d_rx_next_event(ms110d_rx* rx, ms110d_rx_event* event, uint8_t* bits, uint32_t bits_capacity,
                                               float* soft, uint32_t soft_capacity);
+MS110D_API ms110d_status ms110d_rx_drop_event(ms110d_rx* rx);
+MS110D_API ms110d_status ms110d_rx_buffer_sizes(const ms110d_rx* rx, uint32_t* bits, uint32_t* soft_values);
+typedef struct ms110d_rx_stats {
+    uint32_t struct_size;
+    uint32_t reserved;
+    double peak_search_metric;
+    int64_t samples_taken;
+    int64_t turbo_converged;
+    int64_t turbo_reverted;
+    int64_t turbo_salvaged;
+    int64_t turbo_aborted;
+    int64_t turbo_skipped;
+    int64_t collapse_resolves;
+    int64_t signal_absent_releases;
+    int64_t agc_resolves;
+    int64_t mfb_offered;
+    int64_t mfb_selected;
+    int64_t bursts_refused;
+} ms110d_rx_stats;
+MS110D_API ms110d_status ms110d_rx_get_stats(const ms110d_rx* rx, ms110d_rx_stats* stats);
 MS110D_API ms110d_status ms110d_rx_terminate(ms110d_rx* rx);
 MS110D_API ms110d_status ms110d_rx_reset(ms110d_rx* rx);
 MS110D_API ms110d_status ms110d_rx_state(const ms110d_rx* rx, int32_t* state);
@@ -247,6 +270,7 @@ enum class RxEventKind : std::int32_t {
     BurstCompleted = 3,
     FirstPassSoft = 4,
     TurboSoft = 5,
+    BurstRefused = 6,
 };
 struct RxEvent {
     RxEventKind kind = RxEventKind::None;
@@ -273,9 +297,13 @@ struct RxStats {
     std::int64_t signal_absent_releases = 0;
     std::int64_t mfb_offered = 0;
     std::int64_t mfb_selected = 0;
+    std::int64_t agc_resolves = 0;
     std::int64_t bursts_refused = 0;
+    std::int64_t samples_taken = 0;
 };
 inline constexpr int rx_sample_rate_hz = 9600;
+inline constexpr std::size_t rx_max_block_bits = 49152;
+inline constexpr std::size_t rx_max_soft_values = 65536;
 #ifdef MS110D_SINGLE_PRECISION
 inline namespace v_single {
 #else
@@ -306,6 +334,8 @@ public:
     bool carrier_detect() const noexcept { return state() != RxState::Searching; }
     RxStats stats() const noexcept;
     std::int64_t samples_taken() const noexcept;
+    std::size_t max_block_bits() const noexcept;
+    std::size_t max_soft_values() const noexcept;
 private:
     struct Impl;
     Impl* impl_ = nullptr;
