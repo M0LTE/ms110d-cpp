@@ -862,7 +862,21 @@ TEST_CASE("reference receiver: each instrument option switched on, against the C
             const std::vector<Ev> ev = run(rx, audio);
             const std::vector<std::string> got = describe(ev, rx.stats());
             ++runs[v.name];
-            if (got == v.lines) ++equal[v.name];
+            // The default build is held to everything; the single build's soft values differ from the
+            // C#'s in the last bits, so there the soft value hashes are left out (the decisions,
+            // the end and the counters remain).
+            const auto decisions = [](std::vector<std::string> lines) {
+                if (strict) return lines;
+                for (std::string& l : lines) {
+                    if (l.rfind("block ", 0) != 0) continue;
+                    std::istringstream in(l);
+                    std::string w, index, n, hash, first, turbo;
+                    in >> w >> index >> n >> hash >> first >> turbo;
+                    l = "block " + index + " " + n + " " + hash + (turbo == "-" ? " -" : " turbo");
+                }
+                return lines;
+            };
+            if (decisions(got) == decisions(v.lines)) ++equal[v.name];
             if (strict) CHECK(got == v.lines);
             if (v.lines != base->lines) ++cs_changed[v.name];  // the option made a difference in the C#
             agc[v.name] += rx.stats().agc_resolves;
@@ -877,8 +891,8 @@ TEST_CASE("reference receiver: each instrument option switched on, against the C
     for (const char* v : {"rls", "ridge", "nseg-off", "nseg-2s", "presence-off"}) CHECK(cs_changed[v] > 0);
     CHECK(agc["base"] >= 2);  // the weak bursts
     if (!strict) {
-        // The single build's float sums may move a marginal fading burst (see dfe-receiver.md);
-        // most must still match, as in the internal path's corpus bound.
+        // The single build's float sums may move a marginal fading burst (see dfe-receiver.md); its
+        // decisions, ends and counters must still match on most.
         for (const auto& [name, n] : runs) CHECK(equal[name] * 4 >= n * 3);
     }
 }
