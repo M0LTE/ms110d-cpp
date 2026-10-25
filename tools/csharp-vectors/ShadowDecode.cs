@@ -41,12 +41,43 @@ public static class ShadowDecode
         return Stopwatch.GetTimestamp() * 1000.0 / Stopwatch.Frequency;
     }
 
+    // The slot's quiet floor and a burst's SNR over it, the same estimate as tools/ms110d-decode (and scripts/corpus/curate.py):
+    // the receivers expose no SNR of their own, so the shadow report measures one from the audio the same way for both.
+    static double NoiseFloorPower(float[] x)
+    {
+        const int n = 4800;
+        int k = x.Length / n;
+        if (k == 0) return 1e-18;
+        var p = new double[k];
+        for (int w = 0; w < k; w++)
+        {
+            double acc = 0;
+            for (int i = 0; i < n; i++) acc += (double)x[w * n + i] * x[w * n + i];
+            p[w] = acc / n;
+        }
+        Array.Sort(p);
+        int m = Math.Max(1, k / 5);
+        double med = (m % 2 == 1) ? p[m / 2] : 0.5 * (p[m / 2 - 1] + p[m / 2]);
+        return med + 1e-18;
+    }
+
+    static double SnrDb(float[] x, long from, long to, double floor)
+    {
+        to = Math.Min(to, x.Length);
+        if (to <= from) return -20.0;
+        double acc = 0;
+        for (long i = from; i < to; i++) acc += (double)x[i] * x[i];
+        double sig = acc / (to - from);
+        return sig <= floor ? -20.0 : 10.0 * Math.Log10(Math.Max(sig - floor, 1e-18) / floor);
+    }
+
     static string Il(Ms110dInterleaverKind k) => k.ToString();
 
     public static IEnumerable<string> Decode(string wavPath)
     {
         float[] audio = CorpusDecode.ReadWav(wavPath);
         var lines = new List<string>();
+        double floorPower = NoiseFloorPower(audio);
         var demod = new Ms110dDemodulator();
         long pos = 0;          // samples fed when the current chunk finishes
         int burst = -1, blockIndex = 0;
@@ -76,7 +107,7 @@ public static class ShadowDecode
         demod.BurstCompleted += bu =>
         {
             var l = bu.Lock;
-            lines.Add($"{{\"ev\":\"burst_completed\",\"decoder\":\"cs\",\"burst\":{burst},\"sample\":{pos},\"start_sample\":{startedAt},\"wn\":{l?.WaveformNumber ?? -1},\"il\":\"{(l is null ? "none" : Il(l.Interleaver))}\",\"k\":{l?.ConstraintLength ?? 0},\"blocks\":{bu.Blocks},\"reason\":\"{bu.Reason}\",\"payload_bits\":{bu.PayloadBits.Length},\"cpu_ms\":0}}");
+            lines.Add($"{{\"ev\":\"burst_completed\",\"decoder\":\"cs\",\"burst\":{burst},\"sample\":{pos},\"start_sample\":{startedAt},\"wn\":{l?.WaveformNumber ?? -1},\"il\":\"{(l is null ? "none" : Il(l.Interleaver))}\",\"k\":{l?.ConstraintLength ?? 0},\"blocks\":{bu.Blocks},\"reason\":\"{bu.Reason}\",\"payload_bits\":{bu.PayloadBits.Length},\"snr_db\":{SnrDb(audio, startedAt, pos, floorPower).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)},\"cpu_ms\":0}}");
             completedAt = lines.Count - 1;
             open = false;
         };

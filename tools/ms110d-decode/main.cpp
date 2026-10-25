@@ -12,7 +12,7 @@
 //   burst_started    burst, sample, wn, il, k, cfo_hz
 //   burst_refused    burst, sample, wn, il, k   (only with --max-interleaver below Long)
 //   block            burst, index, sample, bits, bits_hex (packed MSB first, zero padded)
-//   burst_completed  burst, sample, start_sample, wn, il, k, blocks, reason, payload_bits, cpu_ms
+//   burst_completed  burst, sample, start_sample, wn, il, k, blocks, reason, payload_bits, snr_db, cpu_ms
 //   summary          version, audio_s, bursts, cpu_ms_total, cpu_ms_in_bursts, cpu_ms_search
 // The block bits stay in the output so a second pass (the C# twin, `shadow finish`) can run the
 // IL2P deframer, which only exists in C#, and add the payload hash and the good frame counts.
@@ -24,6 +24,7 @@
 #include "wav.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -62,6 +63,24 @@ std::string version_text() {
     return std::to_string(v.major) + "." + std::to_string(v.minor) + "." + std::to_string(v.patch) + "+" + MS110D_TOOL_GIT;
 }
 
+// The slot's quiet floor: the median power of the quietest fifth of its 0.5 s windows, as
+// scripts/corpus/curate.py computes it (docs/dev/corpus.md). The receivers expose no SNR of their own, so the
+// shadow report measures one from the audio, the same way in both tools.
+double noise_floor_power(const std::vector<float>& x) {
+    const size_t n = 4800, k = x.size() / n;
+    if (k == 0) return 1e-18;
+    std::vector<double> p(k);
+    for (size_t w = 0; w < k; ++w) {
+        double acc = 0;
+        for (size_t i = 0; i < n; ++i) acc += static_cast<double>(x[w * n + i]) * static_cast<double>(x[w * n + i]);
+        p[w] = acc / static_cast<double>(n);
+    }
+    std::sort(p.begin(), p.end());
+    const size_t m = std::max<size_t>(1, k / 5);
+    const double med = (m % 2 == 1) ? p[m / 2] : 0.5 * (p[m / 2 - 1] + p[m / 2]);
+    return med + 1e-18;
+}
+
 double cpu_ms() { return 1000.0 * static_cast<double>(std::clock()) / CLOCKS_PER_SEC; }
 
 void write_wav16(const std::string& path, const std::vector<std::int16_t>& s) {
@@ -91,6 +110,19 @@ struct Tool {
     std::int64_t started_at = 0;
     double burst_cpu = 0, cpu_in_bursts = 0, cpu_search = 0;
     int bursts = 0;
+    const std::vector<float>* audio = nullptr;
+    double floor_power = 1e-18;
+
+    // The burst's power over the slot's floor, in dB, from the lock to the end of the burst (curate.py's estimate).
+    double snr_db(std::int64_t from, std::int64_t to) const {
+        to = std::min<std::int64_t>(to, static_cast<std::int64_t>(audio->size()));
+        if (to <= from) return -20.0;
+        double acc = 0;
+        for (std::int64_t i = from; i < to; ++i) acc += static_cast<double>((*audio)[static_cast<size_t>(i)]) * static_cast<double>((*audio)[static_cast<size_t>(i)]);
+        const double sig = acc / static_cast<double>(to - from);
+        if (sig <= floor_power) return -20.0;
+        return 10.0 * std::log10(std::max(sig - floor_power, 1e-18) / floor_power);
+    }
 
     void drain() {
         for (RxEvent e = rx.next_event(); e.kind != RxEventKind::None; e = rx.next_event()) {
@@ -130,10 +162,10 @@ struct Tool {
                 case RxEventKind::BurstCompleted:
                     std::printf("{\"ev\":\"burst_completed\",\"decoder\":\"cxx\",\"burst\":%d,\"sample\":%lld,"
                                 "\"start_sample\":%lld,\"wn\":%d,\"il\":\"%s\",\"k\":%d,\"blocks\":%d,\"reason\":\"%s\","
-                                "\"payload_bits\":%lld,\"cpu_ms\":%.1f}\n",
+                                "\"payload_bits\":%lld,\"snr_db\":%.1f,\"cpu_ms\":%.1f}\n",
                                 burst, static_cast<long long>(e.sample), static_cast<long long>(started_at),
                                 e.waveform, il_name(e.interleaver), e.constraint_length, e.blocks,
-                                reason_name(e.reason), static_cast<long long>(e.payload_bits), burst_cpu);
+                                reason_name(e.reason), static_cast<long long>(e.payload_bits), snr_db(started_at, e.sample), burst_cpu);
                     break;
                 default:
                     break;
@@ -217,6 +249,8 @@ int main(int argc, char** argv) {
     RxOptions options;
     options.max_interleaver = max_il;
     Tool t;
+    t.audio = &audio;
+    t.floor_power = noise_floor_power(audio);
     size_t bytes = 0;
     if (Receiver::storage_bytes(options, bytes) != Status::Ok) { std::fputs("storage_bytes failed\n", stderr); return 1; }
     t.memory.resize(bytes);

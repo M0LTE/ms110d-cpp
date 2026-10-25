@@ -30,7 +30,7 @@ One object per line, each with `ev` and `decoder` (`cxx` or `cs`):
 | `burst_started` | `burst`, `sample`, `wn`, `il`, `k`, `cfo_hz` |
 | `burst_refused` | the same minus `cfo_hz`; C++ only, and only if `--max-interleaver` is set below Long |
 | `block` | `burst`, `index`, `sample`, `bits`, `good_frames` (IL2P frames that completed in this block) |
-| `burst_completed` | `burst`, `sample`, `start_sample`, `wn`, `il`, `k`, `blocks`, `reason`, `payload_bits`, `bytes`, `sha256`, `good_frames`, `frames_sha256`, `corrected`, `crc_failures`, `rs_failures`, `error_free`, `cpu_ms` |
+| `burst_completed` | `burst`, `sample`, `start_sample`, `wn`, `il`, `k`, `blocks`, `reason`, `payload_bits`, `snr_db`, `bytes`, `sha256`, `good_frames`, `frames_sha256`, `corrected`, `crc_failures`, `rs_failures`, `error_free`, `cpu_ms` |
 | `summary` | `version`, `audio_s`, `bursts`, `cpu_ms_total`, `cpu_ms_in_bursts`, `cpu_ms_search` |
 
 Positions are input samples at 9600 Hz. The C++ numbers are exact; the C# numbers are good to the 96 sample chunk. `sha256` is the corpus payload hash (bits cut to `payload_bits`, packed MSB first, zero padded) and `frames_sha256` the corpus frames hash, so both can be checked against `manifest.json`.
@@ -45,7 +45,7 @@ For each burst the report says whether it was decoded by both, by C# only, by C+
 
 The daily summary adds per slot and per waveform tables and a list of differences to look at: any one-sided decode, any burst one decoder missed that had good frames, and any rule problem. The plan's pass mark is a fortnight with none of those unexplained.
 
-Not yet in the report: the SNR of each burst (the plan lists it); the corpus estimate would need the recording's noise floor, which the decoders do not see.
+SNR is measured from the audio, not taken from either receiver (neither exposes one): the burst's power from lock to end over the slot's quiet floor, the corpus estimate, computed by the same code in both tools. The report shows it per burst and groups the daily summary by SNR band.
 
 ## The container
 

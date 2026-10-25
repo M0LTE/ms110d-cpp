@@ -96,6 +96,33 @@ def rule_problems(a, b):
     return p, short
 
 
+def snr_of(r):
+    """The burst's SNR in dB: the C#'s figure, else the C++'s (both measure the same audio the same way), or None."""
+    for d in (r["cs"], r["cxx"]):
+        if d and "snr_db" in d:
+            return d["snr_db"]
+    return None
+
+
+def snr_cell(r):
+    v = snr_of(r)
+    return "-" if v is None else f"{v:+.1f}"
+
+
+SNR_BANDS = [("below 0 dB", None, 0), ("0 to 5 dB", 0, 5), ("5 to 10 dB", 5, 10), ("10 to 15 dB", 10, 15), ("15 dB and above", 15, None)]
+
+
+def band_table(rows):
+    L = ["| SNR | bursts | both | C# only | C++ only | neither | frames C# | frames C++ |", "|---|---|---|---|---|---|---|---|"]
+    for name, lo, hi in SNR_BANDS:
+        sel = [r for r in rows if snr_of(r) is not None and (lo is None or snr_of(r) >= lo) and (hi is None or snr_of(r) < hi)]
+        if not sel:
+            continue
+        tt = totals(sel)
+        L.append(f"| {name} | {tt['bursts']} | {tt['both']} | {tt['C# only']} | {tt['C++ only']} | {tt['neither']} | {tt['cs_frames']} | {tt['cxx_frames']} |")
+    return L
+
+
 def classify(a, b):
     ga, gb = a["good_frames"] > 0, b["good_frames"] > 0
     return "both" if ga and gb else "C# only" if ga else "C++ only" if gb else "neither"
@@ -178,20 +205,22 @@ def slot_report(rows, cs_sum, cxx_sum, title, slot_start):
              f"({ms(cs_sum.get('cpu_ms_in_bursts'))} s in bursts), C++ {ms(cxx_sum.get('cpu_ms_total'))} s "
              f"({ms(cxx_sum.get('cpu_ms_in_bursts'))} s in bursts). Decoder versions: C# {cs_sum.get('version', '?')}, C++ {cxx_sum.get('version', '?')}.")
     L.append("")
-    L.append("| # | UTC | WN | IL | result | frames C# | frames C++ | end C# | end C++ | blocks C#/C++ | rule | cpu C# s | cpu C++ s |")
-    L.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    L.append("| # | UTC | WN | IL | SNR dB | result | frames C# | frames C++ | end C# | end C++ | blocks C#/C++ | rule | cpu C# s | cpu C++ s |")
+    L.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for n, r in enumerate(rows):
         a, b = r["cs"], r["cxx"]
         ref = a or b
         verdict = "ok" if not r["problems"] and r["cls"] not in ("C# lock only", "C++ lock only") else ("; ".join(r["problems"]) or "n/a")
         if r["cls"] == "both" and not r["same_frames"] and a["good_frames"] == b["good_frames"]:
             verdict += " (frames differ)"
-        L.append("| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
-            n, clock(slot_start, r["start"]), ref["wn"], ref["il"], r["cls"],
+        L.append("| {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
+            n, clock(slot_start, r["start"]), ref["wn"], ref["il"], snr_cell(r), r["cls"],
             a["good_frames"] if a else "-", b["good_frames"] if b else "-",
             a["reason"] if a else "-", b["reason"] if b else "-",
             f"{a['blocks']}/{b['blocks']}" if a and b else "-", verdict,
             ms(a["cpu_ms"]) if a else "-", ms(b["cpu_ms"]) if b else "-"))
+    L.append("")
+    L += band_table(rows)
     L.append("")
     return "\n".join(L), t
 
@@ -269,12 +298,18 @@ def daily_report(slots_dir, date):
         tt = totals(by_wn[wn])
         L.append(f"| WN {wn} | {tt['bursts']} | {tt['both']} | {tt['C# only']} | {tt['C++ only']} | {tt['neither']} | {tt['cs_frames']} | {tt['cxx_frames']} |")
     L.append("")
+    L.append("Bursts by SNR:")
+    L.append("")
+    L += band_table(allrows)
+    L.append("")
+    L.append("SNR is measured from the audio, the same way for both decoders (neither receiver reports one): the burst's power from lock to end over the slot's quiet floor, as in docs/dev/corpus.md. Use it to rank bursts, not to quote.")
+    L.append("")
     if flagged:
         L.append("## Differences to look at")
         L.append("")
         for n, when, r, why in flagged:
             a, b = r["cs"], r["cxx"]
-            L.append(f"- {n} {when}: {'; '.join(why)} (frames C# {a['good_frames'] if a else '-'}, C++ {b['good_frames'] if b else '-'}; "
+            L.append(f"- {n} {when}: {'; '.join(why)} (SNR {snr_cell(r)} dB, frames C# {a['good_frames'] if a else '-'}, C++ {b['good_frames'] if b else '-'}; "
                      f"end {a['reason'] if a else '-'} / {b['reason'] if b else '-'})")
         L.append("")
     else:
