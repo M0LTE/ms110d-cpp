@@ -13,5 +13,6 @@ Nothing is released yet. What is on `main` so far:
 - Receive building blocks: soft-decision decoders, a decision-feedback equaliser, preamble search and waveform identification, WN0 receive, and the equaliser receive path for WN1 to 8 and 13 with the turbo stage, the 8PSK salvage and ensemble and the MFB block decoder, accepting both mini-probe patterns (bit for bit with the C# on every reference case and on a corpus of fading, offset and drifting channels).
 - Receive: the public receiver in C++ (`Receiver`) and C (`ms110d_rx_*`), audio in, events out (burst started, block decoded, burst completed, optional soft values), with the C#'s options and one shared receive front end; the same bits as the C# receiver on every reference case.
 - Tests that compare the bits on the wire and the audio with the C# reference.
+- The standard's D-LXIV performance masks (AWGN and Poor channel, WN0 to 8 and 13) and the D-LXV static channel for WN2, run by the C++ tests alone on channel audio made by the C# reference, with a long mode for the full counts.
 
 [Unreleased]: https://github.com/M0LTE/ms110d-cpp/commits/main
