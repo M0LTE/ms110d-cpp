@@ -96,20 +96,8 @@ std::vector<float> ReferenceCase::real32(const std::string& stage) const {
     return decode_real32(raw(stage, 4));
 }
 
-std::vector<float> ReferenceCase::standard_real32(const std::string& stage) const {
-    return decode_real32(raw_at(standard_dir() / manifest_.str("file." + stage), stage, 4));
-}
-
 std::vector<std::complex<float>> ReferenceCase::complex32(const std::string& stage) const {
     return decode_complex32(raw(stage, 8));
-}
-
-std::vector<std::complex<float>> ReferenceCase::standard_complex32(const std::string& stage) const {
-    return decode_complex32(raw_at(standard_dir() / manifest_.str("file." + stage), stage, 8));
-}
-
-fs::path ReferenceCase::standard_dir() const {
-    return standard_root(dir_.parent_path()) / name_;
 }
 
 std::vector<float> ReferenceCase::decode_real32(const std::vector<std::uint8_t>& b) {
@@ -155,23 +143,6 @@ fs::path reference_dir_or_skip() {
         FAIL("MS110D_REQUIRE_REFERENCE is set but MS110D_REFERENCE_DIR does not hold the reference files");
     }
     SKIP("reference files not generated (run scripts/generate-reference.sh, see docs/dev/reference-files.md)");
-    return {};
-}
-
-fs::path standard_root(const fs::path& reference_dir) {
-    return reference_dir.parent_path() / "standard";
-}
-
-fs::path standard_reference_dir_or_skip() {
-    const fs::path dir = reference_dir_or_skip();
-    if (fs::exists(standard_root(dir) / load_index(dir).cases.front() / "13_audio.f32")) {
-        return dir;
-    }
-    const char* require = std::getenv("MS110D_REQUIRE_REFERENCE");
-    if (require != nullptr && *require != '\0' && std::strcmp(require, "0") != 0) {
-        FAIL("MS110D_REQUIRE_REFERENCE is set but the standard-pattern reference files are absent (scripts/generate-standard-reference.sh)");
-    }
-    SKIP("standard-pattern reference files not generated (run scripts/generate-standard-reference.sh, see docs/dev/reference-files.md)");
     return {};
 }
 

@@ -152,16 +152,16 @@ There is a C version of the same quick start in [docs/c-quickstart.md](docs/c-qu
 
 ## Compatibility, proven by tests
 
-The two implementations must agree exactly on the bits on the wire, closely on the transmitted audio, and within 0.5 dB on receive performance, on simulated HF channels and on real off-air recordings. Any difference we keep on purpose is written down as a named test, and [there are none yet](docs/deviations.md). The one difference today is the C#'s fault, below. See [docs/plan.md](docs/plan.md#how-we-prove-compatibility).
+The two implementations must agree exactly on the bits on the wire, closely on the transmitted audio, and within 0.5 dB on receive performance, on simulated HF channels and on real off-air recordings. Any difference we keep on purpose is written down as a named test, and [there are none yet](docs/deviations.md). See [docs/plan.md](docs/plan.md#how-we-prove-compatibility).
 
 ## The mini-probe pattern
 
-This library sends and expects the mini-probe pattern that MIL-STD-188-110D defines. The C# reference does not send it yet: up to 0.2.1 its transmitter shifts some mini-probes at the selected interleaver's boundary instead of the long interleaver's. The two patterns are the same on the long interleaver and on WN0, and differ on ultra-short, short and medium. What that means today:
+This library and the C# reference (since 0.3.0) send and expect the mini-probe pattern that MIL-STD-188-110D defines: the probe after data frame g is shifted only at the Long interleaver's boundary. Up to 0.2.1 the C# transmitter shifted some mini-probes at the selected interleaver's boundary instead. The two patterns are the same on the long interleaver and on WN0, and differ on ultra-short, short and medium. What that means today:
 
-- A C# 0.2.1 receiver decodes this library's bursts on every interleaver, because it accepts both patterns. Older C# receivers expect the old pattern, so they may decode its ultra-short, short and medium bursts less well.
-- This library decodes C# transmissions on the long interleaver as well as the C# receiver does, but its ultra-short, short and medium bursts less well. GB7RDG's bulletins are short-interleaver bursts from the C#: on 31 recorded ones this library decoded 95 of the 99 good frames that the C# receiver did.
+- A C# 0.3.0 or later receiver and this library decode each other's bursts on every interleaver.
+- Transmissions from a C# 0.2.1 or earlier transmitter (GB7RDG's bulletins until it switches) decode less well on the ultra-short, short and medium interleavers with this library and with the C# 0.3.0 receiver alike: on 31 recorded GB7RDG bursts the C# 0.3.0 receiver got 97 good frames against the 99 the 0.2.1 receiver got, and this library matched it with 97 of 97. A 0.2.1 receiver accepts both patterns and decodes either.
 
-This is a fault in the C# transmitter, not a difference we keep, so it is not listed as a deviation. The C# and GB7RDG are due to switch to the standard pattern; [issue 68](https://github.com/M0LTE/ms110d-cpp/issues/68) tracks it. The details are in [docs/dev/receiver.md](docs/dev/receiver.md#probe-pattern-issue-68).
+The details are in [docs/dev/receiver.md](docs/dev/receiver.md#probe-pattern-issue-68). [Issue 68](https://github.com/M0LTE/ms110d-cpp/issues/68) tracks the station rollout.
 
 ## Licence
 

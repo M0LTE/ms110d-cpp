@@ -97,8 +97,8 @@ public class TxCrossCheckTests
             int n = round < edges.Length || round % 2 == 0 ? edges[round % edges.Length] : rng.Next(0, (4 * input) + 1);
             byte[] payload = RandomBits(rng, n);
 
-            // The C# in its standard probe pattern mode: the C++ sends the D.5.2.2 pattern (issue 68).
-            float[] expected = StandardModulator.Create(settings).Modulate(payload);
+            // Both transmitters send the D.5.2.2 standard pattern (the C# since 0.3.0).
+            float[] expected = new Ms110dModulator(settings).Modulate(payload);
             using var cpp = new CppTransmitter(settings, n);
             bool streamed = round % 2 == 1;
             float[] actual = streamed ? cpp.ModulateStreamed(payload, 1 + rng.Next(2000)) : cpp.ModulateOneShot(payload);

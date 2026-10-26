@@ -5,7 +5,7 @@
 // Test signals for the preamble detector, built identically here and in the C# tool
 // (tools/csharp-vectors/DetectDump.cs): the same seeded noise, the same carrier offset and
 // fractional delay, so both detectors can be given the same samples and their answers compared
-// from the committed dump (tests/data/csharp-detect-0.2.1.txt). docs/dev/preamble-detector.md
+// from the committed dump (tests/data/csharp-detect-0.3.0.txt). docs/dev/preamble-detector.md
 // has the specification. Test support only.
 
 #include <cstdint>

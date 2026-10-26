@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #pragma once
 
-// The MFB-form block decoder of the C# (Ms110dMfbBlockDecoder, M0LTE.Ms110d 0.2.1): the QAM16
+// The MFB-form block decoder of the C# (Ms110dMfbBlockDecoder, M0LTE.Ms110d 0.3.0): the QAM16
 // block decoder that replaces the turbo loop for WN 8, and the second member of the 8PSK (WN 7)
 // per-block ensemble. Per burst, a ridged wide least-squares fit over the first block's probes
 // places a 26 tap detection window; per block, label-free composite-FIR anchors on the probes,

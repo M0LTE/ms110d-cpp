@@ -35,8 +35,8 @@ int32_t interleaver_from_name(const std::string& s) {
 
 TEST_CASE("reference end to end through the C interface: payload bits to audio matches all 122 cases",
           "[reference][c_transmitter]") {
-    // The C# audio with its standard probe pattern, which is what the C++ sends (issue 68).
-    const std::filesystem::path dir = ms110d_test::standard_reference_dir_or_skip();
+    // The C# audio, which has the standard probe pattern the C++ sends (issue 68).
+    const std::filesystem::path dir = ms110d_test::reference_dir_or_skip();
     const auto index = ms110d_test::load_index(dir);
     const uint32_t chunks[] = {1, 7, 64, 1000, 4096, 100000};
     std::size_t cases = 0;
@@ -58,7 +58,7 @@ TEST_CASE("reference end to end through the C interface: payload bits to audio m
         s.roll_off = m.real("roll_off");
         const auto payload = c.bytes("payload_bits");
         const auto count = static_cast<uint32_t>(payload.size());
-        const auto ref = c.standard_real32("audio_f32le");
+        const auto ref = c.real32("audio_f32le");
 
         // Even cases: create/destroy. Odd cases: the caller's own memory.
         ms110d_tx* tx = nullptr;

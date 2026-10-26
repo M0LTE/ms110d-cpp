@@ -2,9 +2,9 @@
 
 Issue 28, under epic 23. Code: `tests/interop/Layer3/`. It sends seeded bursts from a transmitter through the C# HF channel (`M0LTE.HfChannel`) at a ladder of SNRs to a receiver, and records frame and bit errors. The question it answers: do the pairings (C# to C#, C++ to C#, C# to C++ and C++ to C++) need the same SNR to reach the same frame loss, to within 0.5 dB?
 
-The C# transmitter endpoint runs in the C# modulator's internal standard-probe-pattern mode, so both transmitters send the D.5.2.2 pattern (the C# 0.2.1 default differs for the ultra-short, short and medium interleavers; issue 68).
+Both transmitters send the D.5.2.2 standard pattern (the C# since 0.3.0, issue 68).
 
-The C++ receiver can beat the C# receiver here: it expects the standard pattern from the first frame, while the C# 0.2.1 receiver starts each burst on the current rule and needs a decisive probe to switch, which a one-block ultra-short burst does not give it. A pairing whose curve loses no more frames than the reference at any SNR is therefore judged Pass in a cell (`Layer3Analysis.NeverWorse`), where a flat curve would otherwise read as a dead receiver; a curve that loses more frames still fails as before.
+The C++ receiver can beat the C# receiver here on a one-block ultra-short burst (the C# 0.3.0 receiver has the same standard-only pattern, but the two differ in detail). A pairing whose curve loses no more frames than the reference at any SNR is judged Pass in a cell (`Layer3Analysis.NeverWorse`), where a flat curve would otherwise read as a dead receiver; a curve that loses more frames still fails as before.
 
 ## What is measured
 

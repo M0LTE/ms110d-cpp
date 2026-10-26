@@ -9,7 +9,7 @@
 // when f mod L == L - 2, L the number of frames in the waveform's LONG interleaver (256 for WN 1
 // and 2, 128 for WN 3 and 4, 64 for WN 5 to 13), whatever interleaver is selected. The probe that
 // ends the preamble (f = -1) is never shifted, and the EOT is a cyclic extension of the last probe
-// as sent. The C# 0.2.1 transmitter instead shifts at the selected interleaver's boundary,
+// as sent. The C# up to 0.2.1 instead shifted at the selected interleaver's boundary,
 // (f + 2) % frames == 0, which differs from this for the ultra-short, short and medium
 // interleavers; the Long interleaver and WN 0 (no probes) are the same.
 

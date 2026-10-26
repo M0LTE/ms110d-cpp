@@ -120,8 +120,6 @@ jobs:
           key: reference-${{ hashFiles('reference/pin.txt', 'scripts/generate-reference.sh') }}
       - name: Generate and verify
         run: scripts/generate-reference.sh
-      - name: Generate the standard-pattern equivalents of the reference probes and audio
-        run: scripts/generate-standard-reference.sh
       - name: Regenerate the committed C# dumps and fail on any difference
         run: scripts/check-dumps.sh "$GITHUB_WORKSPACE/build/_reference/ref"
       - name: Cache the Poor channel corpus

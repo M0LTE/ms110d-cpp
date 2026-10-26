@@ -1,4 +1,4 @@
-# Dumped from M0LTE.Ms110d 0.2.1 by tools/csharp-vectors (framing mode): PreambleGenerator.EncodeWid and EncodeCount.
+# Dumped from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (framing mode): PreambleGenerator.EncodeWid and EncodeCount.
 wid 0 0 7 0 0 0 0 0
 wid 0 0 9 0 0 0 2 1
 wid 0 1 7 0 0 1 0 1

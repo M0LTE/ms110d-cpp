@@ -3,15 +3,15 @@
 
 // Dumps what the C# receiver does with WN 0 (Walsh) bursts, for the C++ receiver's tests:
 //   wn0       <ref-dir>   every WN 0 reference case's audio, through the real demodulator
-//                         -> tests/data/csharp-wn0-0.2.1.txt
+//                         -> tests/data/csharp-wn0-0.3.0.txt
 //   wn0-awgn  <ref-dir>   one reference case with seeded AWGN added (the generator below,
-//                         which the C++ test repeats) -> tests/data/csharp-wn0-awgn-0.2.1.txt
+//                         which the C++ test repeats) -> tests/data/csharp-wn0-awgn-0.3.0.txt
 //   wn0-poor  <out-stem>  fresh bursts through the Poor channel (M0LTE.HfChannel), their
 //                         audio as 16 bit samples and the C# results
-//                         -> tests/data/csharp-wn0-poor-0.2.1.txt and .i16le
+//                         -> tests/data/csharp-wn0-poor-0.3.0.txt and .i16le
 // Run from the repo root: dotnet run -c Release --project tools/csharp-vectors -- wn0 <ref-dir>
 //
-// The numbers come from the real M0LTE.Ms110d 0.2.1 demodulator. Its state is internal, so
+// The numbers come from the real M0LTE.Ms110d 0.3.0 demodulator. Its state is internal, so
 // the burst's start (chip 0 position, timing, residual carrier, data start) is read from its
 // private fields through reflection at the first Walsh symbol, and the soft values come from
 // its public FirstPassBlockLlrs event; the per-symbol decisions and finger gains come from the
@@ -148,7 +148,7 @@ static class Wn0Dump
     public static string Clean(string refDir)
     {
         var sb = new StringBuilder();
-        sb.Append("# Dumped from M0LTE.Ms110d 0.2.1 by tools/csharp-vectors (wn0 mode): the real demodulator on each WN 0 reference case's audio.\n");
+        sb.Append("# Dumped from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (wn0 mode): the real demodulator on each WN 0 reference case's audio.\n");
         sb.Append("# start: the burst's start as read from the demodulator at its first Walsh symbol. sym: global symbol number, winning di-bit,\n");
         sb.Append("# the two soft values (first pass, wire order) and, for the first 12 symbols of a case, the 13 finger gain magnitudes (3 decimals).\n");
         foreach (string name in File.ReadAllLines(Path.Combine(refDir, "index.txt")).Where(l => l.StartsWith("case=wn0_")).Select(l => l[5..]))
@@ -213,7 +213,7 @@ static class Wn0Dump
         float[] baseAudio = ReadAudio(Path.Combine(refDir, name, "13_audio.f32"));
         double power = baseAudio.Select(x => (double)x * x).Average();
         var sb = new StringBuilder();
-        sb.Append("# Dumped from M0LTE.Ms110d 0.2.1 by tools/csharp-vectors (wn0-awgn mode).\n");
+        sb.Append("# Dumped from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (wn0-awgn mode).\n");
         sb.Append($"# Base signal: reference case {name} audio ({baseAudio.Length} samples) with {LeadIn} zero samples before and {LeadOut} after,\n");
         sb.Append("# plus seeded Gaussian noise: sample = base + (float)(sigma * z), z from SplitMix64 + Box-Muller (see Wn0Dump.cs), seed per trial.\n");
         sb.Append("# SNR is signal power over noise power in 3000 Hz: sigma^2 = P / 10^(snr/10) * 4800 / 3000, P = mean square of the base audio.\n");
@@ -277,7 +277,7 @@ static class Wn0Dump
         const int payloadBits = 2 * 40;
 
         var text = new StringBuilder();
-        text.Append("# Generated from M0LTE.Ms110d 0.2.1 by tools/csharp-vectors (wn0-poor mode): WN 0 short interleaver K7 bursts of two blocks (no EOM) through\n");
+        text.Append("# Generated from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (wn0-poor mode): WN 0 short interleaver K7 bursts of two blocks (no EOM) through\n");
         text.Append($"# M0LTE.HfChannel 0.1.0 WattersonChannel.Poor (2 equal Rayleigh paths, 2 ms, 1 Hz), {LeadIn} samples of noise before and {CutLeadOut} after, SNR in 3000 Hz.\n");
         text.Append("# The audio is stored as 16 bit little-endian samples (1.0 = 8192) in the .i16le file, from before the data to the end; the C#\n");
         text.Append("# was run on the same quantised audio. start is relative to the stored audio. wire: the transmitted fetched bits.\n");

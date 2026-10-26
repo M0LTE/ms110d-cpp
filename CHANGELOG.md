@@ -8,9 +8,11 @@ Nothing is released yet. What is on `main` so far:
 
 ### Changed
 
-- Behaviour change: the transmitter sends the MIL-STD-188-110D standard mini-probe boundary pattern. The probe after data frame f (numbered from 0 over the burst) is cyclically shifted only when f mod L == L - 2, L being the frame count of the waveform's Long interleaver, whatever interleaver is selected. Before, the probe was shifted before the selected interleaver's boundary, as the C# 0.2.1 transmitter still does; the two are the same for the Long interleaver, so only ultra-short, short and medium bursts change (issue 68).
+- Behaviour change: the transmitter sends the MIL-STD-188-110D standard mini-probe boundary pattern. The probe after data frame f (numbered from 0 over the burst) is cyclically shifted only when f mod L == L - 2, L being the frame count of the waveform's Long interleaver, whatever interleaver is selected. Before, the probe was shifted before the selected interleaver's boundary, as the C# up to 0.2.1 did; the two are the same for the Long interleaver, so only ultra-short, short and medium bursts change (issue 68).
 
-- Behaviour change: the receiver expects the standard mini-probe boundary pattern only; the detection of the C# 0.2.1 pattern (shifted at the selected interleaver's boundary) is removed. A current-pattern C# 0.2.1 transmission on the ultra-short, short or medium interleaver therefore decodes worse than with the C# receiver; the Long interleaver is unaffected (issue 68).
+- Behaviour change: the receiver expects the standard mini-probe boundary pattern only; the detection of the old C# pattern (shifted at the selected interleaver's boundary) is removed. A transmission from a C# 0.2.1 or earlier transmitter on the ultra-short, short or medium interleaver therefore decodes worse than with a C# 0.2.1 receiver; the Long interleaver is unaffected (issue 68).
+
+- The C# reference moves from M0LTE.Ms110d 0.2.1 to 0.3.0 (issues 94 and 68), which sends and receives only the standard mini-probe pattern and removes its internal pattern switch. The reference set changes in 103 cases (the ultra-short, short and medium cases of WN1 to WN13; files 10, 12 and 13), the committed C# dumps are regenerated, and the test tooling no longer reaches into the C# by reflection to force the pattern. The exact C++ against C# comparisons all hold with nothing forced. On the 31 recorded GB7RDG bursts (current-pattern audio) the C++ receiver now matches the C# 0.3.0 receiver like for like: 97 of 97 good frames, the same end reason and block count on 31 of 31, error-free payloads equal on 5 of 5; the layer 4 rule is applied to every burst against the live C# and the issue 68 floor tests are gone.
 
 ### Added
 

@@ -128,7 +128,7 @@ public class Layer3AnalysisTests
     [Fact]
     public void ACurveThatNeverLosesMoreThanTheReferenceIsNotAFailureAndADeadOneIs()
     {
-        // The C++ receiver tells the standard mini-probe pattern from the first frame; the C# 0.2.1 receiver cannot on a
+        // The C++ receiver tells the standard mini-probe pattern from the first frame; the C# 0.2.1 receiver could not on a
         // one-block ultra-short burst (issue 68), so its curve can sit above the C++ one at every SNR. A curve with no
         // losses has no threshold for the fit to find, and that must not read as a dead receiver.
         IReadOnlyList<Layer3Point> reference = Curve("csharp", 0);

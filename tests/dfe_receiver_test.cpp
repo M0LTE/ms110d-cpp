@@ -201,7 +201,7 @@ struct Worst {
 
 TEST_CASE("reference demodulator: every WN 1 to 5 ultra-short and short case against the C# frame by frame",
           "[dfe_receiver]") {
-    const fs::path dir = ms110d_test::standard_reference_dir_or_skip();
+    const fs::path dir = ms110d_test::reference_dir_or_skip();
     require_dump(MS110D_CSHARP_RX_DUMP);
     const std::vector<CsCase> cases = load_clean_dump();
     REQUIRE(cases.size() == 41);
@@ -210,7 +210,7 @@ TEST_CASE("reference demodulator: every WN 1 to 5 ultra-short and short case aga
     for (const CsCase& c : cases) {
         INFO("case " << c.name);
         const ms110d_test::ReferenceCase rc(dir / c.name, c.name);
-        std::vector<float> audio = rc.standard_real32("audio_f32le");
+        std::vector<float> audio = rc.real32("audio_f32le");
         audio.resize(audio.size() + 9600, 0.0f);
         const ms110d_test::RxRun r = driver.run(audio);
         REQUIRE(r.detected);
@@ -299,7 +299,7 @@ TEST_CASE("reference demodulator: every WN 1 to 5 ultra-short and short case aga
 
 TEST_CASE("reference demodulator: seeded AWGN and cut bursts on WN 1 to 5 against the C#, decisions exact",
           "[dfe_receiver]") {
-    const fs::path dir = ms110d_test::standard_reference_dir_or_skip();
+    const fs::path dir = ms110d_test::reference_dir_or_skip();
     require_dump(MS110D_CSHARP_RX_AWGN);
     std::ifstream in(MS110D_CSHARP_RX_AWGN);
     REQUIRE(in.good());
@@ -330,7 +330,7 @@ TEST_CASE("reference demodulator: seeded AWGN and cut bursts on WN 1 to 5 agains
             cut = -1;
             if (kind == "cutbase") s >> k3 >> cut >> k4 >> tone_amp >> k5 >> tone_hz;
             const ms110d_test::ReferenceCase rc(dir / base_name, base_name);
-            base = rc.standard_real32("audio_f32le");
+            base = rc.real32("audio_f32le");
             payload = rc.bytes("payload_bits");
             REQUIRE(base.size() == n);
         } else if (kind == "point") {
@@ -808,7 +808,7 @@ TEST_CASE("dfe receiver: the probe pattern is the standard one only", "[dfe_rece
         }
         CHECK(shifted == 5);
     }
-    // The C# 0.2.1 default for a short interleaver of WN 1 (16 frames) would shift at frame 14; the standard does not.
+    // The C# up to 0.2.1 for a short interleaver of WN 1 (16 frames) would shift at frame 14; the standard does not.
     CHECK_FALSE(probe_is_shifted(14, 256));
     CHECK(probe_is_shifted(254, 256));
 }

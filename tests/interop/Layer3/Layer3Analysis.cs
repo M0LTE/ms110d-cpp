@@ -275,8 +275,8 @@ public static class Layer3Analysis
         if (ot is null)
         {
             // A curve that never loses more frames than the reference at any SNR has no threshold the fit can find
-            // (all zeros is flat) but is not worse: the C++ receiver on standard-pattern ultra-short bursts, which the
-            // C# receiver cannot tell from current-pattern ones (issue 68).
+            // (all zeros is flat) but is not worse: the C++ receiver on ultra-short bursts, where the C# receiver
+            // loses a few frames the C++ does not.
             if (NeverWorse(reference, other))
             {
                 return new CellJudgement(Verdict.Pass, null, null, null, "never loses more frames than the reference at any SNR");
