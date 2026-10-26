@@ -42,10 +42,10 @@ public class CorpusTests(ITestOutputHelper output)
     static string CommittedDir() => Path.Combine(RepoRoot(), "tests", "data", "corpus");
 
     [Fact]
-    public void CommittedSetMatchesItsManifest() => Check(CommittedDir());
+    public void CommittedSetMatchesItsManifest() => Check(CommittedDir(), minGoodFrames: 7);
 
     [Fact]
-    public void FetchedCorpusMatchesItsManifest() => Check(FetchedDir());
+    public void FetchedCorpusMatchesItsManifest() => Check(FetchedDir(), minGoodFrames: 97);
 
     // The pinned C# receiver's decode of every burst, with the manifest's recorded (C# 0.2.1) result beside it.
     static List<(JsonElement Burst, Expect Live)> LiveReference(string dir, JsonDocument doc)
@@ -63,7 +63,7 @@ public class CorpusTests(ITestOutputHelper output)
         return live;
     }
 
-    void Check(string dir)
+    void Check(string dir, int minGoodFrames)
     {
         using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, "manifest.json")));
         JsonElement bursts = doc.RootElement.GetProperty("bursts");
@@ -97,6 +97,12 @@ public class CorpusTests(ITestOutputHelper output)
             $"good frames {goodNow} against {goodRecorded} recorded, same end reason, block count and good frames on {same}";
         output.WriteLine(summary);
         Console.WriteLine(summary);
+
+        // A floor on the reference itself: the C++ is held to the live C# decode, so a pin that decoded worse would
+        // silently lower the bar for the C++. Raise the floor deliberately if a pin decodes better.
+        Assert.True(goodNow >= minGoodFrames,
+            $"the pinned C# receiver decodes {goodNow} good frames on this corpus, below the floor of {minGoodFrames} (C# 0.3.0 on corpus-v1: 97; committed set: 7). " +
+            "A pin that decodes worse lowers the bar the C++ is held to; investigate it. If a pin decodes better, raise the floor deliberately.");
     }
 
     // ---- the C++ receiver against the pinned C# receiver (layer 4) --------------------------
