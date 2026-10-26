@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // The public receiver (include/m0lte/ms110d/receiver.hpp), end to end: every reference case
-// through it against the C# 0.2.1 receiver (bit for bit in the default build) and against the
+// through it against the C# 0.3.0 receiver (bit for bit in the default build) and against the
 // internal path it is built on (bit for bit in both builds); chunk size independence; zero
 // allocation; several bursts in one stream; the options; and misuse. docs/dev/receiver.md.
 
@@ -285,7 +285,7 @@ void require_file(const std::string& path) {
 }
 
 std::vector<float> case_audio(const ms110d_test::ReferenceCase& rc) {
-    std::vector<float> audio = rc.standard_real32("audio_f32le");
+    std::vector<float> audio = rc.real32("audio_f32le");
     audio.resize(audio.size() + 9600, 0.0f);  // as the C# dumps: 9600 zero samples after
     return audio;
 }
@@ -294,7 +294,7 @@ std::vector<float> case_audio(const ms110d_test::ReferenceCase& rc) {
 
 TEST_CASE("reference receiver: every reference case through the public API, against the C# and the internal path",
           "[receiver]") {
-    const fs::path dir = ms110d_test::standard_reference_dir_or_skip();
+    const fs::path dir = ms110d_test::reference_dir_or_skip();
     require_file(MS110D_CSHARP_RX_TURBO);
     const auto turbo = load_turbo(MS110D_CSHARP_RX_TURBO);
     const auto wn0 = load_wn0(MS110D_CSHARP_WN0_DUMP);

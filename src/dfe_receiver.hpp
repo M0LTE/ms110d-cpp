@@ -4,7 +4,7 @@
 
 // The equaliser receive path for waveforms 1 to 8 and 13: everything the C# Ms110dDemodulator
 // does after the preamble detector has handed over a burst, up to the decoded blocks and the end
-// of the burst. Ported from M0LTE.Ms110d 0.2.1, step for step:
+// of the burst. Ported from M0LTE.Ms110d 0.3.0, step for step:
 //
 //   InitializeDfe   tap counts and ridges per probe length, the least-squares solve over the
 //                   last preamble super-frame and the first mini-probe, RLS seeding, the probe

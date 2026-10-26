@@ -197,7 +197,7 @@ std::string first_differing_stage(const ReferenceCase& c) {
         RecordingSink sink;
         if (!assemble_burst(*layout, *preamble, c.bytes("interleaved_bits"), sink)) return "burst (rejected)";
         if (auto d = diff(c.bytes("burst_symbols"), sink.symbols); !d.empty()) return "burst symbols (" + d + ")";
-        const auto probes = c.standard_complex32("probe_values_cf32le");  // the C# in standard pattern mode (issue 68)
+        const auto probes = c.complex32("probe_values_cf32le");  //
         if (probes.size() != sink.probes.size()) return "burst probes (count)";
         for (std::size_t i = 0; i < probes.size(); ++i) {
             if (probes[i].real() != sink.probes[i].real() || probes[i].imag() != sink.probes[i].imag()) {
@@ -212,7 +212,7 @@ std::string first_differing_stage(const ReferenceCase& c) {
 }  // namespace
 
 TEST_CASE("reference layer 1: every bit stage recomputed from the previous stage's file", "[reference][layer1]") {
-    const std::filesystem::path dir = ms110d_test::standard_reference_dir_or_skip();
+    const std::filesystem::path dir = ms110d_test::reference_dir_or_skip();
     const auto index = ms110d_test::load_index(dir);
     int checked = 0;
     for (const auto& name : index.cases) {

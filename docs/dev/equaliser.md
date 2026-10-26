@@ -42,13 +42,13 @@ Complex products are written out as the C# writes them, in the same order, and `
 
 ## How it is tested
 
-`tools/csharp-vectors` has a `dfe` mode that drives the real C# `Dfe` (public in the 0.2.1 package) through scripted receive scenarios mirroring the demodulator's frame loop: initial solve over known symbols, a probe-anchored solve per frame, a phase re-anchor, then the data span by the three-pass static path, the tap-trajectory path with `translate_taps`, or NLMS, with decision-directed rows, nested re-training with snapshot and restore, soft-label rows, and the channel-shortening solve. The synthetic scenarios are a seeded burst of known symbols through a T/2 multipath channel with noise and a slow rotation, at three tap sets, clean, moderate and noisy, with an echo channel and a no-distortion channel. The real scenarios take the symbol streams of three C# reference cases (WN 1, 3 and 5) and put them through the same channel. A symbol error curve over seven noise levels (19200 symbols each) comes from the same script.
+`tools/csharp-vectors` has a `dfe` mode that drives the real C# `Dfe` (public in the 0.3.0 package) through scripted receive scenarios mirroring the demodulator's frame loop: initial solve over known symbols, a probe-anchored solve per frame, a phase re-anchor, then the data span by the three-pass static path, the tap-trajectory path with `translate_taps`, or NLMS, with decision-directed rows, nested re-training with snapshot and restore, soft-label rows, and the channel-shortening solve. The synthetic scenarios are a seeded burst of known symbols through a T/2 multipath channel with noise and a slow rotation, at three tap sets, clean, moderate and noisy, with an echo channel and a no-distortion channel. The real scenarios take the symbol streams of three C# reference cases (WN 1, 3 and 5) and put them through the same channel. A symbol error curve over seven noise levels (19200 symbols each) comes from the same script.
 
 The inputs are not in the dump. The generator (`tests/support/eq_scenario.cpp` and `DfeDump.cs`, kept in step) uses only integer arithmetic and IEEE add, multiply and square root in double, so both languages make identical samples; each scenario records a hash of its symbols and its samples and the test refuses to compare unless the C++ hashes match. The dump holds the outputs, as hex of the float bits: equalised symbols, decisions, the mean square error and correlation of every probe, the feed-forward energy after each solve, and the final taps.
 
 Regenerate the dump when the C# pin moves:
 
-    dotnet run -c Release --project tools/csharp-vectors -- dfe build/_reference/ref > tests/data/csharp-dfe-0.2.1.txt
+    dotnet run -c Release --project tools/csharp-vectors -- dfe build/_reference/ref > tests/data/csharp-dfe-0.3.0.txt
 
 `tests/equaliser_test.cpp`:
 

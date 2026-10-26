@@ -4,9 +4,9 @@
 // Dumps what the C# receiver does after the preamble for the equaliser waveforms (WN 1 and up),
 // for the C++ DfeReceiver's tests (docs/dev/dfe-receiver.md):
 //   rx       <ref-dir>   every WN 1 to 5 ultra-short and short reference case's audio through the
-//                        real demodulator -> tests/data/csharp-rx-0.2.1.txt
+//                        real demodulator -> tests/data/csharp-rx-0.3.0.txt
 //   rx-awgn  <ref-dir>   short-interleaver cases with seeded AWGN added (the generator the C++
-//                        test repeats) -> tests/data/csharp-rx-awgn-0.2.1.txt
+//                        test repeats) -> tests/data/csharp-rx-awgn-0.3.0.txt
 // Run from the repo root: dotnet run -c Release --project tools/csharp-vectors -- rx <ref-dir>
 //
 // Each burst is demodulated twice: with the turbo pass off (DisableTurbo, what the C++ port
@@ -32,7 +32,7 @@ static class RxDump
     sealed class Frame
     {
         public long FrameChip, AtT2;
-        public double Omega, Theta, Tau, GainRef, EnergyRef, ProbeMse, FadeFloor, Presence, Plain, Evidence, TapEnergy;
+        public double Omega, Theta, Tau, GainRef, EnergyRef, ProbeMse, FadeFloor, Presence, Plain, TapEnergy;
         public bool Fading, Latched, Fresh;
         public int Bad;
         public string Gain = "", TapChange = "", PreMse = "";
@@ -79,7 +79,6 @@ static class RxDump
     static Run Demodulate(float[] audio, bool disableTurbo)
     {
         var demod = new Ms110dDemodulator(new Ms110dDemodOptions { DisableTurbo = disableTurbo });
-        StandardTx.ResolvePatternToStandard(demod);  // the C++ expects the standard pattern from the first frame (issue 68)
         var run = new Run();
         double lastPresence = 0, lastPlain = 0;
         demod.PresenceTraced += (_, plain, presence) =>
@@ -103,7 +102,6 @@ static class RxDump
                 tapEnergy += (double)t.Re * t.Re + (double)t.Im * t.Im;
             }
 
-            object pattern = Get(demod, "_probePattern")!;
             if (run.Frames.Count == 0)
             {
                 run.Agc = (float)Get(demod, "_agcGain")!;
@@ -124,7 +122,6 @@ static class RxDump
                 Fading = (bool)Get(demod, "_fading")!,
                 Latched = (bool)Get(demod, "_fadingLatched")!,
                 Bad = (int)Get(demod, "_badProbes")!,
-                Evidence = (double)Get(pattern, "_evidence")!,
                 Presence = lastPresence,
                 Plain = lastPlain,
                 Gain = m.Groups[2].Value,
@@ -233,7 +230,7 @@ static class RxDump
             sb.Append($"frame {i} {f.FrameChip} {f.AtT2} omega {R(f.Omega)} theta {R(f.Theta)} tau {R(f.Tau)} ");
             sb.Append($"gainref {R(f.GainRef)} energyref {R(f.EnergyRef)} probemse {R(f.ProbeMse)} floor {R(f.FadeFloor)} ");
             sb.Append($"fading {(f.Fading ? 1 : 0)} latched {(f.Latched ? 1 : 0)} fresh {(f.Fresh ? 1 : 0)} bad {f.Bad} ");
-            sb.Append($"presence {R(f.Presence)} plain {R(f.Plain)} evidence {R(f.Evidence)} ");
+            sb.Append($"presence {R(f.Presence)} plain {R(f.Plain)} ");
             sb.Append($"gain {f.Gain} tapchange {f.TapChange} premse {f.PreMse} taps {f.TapHash:x16} tapenergy {R(f.TapEnergy)}\n");
         }
     }
@@ -246,16 +243,16 @@ static class RxDump
     public static string Clean(string refDir)
     {
         var sb = new StringBuilder();
-        sb.Append("# Dumped from M0LTE.Ms110d 0.2.1 by tools/csharp-vectors (rx mode): the real demodulator on each WN 1 to 5 ultra-short and short\n");
+        sb.Append("# Dumped from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (rx mode): the real demodulator on each WN 1 to 5 ultra-short and short\n");
         sb.Append("# reference case's audio (fed in chunks of 2400 samples), turbo off; see RxDump.cs. frame: index, first data chip, T/2 samples\n");
-        sb.Append("# received, then the private tracking state after the frame (round-trip doubles), the presence statistic, the probe pattern\n");
-        sb.Append("# evidence, three values from the diagnostic line (3 or 4 decimals) and an FNV-1a hash and the energy of the taps.\n");
+        sb.Append("# received, then the private tracking state after the frame (round-trip doubles), the presence statistic,\n");
+        sb.Append("# three values from the diagnostic line (3 or 4 decimals) and an FNV-1a hash and the energy of the taps.\n");
         sb.Append("# block: index, T/2 samples received, decoded bits (turbo off), decoded bits (turbo on), first-pass soft values as float32 LE base64.\n");
         sb.Append("# end: reason, blocks, payload bits, T/2 samples received.\n");
         foreach (string name in File.ReadAllLines(Path.Combine(refDir, "index.txt"))
                      .Where(l => Regex.IsMatch(l, @"^case=wn[1-5]_(short|ultrashort)_")).Select(l => l[5..]))
         {
-            float[] audio = ReadAudio(StandardTx.AudioPath(refDir, name));
+            float[] audio = ReadAudio(ReferencePaths.AudioPath(refDir, name));
             // Room after the burst for the last block to complete.
             float[] padded = new float[audio.Length + 9600];
             audio.CopyTo(padded, 0);
@@ -294,7 +291,7 @@ static class RxDump
     public static string Awgn(string refDir)
     {
         var sb = new StringBuilder();
-        sb.Append("# Dumped from M0LTE.Ms110d 0.2.1 by tools/csharp-vectors (rx-awgn mode), turbo off unless stated; see RxDump.cs.\n");
+        sb.Append("# Dumped from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (rx-awgn mode), turbo off unless stated; see RxDump.cs.\n");
         sb.Append($"# Base signal: the reference case's audio with {LeadIn} zero samples before and {LeadOut} after, plus seeded Gaussian noise:\n");
         sb.Append("# sample = base + (float)(sigma * z), z from SplitMix64 + Box-Muller (Wn0Dump.SharedNoise), seed per trial.\n");
         sb.Append("# SNR is signal power over noise power in 3000 Hz: sigma^2 = P / 10^(snr/10) * 4800 / 3000, P = mean square of the base audio.\n");
@@ -303,7 +300,7 @@ static class RxDump
         foreach ((int wn, double[] snrs) in AwgnPoints)
         {
             string name = $"wn{wn}_short_k7_s1_p100";
-            float[] baseAudio = ReadAudio(StandardTx.AudioPath(refDir, name));
+            float[] baseAudio = ReadAudio(ReferencePaths.AudioPath(refDir, name));
             double power = baseAudio.Select(x => (double)x * x).Average();
             sb.Append($"base {name} {baseAudio.Length} leadin {LeadIn} leadout {LeadOut}\n");
             for (int p = 0; p < snrs.Length; p++)
@@ -329,7 +326,7 @@ static class RxDump
                     if (r.Frames.Count > 0)
                     {
                         Frame f = r.Frames[^1];
-                        sb.Append($"last omega {R(f.Omega)} theta {R(f.Theta)} tau {R(f.Tau)} gainref {R(f.GainRef)} evidence {R(f.Evidence)} ");
+                        sb.Append($"last omega {R(f.Omega)} theta {R(f.Theta)} tau {R(f.Tau)} gainref {R(f.GainRef)} ");
                         sb.Append($"presence {R(f.Presence)} latched {(f.Latched ? 1 : 0)} taps {f.TapHash:x16} tapenergy {R(f.TapEnergy)}\n");
                     }
 
@@ -366,7 +363,7 @@ static class RxDump
         foreach ((int wn, double snr) in new[] { (2, -3.0), (4, 3.0) })
         {
             string name = $"wn{wn}_short_k7_s2_p{(wn == 2 ? 448 : 1248)}";
-            float[] baseAudio = ReadAudio(StandardTx.AudioPath(refDir, name));
+            float[] baseAudio = ReadAudio(ReferencePaths.AudioPath(refDir, name));
             double power = baseAudio.Select(x => (double)x * x).Average();
             int cut = baseAudio.Length / 2;
             const int cutLeadOut = 20 * 9600;
@@ -393,7 +390,7 @@ static class RxDump
                 if (r.Frames.Count > 0)
                 {
                     Frame f = r.Frames[^1];
-                    sb.Append($"last omega {R(f.Omega)} theta {R(f.Theta)} tau {R(f.Tau)} gainref {R(f.GainRef)} evidence {R(f.Evidence)} ");
+                    sb.Append($"last omega {R(f.Omega)} theta {R(f.Theta)} tau {R(f.Tau)} gainref {R(f.GainRef)} ");
                     sb.Append($"presence {R(f.Presence)} latched {(f.Latched ? 1 : 0)} taps {f.TapHash:x16} tapenergy {R(f.TapEnergy)}\n");
                 }
 

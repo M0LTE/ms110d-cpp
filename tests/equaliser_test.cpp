@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Thomas Fanning
 // SPDX-License-Identifier: AGPL-3.0-or-later
-// The equaliser (src/equaliser.*) against the C# Dfe. tests/data/csharp-dfe-0.2.1.txt was made by
-// tools/csharp-vectors (dfe mode) from the 0.2.1 package: scripted receive scenarios (seeded
+// The equaliser (src/equaliser.*) against the C# Dfe. tests/data/csharp-dfe-0.3.0.txt was made by
+// tools/csharp-vectors (dfe mode) from the 0.3.0 package: scripted receive scenarios (seeded
 // synthetic bursts through a multipath channel with noise and a slow rotation, and real burst
 // symbol streams from the reference files through the same channel) driven through the C# Dfe,
 // with its outputs written as the hex of their bits. The inputs are not in the dump: the test

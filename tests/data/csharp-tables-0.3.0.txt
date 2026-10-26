@@ -1,4 +1,4 @@
-# Dumped from M0LTE.Ms110d 0.2.1 by tools/csharp-vectors (tables mode): Ms110dTables, Ms110dMode, Ms110dInterleaverParams, MiniProbe and the modulator's transcodes.
+# Dumped from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (tables mode): Ms110dTables, Ms110dMode, Ms110dInterleaverParams, MiniProbe and the modulator's transcodes.
 eom 1264952754
 preamble_chips_per_symbol 32
 symbol_rate 2400

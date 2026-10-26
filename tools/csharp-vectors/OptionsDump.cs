@@ -58,7 +58,6 @@ static class OptionsDump
     static void Demodulate(float[] audio, Ms110dDemodOptions options, StringBuilder sb)
     {
         var demod = new Ms110dDemodulator(options);
-        StandardTx.ResolvePatternToStandard(demod);  // the C++ expects the standard pattern from the first frame (issue 68)
         var first = new Dictionary<int, string>();
         var turbo = new Dictionary<int, string>();
         var blocks = new List<string>();
@@ -103,7 +102,7 @@ static class OptionsDump
     public static void Run(string refDir, string corpusStem, string outStem)
     {
         var sb = new StringBuilder();
-        sb.Append("# Dumped from M0LTE.Ms110d 0.2.1 by tools/csharp-vectors (rx-options mode); format in OptionsDump.cs.\n");
+        sb.Append("# Dumped from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (rx-options mode); format in OptionsDump.cs.\n");
         byte[] corpus = File.ReadAllBytes(corpusStem + ".i16le");
         int n = 0;
         foreach (string line in File.ReadLines(corpusStem + ".txt"))
@@ -141,7 +140,7 @@ static class OptionsDump
         foreach ((int wn, double snr) in new[] { (2, -3.0), (4, 3.0) })
         {
             string name = $"wn{wn}_short_k7_s2_p{(wn == 2 ? 448 : 1248)}";
-            byte[] raw = File.ReadAllBytes(StandardTx.AudioPath(refDir, name));
+            byte[] raw = File.ReadAllBytes(ReferencePaths.AudioPath(refDir, name));
             var baseAudio = new float[raw.Length / 4];
             Buffer.BlockCopy(raw, 0, baseAudio, 0, raw.Length);
             double power = baseAudio.Select(x => (double)x * x).Average();
@@ -183,7 +182,7 @@ static class OptionsDump
         // (AgcResolves counts it). Written to the same audio file.
         foreach (string name in new[] { "wn3_short_k7_s1_p100", "wn6_short_k7_s1_p100" })
         {
-            byte[] raw = File.ReadAllBytes(StandardTx.AudioPath(refDir, name));
+            byte[] raw = File.ReadAllBytes(ReferencePaths.AudioPath(refDir, name));
             var audio = new float[2400 + (raw.Length / 4)];
             for (int i = 0; i < raw.Length / 4; i++)
             {

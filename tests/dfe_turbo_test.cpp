@@ -417,7 +417,7 @@ void check_tally(const Tally& t, long max_bursts_diff) {
 
 TEST_CASE("reference demodulator: the shipped receiver on every WN 1 to 8 and 13 reference case against the C#",
           "[dfe_turbo]") {
-    const fs::path dir = ms110d_test::standard_reference_dir_or_skip();
+    const fs::path dir = ms110d_test::reference_dir_or_skip();
     require_file(MS110D_CSHARP_RX_TURBO);
     const std::vector<CsBurst> cases = load(MS110D_CSHARP_RX_TURBO, "case");
     REQUIRE(cases.size() == 112);
@@ -425,7 +425,7 @@ TEST_CASE("reference demodulator: the shipped receiver on every WN 1 to 8 and 13
     Tally t;
     for (const CsBurst& c : cases) {
         const ms110d_test::ReferenceCase rc(dir / c.label, c.label);
-        std::vector<float> audio = rc.standard_real32("audio_f32le");
+        std::vector<float> audio = rc.real32("audio_f32le");
         audio.resize(audio.size() + 9600, 0.0f);
         const auto payload = rc.bytes("payload_bits");
         compare(c, driver.run(audio), t, &payload);
@@ -484,8 +484,6 @@ TEST_CASE("reference demodulator: Poor, Moderate and shifted multipath with carr
         // Every corpus burst is sent with the standard pattern, the only one the receiver expects (issue 68).
         // The "std-" bursts are clean or mild, and must decode; the others are as hard as the channel makes them
         // and are only compared with the C#.
-        const bool standard = c.head.at("standard") == "1";
-        REQUIRE(standard);
         if (c.label.rfind("std-long-", 0) == 0) {
             // Long enough to reach the probe only the standard rule shifts: frame L - 2 of the burst.
             ++std_long_bursts;

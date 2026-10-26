@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 #pragma once
 
-// The probe-trained decision-feedback equaliser: the C++ counterpart of the C# Dfe (v0.2.1).
+// The probe-trained decision-feedback equaliser: the C++ counterpart of the C# Dfe (v0.3.0).
 // Internal: not installed and not part of the locked public API; the demodulator that drives it
 // is a later story. See docs/dev/equaliser.md for the design, the floating point choices, the
 // memory needed per mode and how it is tested against the C#.

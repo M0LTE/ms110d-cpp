@@ -1,6 +1,6 @@
 #!/bin/sh
 # Generates the C# dumps the equaliser receive path's tests compare against, with tools/csharp-vectors,
-# never committed: what the C# 0.2.1 demodulator does with the WN 1 to 5 ultra-short and short
+# never committed: what the C# 0.3.0 demodulator does with the WN 1 to 5 ultra-short and short
 # reference cases (rx) and with seeded noisy and cut bursts (rx-awgn), both turbo off; the shipped
 # receiver on every WN 1 to 8 and 13 reference case (rx-turbo); and the corpus of Poor, Moderate and
 # shifted multipath bursts and standard probe pattern bursts with their audio (rx-corpus, about 8 MiB);
@@ -32,8 +32,6 @@ if [ "$force" = 0 ] && [ -f "$stamp" ] && [ "$(cat "$stamp")" = "$want" ] && [ -
 fi
 
 export DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1
-# The receive dumps run the C# receiver on the reference cases' standard-pattern audio (issue 68).
-"$src/scripts/generate-standard-reference.sh" "$cache"
 rm -f "$stamp"
 dotnet run -c Release --project "$src/tools/csharp-vectors" -- rx "$cache/ref" > "$cache/csharp-rx.txt.tmp"
 dotnet run -c Release --project "$src/tools/csharp-vectors" -- rx-awgn "$cache/ref" > "$cache/csharp-rx-awgn.txt.tmp"

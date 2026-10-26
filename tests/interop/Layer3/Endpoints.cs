@@ -34,14 +34,13 @@ public interface ILayer3Receiver
 }
 
 /// <summary>
-/// The C# reference modulator, in its standard probe pattern mode (the C# 0.2.1 default shifts at the selected
-/// interleaver's boundary; the C++ sends the D.5.2.2 pattern, issue 68), so both transmitters send the same pattern.
+/// The C# reference modulator. Since 0.3.0 it sends the D.5.2.2 standard probe pattern, the same as the C++ transmitter.
 /// </summary>
 public sealed class CSharpTransmitter : ILayer3Transmitter
 {
     public string Name => "csharp";
 
-    public float[] Modulate(Ms110dTxSettings settings, byte[] payload) => StandardModulator.Create(settings).Modulate(payload);
+    public float[] Modulate(Ms110dTxSettings settings, byte[] payload) => new Ms110dModulator(settings).Modulate(payload);
 }
 
 /// <summary>The C++ transmitter through the C interface.</summary>
