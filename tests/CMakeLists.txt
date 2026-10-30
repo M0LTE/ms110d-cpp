@@ -212,7 +212,7 @@ add_custom_target(update-deviations
 # The shadow decode tool (MS110D_BUILD_TOOLS): a committed corpus burst through it ends with an EOM.
 if(TARGET ms110d-decode)
   add_test(NAME ms110d_decode_tool
-    COMMAND ms110d-decode "${CMAKE_CURRENT_SOURCE_DIR}/data/corpus/bursts/20261024T135800Z-04.wav")
+    COMMAND ms110d-decode "${CMAKE_CURRENT_SOURCE_DIR}/data/corpus/bursts/20261028T095800Z-10.wav")
   set_tests_properties(ms110d_decode_tool PROPERTIES
     PASS_REGULAR_EXPRESSION "\"ev\":\"burst_completed\"[^\n]*\"reason\":\"Eom\"[^\n]*\n\\{\"ev\":\"summary\"")
 endif()
