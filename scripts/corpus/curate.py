@@ -181,7 +181,7 @@ def main():
     ap.add_argument("--work", default=os.path.join(cache, "work"))
     ap.add_argument("--min-blocks", type=int, default=1, help="drop false alarms that decode fewer blocks")
     ap.add_argument("--committed", help="also write a small set for the repo (tests/data/corpus) to this directory")
-    ap.add_argument("--committed-ids", nargs="*", default=["20261024T135800Z-04", "20261024T145800Z-03"],
+    ap.add_argument("--committed-ids", nargs="*", default=["20261028T095800Z-10", "20261027T095800Z-03"],
                     help="bursts for the committed set (default: a strong WN4 error-free one and a WN3 one-frame one)")
     ap.add_argument("--committed-max-bytes", type=int, default=850_000)
     ap.add_argument("--max-per-wn", type=int, default=0, help="keep at most this many bursts per waveform (0 = all)")

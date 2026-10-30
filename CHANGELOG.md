@@ -16,6 +16,8 @@ Nothing is released yet. What is on `main` so far:
 
 ### Added
 
+- corpus-v2, the layer 4 real-audio corpus recorded after GB7RDG switched to the standard mini-probe pattern, replaces corpus-v1 (old-pattern audio; issue 68): 77 bursts (WN 3 and WN 4, Short interleaver, +1 to +18 dB, 30 error-free, 11 with no good frame, 2 across a dropout), 25.6 MB, expected results from the pinned C# 0.3.0. The committed set changes to two bursts from it (0.7 MB), the C# floors become 234 good frames (fetched corpus) and 7 (committed set), and the C++ receiver meets the layer 4 rule on all of it: 234 of the C#'s 234 good frames, the same end reason and block count on 77 of 77, error-free payloads equal on 30 of 30, no rule problem.
+
 - An installable CMake library for PC and Cortex-M7, in single or double precision, with a C interface for other languages and .NET interop tests.
 - Transmit: payload bits in, 9600 Hz audio out, in C++ and C, matching the C# reference audio (with the standard mini-probe pattern).
 - Receive building blocks: soft-decision decoders, a decision-feedback equaliser, preamble search and waveform identification, WN0 receive, and the equaliser receive path for WN1 to 8 and 13 with the turbo stage, the 8PSK salvage and ensemble and the MFB block decoder, expecting the standard mini-probe pattern (bit for bit with the C# on every reference case and on a corpus of fading, offset and drifting channels).

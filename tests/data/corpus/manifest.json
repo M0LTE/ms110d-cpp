@@ -3,7 +3,7 @@
   {
    "constraint_length": 7,
    "dropout": false,
-   "duration_s": 19.39,
+   "duration_s": 18.78,
    "error_free": true,
    "expected": [
     {
@@ -11,31 +11,31 @@
      "bytes": 1950,
      "corrected": 0,
      "crc_failures": 0,
-     "frames_sha256": "ca3affae5819a42e7fe3b3348bb9d7a0ee295f7a0b7382c1012f9332f484be9a",
+     "frames_sha256": "afec0eef90ab651dd5c8aa5c36e58620be9c4cfc5c0aa20c9a84b5c2d3574400",
      "good_frames": 6,
      "il": "Short",
      "k": 7,
      "reason": "Eom",
      "rs_failures": 0,
-     "sha256": "6e4208c917f1dc215eb89517ce501b80113a2b823a56c9c6ebfc1b8afe76ee58",
+     "sha256": "7e479bbb1eff087c183c36425c9ceea91e0bd8582c354b12d99f1a2e0c939ff0",
      "wn": 4
     }
    ],
-   "file": "bursts/20261024T135800Z-04.wav",
+   "file": "bursts/20261028T095800Z-10.wav",
    "good_frames": 6,
-   "id": "20261024T135800Z-04",
+   "id": "20261028T095800Z-10",
    "interleaver": "Short",
-   "samples": 186144,
-   "sha256": "53d326e19a9541bd3e0f1bb04957edb89171b64d0af7e03e8beaed393a1555a7",
-   "slot": "20261024T135800Z",
-   "snr_db_estimate": 19.6,
-   "utc": "2026-10-24T14:01:50Z",
+   "samples": 180288,
+   "sha256": "d101826721b1c3750f3ea48d17a515ea4dbe9e5df7cd5cdb5a6e3f0cd9cd2cdf",
+   "slot": "20261028T095800Z",
+   "snr_db_estimate": 13.1,
+   "utc": "2026-10-28T10:03:34Z",
    "waveform": 4
   },
   {
    "constraint_length": 7,
    "dropout": false,
-   "duration_s": 21.3,
+   "duration_s": 18.64,
    "error_free": false,
    "expected": [
     {
@@ -43,25 +43,25 @@
      "bytes": 975,
      "corrected": 0,
      "crc_failures": 0,
-     "frames_sha256": "fb7e73705a1f9ee6bd0cc538ed5285d78a3f004a5f4efb5ada08f0f4ceadb056",
+     "frames_sha256": "efe099248a3a64892a1716a47ec2f25c238b3d82958a32f1d6b8d0b9850d57e2",
      "good_frames": 1,
      "il": "Short",
      "k": 7,
      "reason": "Eom",
-     "rs_failures": 1,
-     "sha256": "07996cd588c6605264fddc2fd311306dfd1624878263531f2c6b8caf32343349",
+     "rs_failures": 2,
+     "sha256": "8c019843d9c4a3b493326ec277c777fcb79b34c80a035e5b742392480813b18b",
      "wn": 3
     }
    ],
-   "file": "bursts/20261024T145800Z-03.wav",
+   "file": "bursts/20261027T095800Z-03.wav",
    "good_frames": 1,
-   "id": "20261024T145800Z-03",
+   "id": "20261027T095800Z-03",
    "interleaver": "Short",
-   "samples": 204480,
-   "sha256": "e4153ee3db71259b58593c23ed1c1c407965dc4a2dfdf5ea14b836717d81d250",
-   "slot": "20261024T145800Z",
-   "snr_db_estimate": 4.9,
-   "utc": "2026-10-24T15:03:12Z",
+   "samples": 178944,
+   "sha256": "7f5e685a48acc64ddefd5102f19394541a1bc9be1d7a3a6198a51736df3119e0",
+   "slot": "20261027T095800Z",
+   "snr_db_estimate": 5.1,
+   "utc": "2026-10-27T10:01:26Z",
    "waveform": 3
   }
  ],
@@ -77,8 +77,8 @@
  },
  "payload_hash": "SHA-256 of the burst payload bits packed MSB first, zero padded",
  "reference": {
-  "git_sha": "86abef9fab9cf42437e700e9d70652c3001f1afb",
-  "nuget_version": "0.2.1"
+  "git_sha": "693d67c5dea7625165171fcf362baa32a8b04bad",
+  "nuget_version": "0.3.0"
  },
  "resampler": {
   "from": 12000,
