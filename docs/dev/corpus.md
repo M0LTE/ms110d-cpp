@@ -51,7 +51,13 @@ Anything beyond the rule is a named deviation with an issue (docs/dev/deviations
 
 ## Selection
 
-`curate.py` keeps every burst the C# decodes to an EOM, which for 24 slots is 446 bursts and 111 MB, more than a corpus needs. corpus-v2 is a deterministic selection from that full curation: every burst with no good frame or overlapping a dropout (13), and then, for each of WN 3 and WN 4 and for error-free and not error-free separately, bursts spaced evenly through the list sorted by SNR estimate (14 error-free WN 3, 18 error-free WN 4, 10 and 12 of the others), so the SNR range and the marginal bursts are covered. The result is the full curation's manifest cut down to those entries (the audio files and entries are unchanged, so ids stay the slot and index in the full run). The selection script is not kept; the ids are in the manifest.
+`curate.py` keeps every burst the C# decodes to an EOM, which for 24 slots is 446 bursts and 111 MB, more than a corpus needs. `scripts/corpus/select.py` cuts a full curation down: it keeps every burst with no good frame or overlapping a dropout (13), then, for each waveform and for error-free and not error-free separately, bursts spaced evenly through the list sorted by SNR estimate, so the SNR range and the marginal bursts are covered. The entries and audio are unchanged, so ids stay the slot and index in the full run. corpus-v2 was made from the 24 slots `20261027T085800Z` to `20261029T155800Z` (every slot recorded from 2026-10-27, the first after the switch to the standard pattern) with:
+
+    scripts/corpus/curate.py --out FULL
+    scripts/corpus/select.py FULL OUT 14 18
+    scripts/corpus/package.sh corpus-v2 OUT
+
+that is 14 error-free and 18 other bursts per waveform plus the 13 always kept, 77 in all. The committed set was then cut from `OUT` with the two ids above.
 
 ## Curating
 
