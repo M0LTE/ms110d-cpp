@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fetches the layer 4 real-audio corpus (about 13 MB of 9600 Hz audio), checks every hash and
+# Fetches the layer 4 real-audio corpus (about 26 MB of 9600 Hz audio), checks every hash and
 # unpacks it outside the source tree.
 #
 # Usage: scripts/fetch-corpus.sh [--force] [--from FILE] [cache-dir]

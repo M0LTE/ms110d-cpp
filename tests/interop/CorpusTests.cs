@@ -12,10 +12,10 @@ namespace Ms110dInterop.Tests;
 // are checked: the small set committed under tests/data/corpus (always present), and the full one
 // fetched by scripts/fetch-corpus.sh (skipped when absent; MS110D_REQUIRE_CORPUS=1 makes absence
 // a failure). The C++ receiver (through the C interface) is then held to the layer 4 rule against
-// the pinned C# receiver's own decode of the same audio, on every burst. The manifests' "expected"
-// results were recorded with C# 0.2.1, which accepted both mini-probe patterns; the pinned C# since
-// 0.3.0 expects only the standard pattern, like the C++, so the manifest results are provenance and
-// the comparison is made against the live C# (issue 68).
+// the pinned C# receiver's own decode of the same audio, on every burst. The audio is of
+// standard-pattern transmissions (corpus-v2) and the manifests' "expected" results were recorded
+// with the pinned C# 0.3.0, so on an unchanged pin the live C# decode equals them; the comparison
+// is still made against the live C# so that a pin move shows up as a reported difference (issue 68).
 public class CorpusTests(ITestOutputHelper output)
 {
     static string RepoRoot()
@@ -45,9 +45,9 @@ public class CorpusTests(ITestOutputHelper output)
     public void CommittedSetMatchesItsManifest() => Check(CommittedDir(), minGoodFrames: 7);
 
     [Fact]
-    public void FetchedCorpusMatchesItsManifest() => Check(FetchedDir(), minGoodFrames: 97);
+    public void FetchedCorpusMatchesItsManifest() => Check(FetchedDir(), minGoodFrames: 234);
 
-    // The pinned C# receiver's decode of every burst, with the manifest's recorded (C# 0.2.1) result beside it.
+    // The pinned C# receiver's decode of every burst, with the manifest's recorded result beside it.
     static List<(JsonElement Burst, Expect Live)> LiveReference(string dir, JsonDocument doc)
     {
         var live = new List<(JsonElement, Expect)>();
@@ -77,9 +77,8 @@ public class CorpusTests(ITestOutputHelper output)
         }
 
         // The pinned C# receiver finds the same burst the manifest records: waveform, interleaver, constraint length.
-        // The rest of the recorded result is from C# 0.2.1 (which accepted both mini-probe patterns, so it decoded
-        // this current-pattern audio better than the standard-only 0.3.0 does); how far the pinned C# is from it is
-        // reported, not asserted.
+        // The rest of the recorded result was made with the C# pin current when the corpus was made; how far
+        // the pinned C# is from it (nothing, on an unchanged pin) is reported, not asserted.
         int same = 0, goodRecorded = 0, goodNow = 0;
         foreach (var (b, now) in LiveReference(dir, doc))
         {
@@ -93,7 +92,7 @@ public class CorpusTests(ITestOutputHelper output)
                 && now.GoodFrames == w.GetProperty("good_frames").GetInt32()) same++;
         }
 
-        string summary = $"layer 4, pinned C# receiver against the manifest recorded with C# 0.2.1: {bursts.GetArrayLength()} bursts, " +
+        string summary = $"layer 4, pinned C# receiver against the manifest: {bursts.GetArrayLength()} bursts, " +
             $"good frames {goodNow} against {goodRecorded} recorded, same end reason, block count and good frames on {same}";
         output.WriteLine(summary);
         Console.WriteLine(summary);
@@ -101,7 +100,7 @@ public class CorpusTests(ITestOutputHelper output)
         // A floor on the reference itself: the C++ is held to the live C# decode, so a pin that decoded worse would
         // silently lower the bar for the C++. Raise the floor deliberately if a pin decodes better.
         Assert.True(goodNow >= minGoodFrames,
-            $"the pinned C# receiver decodes {goodNow} good frames on this corpus, below the floor of {minGoodFrames} (C# 0.3.0 on corpus-v1: 97; committed set: 7). " +
+            $"the pinned C# receiver decodes {goodNow} good frames on this corpus, below the floor of {minGoodFrames} (C# 0.3.0 on corpus-v2: 234; committed set: 7). " +
             "A pin that decodes worse lowers the bar the C++ is held to; investigate it. If a pin decodes better, raise the floor deliberately.");
     }
 

@@ -68,4 +68,4 @@ The first three slots (2026-10-24, 14:00 to 16:00 UTC), 42 bursts, all WN 3 and 
 - No layer 4 rule problem and no difference to look at.
 - Processor time over 45 minutes of audio: about 91 s for the C# and 71 s for the C++ on the container's cores (the C# includes JIT warm-up); inside bursts 67 s against 43 s.
 
-These slots are also the source of corpus-v1, so this agrees with the corpus result by a second route: whole slots, with the C++ finding the bursts itself rather than being handed cut files.
+These slots are also the source of corpus-v1 (since replaced by corpus-v2), so this agrees with the old corpus result by a second route: whole slots, with the C++ finding the bursts itself rather than being handed cut files.
