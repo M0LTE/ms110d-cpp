@@ -53,7 +53,7 @@ Anything beyond the rule is a named deviation with an issue (docs/dev/deviations
 
 `curate.py` keeps every burst the C# decodes to an EOM, which for 24 slots is 446 bursts and 111 MB, more than a corpus needs. `scripts/corpus/select.py` cuts a full curation down: it keeps every burst with no good frame or overlapping a dropout (13), then, for each waveform and for error-free and not error-free separately, bursts spaced evenly through the list sorted by SNR estimate, so the SNR range and the marginal bursts are covered. The entries and audio are unchanged, so ids stay the slot and index in the full run. corpus-v2 was made from the 24 slots `20261027T085800Z` to `20261029T155800Z` (every slot recorded from 2026-10-27, the first after the switch to the standard pattern) with:
 
-    scripts/corpus/curate.py --out FULL
+    scripts/corpus/curate.py --pull --out FULL --only 20261027T085800Z 20261027T095800Z 20261027T105800Z 20261027T115800Z 20261027T125800Z 20261027T135800Z 20261027T145800Z 20261027T155800Z 20261028T085800Z 20261028T095800Z 20261028T105800Z 20261028T115800Z 20261028T125800Z 20261028T135800Z 20261028T145800Z 20261028T155800Z 20261029T085800Z 20261029T095800Z 20261029T105800Z 20261029T115800Z 20261029T125800Z 20261029T135800Z 20261029T145800Z 20261029T155800Z
     scripts/corpus/select.py FULL OUT 14 18
     scripts/corpus/package.sh corpus-v2 OUT
 
