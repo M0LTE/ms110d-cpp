@@ -442,8 +442,16 @@ TEST_CASE("reference demodulator: seeded AWGN and cut bursts on WN 1 to 5 agains
     CHECK(signal_lost >= 1);   // both exits are reached, and agree with the C# (checked per trial above)
     CHECK(signal_absent >= 1);
     CHECK(sign_flips == 0);
-    // Measured here: 0 in the default build, 2.2e-7 and 1.7e-5 in the single build.
+    // Since the C# 0.4.1 level rule (nearly every burst scaled before the equaliser) the sums move by
+    // about 1e-4 when libm's last bits change, with every decision still exact. Measured against dumps
+    // made on the same machine: 0 in the default build; in the single build 2.3e-7 with glibc 2.42 and
+    // 3.2e-4 with glibc 2.39 (Ubuntu 24.04, the CI runner), so the single build gets about three times
+    // that. Dumps made on another machine use up the default build's 1e-4 (1.0e-4 measured).
+#ifdef MS110D_SINGLE_PRECISION
+    CHECK(worst_sum <= 1e-3);
+#else
     CHECK(worst_sum <= 1e-4);
+#endif
     CHECK(worst_last <= 1e-3);
 }
 
