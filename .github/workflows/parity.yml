@@ -29,18 +29,28 @@ jobs:
       - name: Check
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
         run: |
           set -- --modify-checkout
-          if [ -n "${{ inputs.version }}" ]; then set -- "$@" --version "${{ inputs.version }}"; fi
+          if [ -n "$VERSION" ]; then
+            echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "version must be X.Y.Z" >&2; exit 2; }
+            set -- "$@" --version "$VERSION"
+          fi
           scripts/parity-check.sh "$@" build/report/parity.md
       - name: Summary
         if: always()
         run: cat build/report/parity.md >> "$GITHUB_STEP_SUMMARY" || true
       - name: Open or update the issue
-        if: success()
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if [ ! -f build/report/STATUS ]; then
+            # The check itself broke (a new C# release can break the tooling): say so.
+            mkdir -p build/report
+            printf '# C# parity: the check failed\n\nThe parity check did not finish; see the run log.\n' > build/report/parity.md
+            echo broken > build/report/STATUS
+          fi
           status=$(cat build/report/STATUS)
           echo "status: $status"
           [ "$status" = current ] && exit 0

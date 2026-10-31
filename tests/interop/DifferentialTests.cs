@@ -106,6 +106,15 @@ public class DifferentialTests(ITestOutputHelper output)
                 cpp.Add(new Burst(b.Wn, b.Il, b.K, b.Reason, b.Blocks, b.PayloadBits));
             }
         }
+        // A burst still open at the end (no EOM) is ended on both, so it is compared too.
+        var tail = new float[192];
+        demod.Terminate();
+        demod.Process(tail);
+        rx.Terminate();
+        foreach (CppBurst b in rx.Process(tail))
+        {
+            cpp.Add(new Burst(b.Wn, b.Il, b.K, b.Reason, b.Blocks, b.PayloadBits));
+        }
         return (csharp, cpp);
     }
 
@@ -133,20 +142,20 @@ public class DifferentialTests(ITestOutputHelper output)
         int count = FromEnv("MS110D_DIFF_STREAMS", 16);
         int first = FromEnv("MS110D_DIFF_SEED", 1);
         var differences = new System.Collections.Concurrent.ConcurrentBag<(int Seed, string Line)>();
-        int csharpBursts = 0, decodedBoth = 0;
+        int csharpBursts = 0, toEom = 0;
         Parallel.For(first, first + count, seed =>
         {
             (float[] audio, string what) = Stream(seed);
             (List<Burst> csharp, List<Burst> cpp) = Receive(audio);
             Interlocked.Add(ref csharpBursts, csharp.Count);
-            Interlocked.Add(ref decodedBoth, csharp.Count(b => b.Reason == Ms110dBurstEndReason.Eom));
+            Interlocked.Add(ref toEom, csharp.Count(b => b.Reason == Ms110dBurstEndReason.Eom));
             if (FirstDifference(csharp, cpp) is string d)
             {
                 differences.Add((seed, $"seed {seed} ({what}): {d}"));
             }
         });
 
-        string summary = $"differential: {count} streams from seed {first}, {csharpBursts} C# bursts ({decodedBoth} to their EOM), " +
+        string summary = $"differential: {count} streams from seed {first}, {csharpBursts} C# bursts ({toEom} to their EOM), " +
             $"streams that differ {differences.Count}";
         output.WriteLine(summary);
         Console.WriteLine(summary);

@@ -48,12 +48,15 @@ echo "pin $old, C# $version, random streams $streams from seed $seed"
 mode=current
 if [ "$version" != "$old" ]; then
   mode=new
-  sha=$(git ls-remote https://github.com/M0LTE/M0LTE.Ms110d "refs/tags/v$version^{}" "refs/tags/v$version" | awk 'NR==1{print $1}')
+  # The commit: an annotated tag's peeled line (^{}) when there is one, else the tag itself.
+  tags=$(git ls-remote https://github.com/M0LTE/M0LTE.Ms110d "refs/tags/v$version" "refs/tags/v$version^{}")
+  sha=$(echo "$tags" | awk '/\^\{\}$/{print $1}' | head -1)
+  [ -n "$sha" ] || sha=$(echo "$tags" | awk 'NR==1{print $1}')
   [ -n "$sha" ] || { echo "no tag v$version in M0LTE/M0LTE.Ms110d" >&2; exit 1; }
   sed -i "s/^nuget_version=.*/nuget_version=$version/; s/^git_ref=.*/git_ref=v$version/; s/^git_sha=.*/git_sha=$sha/" reference/pin.txt
   sed -i "s/Include=\"M0LTE.Ms110d\" Version=\"\[[^]]*\]\"/Include=\"M0LTE.Ms110d\" Version=\"[$version]\"/" tools/csharp-vectors/CsharpVectors.csproj
-  dotnet restore --force --no-cache tools/csharp-vectors >/dev/null
-  dotnet restore --force --no-cache tests/interop >/dev/null
+  dotnet restore --force --no-cache tools/csharp-vectors
+  dotnet restore --force --no-cache tests/interop
 
   # Every C# file the tests read, from the new release, under the names the tests are built with.
   scripts/generate-reference.sh --force
@@ -62,8 +65,10 @@ if [ "$version" != "$old" ]; then
   dump() { sed -n "s|.*data/\(csharp-$1-[0-9.]*\.txt\).*|tests/data/\1|p" tests/CMakeLists.txt | head -1; }
   for m in tables framing soft; do $tool $m > "$(dump $m)"; done
   for m in dfe detect wn0 wn0-awgn; do $tool $m "$ref" > "$(dump $m)"; done
-  $tool > "$work/vectors.txt" && python3 tools/csharp-vectors/make_header.py "$work/vectors.txt" > tests/csharp_vectors.hpp
-  $tool fec > "$work/fec.txt" && python3 tools/csharp-vectors/make_fec_inc.py "$work/fec.txt" > tests/fec_vectors.inc
+  $tool > "$work/vectors.txt"
+  python3 tools/csharp-vectors/make_header.py "$work/vectors.txt" > tests/csharp_vectors.hpp
+  $tool fec > "$work/fec.txt"
+  python3 tools/csharp-vectors/make_fec_inc.py "$work/fec.txt" > tests/fec_vectors.inc
   scripts/generate-rx-dumps.sh --force
   scripts/generate-wn0-poor.sh --force
   scripts/fetch-corpus.sh
@@ -72,7 +77,11 @@ fi
 cmake -S . -B build/parity/build -DCMAKE_BUILD_TYPE=Release -DMS110D_DOTNET_TESTS=OFF \
   -DMS110D_REFERENCE_DIR="$src/build/_reference/ref" -DMS110D_WN0_POOR_STEM="$src/build/_reference/wn0-poor" \
   -DMS110D_RX_DUMP_DIR="$src/build/_reference" >/dev/null
-cmake --build build/parity/build -j"$(nproc)" >/dev/null
+if [ "$mode" = new ]; then
+  cmake --build build/parity/build -j"$(nproc)" >/dev/null
+else
+  cmake --build build/parity/build -j"$(nproc)" --target ms110d_c >/dev/null  # the random streams need only this
+fi
 
 export MS110D_PIN_FILE=$src/reference/pin.txt MS110D_NATIVE_LIB=$src/build/parity/build/libms110d_c.so MS110D_EXPECTED_VERSION=0
 interop() {  # class, log

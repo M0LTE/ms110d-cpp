@@ -52,13 +52,13 @@ def interop(path):
     if re.search(r"Total: 0\s*$", text, re.M):
         return False, [], ["(no such tests in this checkout)"]
     total = re.search(r"Total: (\d+), Errors: (\d+), Failed: (\d+)", text)
-    failed = sorted({m.group(1) for m in re.finditer(r"^\s*(\S+) \[FAIL\]", text, re.M)})
+    failed = sorted({m.group(1) for m in re.finditer(r"^\s*(.+?) \[FAIL\]\s*$", text, re.M)})
     if total is None:
         failed = failed or ["did not run: " + (text.strip().splitlines() or ["empty log"])[-1]]
     elif int(total.group(1)) == 0:
         return False, [], ["(no such tests in this checkout)"]
-    elif int(total.group(2)) > 0 and not failed:
-        failed = [f"{total.group(2)} errors"]
+    elif (int(total.group(2)) > 0 or int(total.group(3)) > 0) and not failed:
+        failed = [f"{total.group(3)} failed, {total.group(2)} errors"]
     lines = []
     for line in text.splitlines():
         line = line.strip()
@@ -135,7 +135,7 @@ def main():
         if len(lines) > 9:
             md.append(f"  - and {len(lines) - 9} more lines in the job's artifact")
         md += [f"  - failed: {f}" for f in failed]
-        if failed:
+        if failed or not ran:  # a class that did not run cannot vouch for parity
             gap = True
     md.append("\nNot run here: the performance masks (masks.yml) and layer 3.\n")
 

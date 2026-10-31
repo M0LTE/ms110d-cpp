@@ -13,6 +13,7 @@ The report goes to the job summary and, when there is something to do, to an iss
 
 - **No gap**: the C++ gives the new C#'s results on every test run. Bump the pin as in docs/dev/reference-files.md.
 - **Gap**: the C# changes since the pin (its commits and the source files they touch), a table of the C++ tests by stage with how many now fail, the failing tests, and the interop results. That says where to port; how is still a person's or an agent's job.
+- **The check failed** (a new C# release can break the tooling itself): an issue saying so, with the run to look at.
 
 Not run: the performance masks (`masks.yml`, on every PR touching the receiver) and layer 3. Locally, run it in a throwaway worktree, since it rewrites the checkout: `scripts/parity-check.sh --modify-checkout build/parity.md`.
 
