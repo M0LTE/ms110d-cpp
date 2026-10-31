@@ -14,8 +14,8 @@ namespace Ms110dInterop.Tests;
 // a failure). The C++ receiver (through the C interface) is then held to the layer 4 rule against
 // the pinned C# receiver's own decode of the same audio, on every burst. The audio is of
 // standard-pattern transmissions (corpus-v2) and the manifests' "expected" results were recorded
-// with the pinned C# 0.4.1, so on an unchanged pin the live C# decode equals them; the comparison
-// is still made against the live C# so that a pin move shows up as a reported difference (issue 68).
+// with the C# 0.3.0, the pin when the corpus was made; the comparison is made against the live C# so
+// that a pin move (since then to 0.4.1) shows up as a reported difference (issue 68).
 public class CorpusTests(ITestOutputHelper output)
 {
     static string RepoRoot()
@@ -138,22 +138,22 @@ public class CorpusTests(ITestOutputHelper output)
             }
             for (int i = 0; i < wants.Count; i++)
             {
-            Expect want = wants[i];
-            CorpusDecode.Found first = i < got.Count
-                ? got[i]
-                : new CorpusDecode.Found(-1, -1, -1, "none", 0, 0, "None", 0, "", 0, "", 0, 0, 0);
-            pairs.Add((want, first));
-            wantFrames += want.GoodFrames;
-            gotFrames += Math.Min(first.GoodFrames, want.GoodFrames);
-            if (first.Reason == want.Reason && first.Blocks == want.Blocks) sameEnd++;
-            if (want.ErrorFree)
-            {
-                errorFree++;
-                if (first.Sha256 == want.Sha256) errorFreeSame++;
-            }
+                Expect want = wants[i];
+                CorpusDecode.Found first = i < got.Count
+                    ? got[i]
+                    : new CorpusDecode.Found(-1, -1, -1, "none", 0, 0, "None", 0, "", 0, "", 0, 0, 0);
+                pairs.Add((want, first));
+                wantFrames += want.GoodFrames;
+                gotFrames += Math.Min(first.GoodFrames, want.GoodFrames);
+                if (first.Reason == want.Reason && first.Blocks == want.Blocks) sameEnd++;
+                if (want.ErrorFree)
+                {
+                    errorFree++;
+                    if (first.Sha256 == want.Sha256) errorFreeSame++;
+                }
 
-            output.WriteLine($"{want.Id}: C# wn={want.Wn} {want.Reason} blocks={want.Blocks} good={want.GoodFrames}; " +
-                $"C++ bursts={got.Count} wn={first.Wn} {first.Reason} blocks={first.Blocks} good={first.GoodFrames} crc_failures={first.CrcFailures}");
+                output.WriteLine($"{want.Id}: C# wn={want.Wn} {want.Reason} blocks={want.Blocks} good={want.GoodFrames}; " +
+                    $"C++ bursts={got.Count} wn={first.Wn} {first.Reason} blocks={first.Blocks} good={first.GoodFrames} crc_failures={first.CrcFailures}");
             }
         }
 

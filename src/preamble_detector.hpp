@@ -172,6 +172,12 @@ public:
     // straight into the live read of a candidate it was reading in the background, so its
     // first super-frames are not missed.
     bool background_step() noexcept;
+    // After background_step() returned true: the interleaver the new preamble announced, and a way
+    // to turn it down (the driver would refuse it) and carry on searching in the background.
+    InterleaverKind background_interleaver() const noexcept { return read_il_; }
+    void reject_background() noexcept {
+        if (state_ == State::Background && cand_pending_) reject_candidate();
+    }
     void end_burst(bool terminated) noexcept;
 
     bool searching() const noexcept { return state_ == State::Searching; }

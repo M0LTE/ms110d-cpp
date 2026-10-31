@@ -385,6 +385,19 @@ struct Receiver::Impl {
         }
     }
 
+    // The background search (the C# ShadowStep, C# issue 10): true if a new preamble passed every gate
+    // and the burst should be let go of. Not for a preamble whose interleaver is longer than
+    // max_interleaver: this receiver would refuse that burst, so dropping the one it is decoding
+    // for it would lose both (the C# has no max_interleaver; with the default nothing is refused).
+    bool background_new_preamble() noexcept {
+        if (!detector.background_step()) return false;
+        if (static_cast<int>(detector.background_interleaver()) > static_cast<int>(options.max_interleaver)) {
+            detector.reject_background();
+            return false;
+        }
+        return true;
+    }
+
     // One new T/2 sample, in the order of the C# PushT2: the terminate command, then the stage.
     void on_t2() noexcept {
         if (terminate_pending) {
@@ -408,7 +421,7 @@ struct Receiver::Impl {
                 break;
             case Phase::Wn0:
                 track_wn0();
-                if (phase == Phase::Wn0 && detector.background_step()) {
+                if (phase == Phase::Wn0 && background_new_preamble()) {
                     wn0.stop();
                     end_burst(BurstEndReason::NewPreamble, block_index, burst_bits);
                 }
@@ -416,7 +429,7 @@ struct Receiver::Impl {
             case Phase::Dfe:
                 dfe.on_t2();
                 collect_dfe();
-                if (phase == Phase::Dfe && detector.background_step()) {
+                if (phase == Phase::Dfe && background_new_preamble()) {
                     dfe.release_for_new_preamble();
                     collect_dfe();
                 }

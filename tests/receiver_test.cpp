@@ -612,6 +612,31 @@ TEST_CASE("receiver: bursts one after another in one stream, terminate, the bloc
                   static_cast<std::int64_t>(3000 + (cut.size() / 2) + 9600 + (3 * 576 * 4) + 192));
         }
     }
+    SECTION("a new preamble the receiver would refuse does not end the burst it is decoding") {
+        // The cut burst is followed by a long interleaver burst. Without a cap that preamble lets go
+        // of the dead burst; under a short cap it would only be refused, so the burst is kept.
+        const auto [cut, pc] = burst(3, InterleaverKind::Short, 4000, 8);
+        const auto [lng, pl] = burst(3, InterleaverKind::Long, 200, 9);
+        std::vector<float> s(3000, 0.0f);
+        s.insert(s.end(), cut.begin(), cut.begin() + static_cast<std::ptrdiff_t>(cut.size() / 2));
+        s.insert(s.end(), 9600, 0.0f);
+        s.insert(s.end(), lng.begin(), lng.end());
+        s.insert(s.end(), 9600, 0.0f);
+        Made all = make(RxOptions{});
+        const std::vector<Ev> ev_all = run(*all.rx, s);
+        REQUIRE(count(ev_all, RxEventKind::BurstCompleted) == 2);
+        CHECK(find(ev_all, RxEventKind::BurstCompleted, 0)->reason == BurstEndReason::NewPreamble);
+        CHECK(payload_of(ev_all, 1) == pl);
+        RxOptions o;
+        o.max_interleaver = InterleaverKind::Short;
+        Made capped = make(o);
+        const std::vector<Ev> ev = run(*capped.rx, s);
+        // The first burst is still held at the end of the audio: not let go of, and the long one not
+        // received (it is never locked live, so no refusal is raised either).
+        CHECK(count(ev, RxEventKind::BurstStarted) == 1);
+        CHECK(count(ev, RxEventKind::BurstCompleted) == 0);
+        CHECK(capped.rx->state() == RxState::Tracking);
+    }
     SECTION("bursts with a longer interleaver than configured are refused with an event, the others decode") {
         const auto [l3, lp3] = burst(3, InterleaverKind::Long, 200, 4);
         const auto [l0, lp0] = burst(0, InterleaverKind::Long, 100, 5);
