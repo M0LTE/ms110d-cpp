@@ -77,6 +77,23 @@ bool estimate_carrier_fit(const ComplexF* groups, int count, double& slope_rad_p
 
 }  // namespace
 
+// The C# InitializeDfe level rule (issues 7 and 17 in the C#). Every waveform with mini-probes
+// scales the received signal to a fixed level, up or down, so the equaliser starts at the level it
+// was tuned at: 0.25 for WN 1 and 2 (probe length 48), 0.5 for the other PSK waveforms. WN 8 keeps
+// the older rule, 1.0 unless the level is under 0.04, then a boost to 0.12. The boost is capped at
+// 256. The operands are the C#'s float constants, widened to double as the C# does.
+float level_gain(int waveform, double level) noexcept {
+    if (level <= 0) return 1.0f;
+    const auto mode = mode_3k(waveform);
+    if (!mode || mode->modulation == Modulation::Walsh) return 1.0f;
+    constexpr double max_gain = static_cast<double>(256.0f);
+    if (mode->modulation == Modulation::Qam16) {
+        return level >= static_cast<double>(0.04f) ? 1.0f : static_cast<float>(std::min(static_cast<double>(0.12f) / level, max_gain));
+    }
+    const double target = mode->k == 48 ? static_cast<double>(0.25f) : static_cast<double>(0.5f);
+    return static_cast<float>(std::min(target / level, max_gain));
+}
+
 bool PreambleDetector::configure(const PreambleDetectorConfig& config, RxStream& stream) noexcept {
     taps_ = 0;
     stream_ = nullptr;
@@ -112,6 +129,10 @@ void PreambleDetector::reset() noexcept {
     count_read_ = false;
     tail_pending_ = false;
     votes_ = 0;
+    alt_available_ = false;
+    track_from_earliest_ = false;
+    cand_pending_ = false;
+    shadow_from_ = 0;
     event_ = {};
     stats_ = {};
 }
@@ -125,7 +146,7 @@ std::complex<float> PreambleDetector::t2_sample(std::int64_t index) const noexce
 bool PreambleDetector::take_detection(PreambleDetection& out) noexcept {
     if (state_ != State::Detected) return false;
     out = event_;
-    state_ = State::Idle;
+    state_ = State::Background;
     return true;
 }
 
@@ -140,6 +161,39 @@ void PreambleDetector::back_to_search() noexcept {
     best_start_ = -1;
     count_read_ = false;
     tail_pending_ = false;
+    alt_available_ = false;
+    track_from_earliest_ = false;
+    cand_pending_ = false;
+}
+
+bool PreambleDetector::background_step() noexcept {
+    if (state_ != State::Background) return false;
+    if (!cand_pending_) {
+        search_step();
+        return false;
+    }
+    // Read with the candidate's timing and carrier at unity gain; nothing else reads them now.
+    switch (read_preamble()) {
+        case Read::NotReady: return false;
+        case Read::Rejected: reject_candidate(); return false;
+        case Read::Locked: ++stats_.new_preambles; return true;
+    }
+    return false;
+}
+
+void PreambleDetector::end_burst(bool terminated) noexcept {
+    if (taps_ == 0) return;
+    // The C# EmitBurst: a candidate being read in the background goes straight into the live
+    // read, keeping its retry and earliest-echo state; otherwise back to the search. The metric
+    // ring keeps what the background search wrote, as the C#'s does.
+    const bool carry = state_ == State::Background && cand_pending_ && !terminated;
+    const bool alt = alt_available_;
+    const bool earliest = track_from_earliest_;
+    back_to_search();
+    if (!carry) return;
+    start_live_read();
+    alt_available_ = alt;
+    track_from_earliest_ = earliest;
 }
 
 std::size_t PreambleDetector::process(std::span<const float> audio) noexcept {
@@ -167,7 +221,7 @@ void PreambleDetector::on_t2(bool step) noexcept {
         case State::Searching: search_step(); break;
         case State::ReadingPreamble: try_read_preamble(); break;
         case State::Detected:
-        case State::Idle: break;
+        case State::Background: break;  // background_step(), after the burst's own stage
     }
 }
 
@@ -178,6 +232,13 @@ void PreambleDetector::search_step() noexcept {
     if (p < 574) return;
 
     const std::int64_t s = p - 574;
+    const bool shadow = state_ == State::Background;
+    if (shadow && s < shadow_from_) {
+        // Still inside the locked burst's own preamble: the burst already being read, not a new
+        // transmission. Zeroed so the walkback cannot step back into it either.
+        metric_ring_[static_cast<std::size_t>(s & 255)] = 0;
+        return;
+    }
     const double energy = comb_energy_[static_cast<std::size_t>(s & 1)];
     if (energy <= 1e-12) return;
 
@@ -194,7 +255,7 @@ void PreambleDetector::search_step() noexcept {
     metric_ring_[static_cast<std::size_t>(s & 255)] = best;
     metric_bin_ring_[static_cast<std::size_t>(s & 255)] = static_cast<std::uint8_t>(best_bin);
 
-    if (best > stats_.peak_search_metric) stats_.peak_search_metric = best;
+    if (!shadow && best > stats_.peak_search_metric) stats_.peak_search_metric = best;
 
     if (best > sync_threshold_ && best > best_metric_) {
         best_metric_ = best;
@@ -238,6 +299,20 @@ void PreambleDetector::accept_peak() noexcept {
         }
     }
 
+    if (state_ == State::Background) ++stats_.background_candidates;
+    // C# issue 8: keep the strongest peak, in case the earliest echo reads badly.
+    alt_available_ = s != best_start_;
+    alt_start_ = best_start_;
+    alt_bin_ = best_bin_;
+    accepted_metric_ = best_metric_;
+    best_metric_ = 0;
+    best_start_ = -1;
+    begin_candidate(s, bin);
+}
+
+// Times and tunes a candidate whose Fixed section starts at T/2 position s in search bin `bin`
+// (the C# BeginCandidate), then reads it: live while searching, in the background during a burst.
+void PreambleDetector::begin_candidate(std::int64_t s, int bin) noexcept {
     const double energy = comb_energy_[static_cast<std::size_t>(s & 1)];
 
     // Sub-sample timing from a parabolic fit through the metric at s-1, s, s+1.
@@ -258,22 +333,64 @@ void PreambleDetector::accept_peak() noexcept {
     // float * int is a float product in the C#, then the division promotes to double.
     const double fine_hz = static_cast<double>(carg(rotation) * static_cast<float>(tables::symbol_rate)) /
                            (2.0 * std::numbers::pi * 32.0);
-    const double cfo_hz = bins_hz[bin] + fine_hz;
+    cand_cfo_hz_ = bins_hz[bin] + fine_hz;
+    cand_chip0_ = static_cast<double>(s) + delta;
+    cand_omega_ = 2.0 * std::numbers::pi * cand_cfo_hz_ / (2.0 * tables::symbol_rate);
+    cand_coarse_bin_hz_ = bins_hz[bin];
+    cand_fraction_ = delta;
 
+    if (state_ == State::Background) {
+        cand_pending_ = true;
+        load_candidate();
+        return;
+    }
+    start_live_read();
+}
+
+// The reading state from the candidate: its timing and carrier, unity gain, nothing read yet.
+void PreambleDetector::load_candidate() noexcept {
     agc_gain_ = 1.0f;
-    chip0_ = static_cast<double>(s) + delta;
-    omega_ = 2.0 * std::numbers::pi * cfo_hz / (2.0 * tables::symbol_rate);
+    chip0_ = cand_chip0_;
+    omega_ = cand_omega_;
     theta_base_ = 0;
-    cfo_hz_ = cfo_hz;
-    coarse_bin_hz_ = bins_hz[bin];
-    timing_fraction_ = delta;
-    accepted_metric_ = best_metric_;
+    cfo_hz_ = cand_cfo_hz_;
+    coarse_bin_hz_ = cand_coarse_bin_hz_;
+    timing_fraction_ = cand_fraction_;
     count_read_ = false;
     tail_pending_ = false;
     votes_ = 0;
+}
+
+// The C# StartLiveRead: the candidate becomes the live acquisition.
+void PreambleDetector::start_live_read() noexcept {
+    cand_pending_ = false;
+    load_candidate();
     state_ = State::ReadingPreamble;
     best_metric_ = 0;
     best_start_ = -1;
+}
+
+// A candidate was rejected (the C# RejectCandidate). C# issue 8: if the walkback had moved it off
+// the strongest peak, read it once more there; otherwise give up on it.
+void PreambleDetector::reject_candidate() noexcept {
+    if (alt_available_) {
+        alt_available_ = false;
+        ++stats_.retries;
+        track_from_earliest_ = static_cast<double>(alt_start_) - cand_chip0_ >= 4;  // two chips: a separate arrival
+        earliest_chip0_ = cand_chip0_;
+        earliest_fraction_ = cand_fraction_;
+        begin_candidate(alt_start_, alt_bin_);
+        return;
+    }
+    track_from_earliest_ = false;
+    if (state_ == State::Background) {
+        // Back to the background search. The ring was not written while the candidate was read,
+        // so clear it: stale peaks must not steer the walkback.
+        cand_pending_ = false;
+        metric_ring_.fill(0);
+        return;
+    }
+    back_to_search();
 }
 
 // ------------------------------------------------------------------ preamble
@@ -386,11 +503,21 @@ void PreambleDetector::try_read_preamble() noexcept {
         finish_tail();
         return;
     }
+    switch (read_preamble()) {
+        case Read::NotReady: break;
+        case Read::Rejected: reject_candidate(); break;
+        case Read::Locked: enter_lock(); break;
+    }
+}
+
+// Reads the downcount and waveform ID at the current timing and carrier and applies every
+// acquisition gate (the C# ReadPreamble). On Locked the read_ fields hold what it announced.
+PreambleDetector::Read PreambleDetector::read_preamble() noexcept {
     const auto need = [this](int super_frames) {
         return static_cast<std::int64_t>(std::ceil(chip0_ + (2.0 * chips_superframe * super_frames))) + (2 * interp_half) + 2;
     };
     // The whole matched super-frame plus interpolation margin.
-    if (stream_->written() < need(1)) return;
+    if (stream_->written() < need(1)) return Read::NotReady;
 
     if (!count_read_) {
         std::array<std::uint8_t, 4> count_dibits{};
@@ -400,8 +527,7 @@ void PreambleDetector::try_read_preamble() noexcept {
         const auto single = decode_count(count_dibits);
         if (!single) {
             ++stats_.rejected_count;
-            back_to_search();
-            return;
+            return Read::Rejected;
         }
         // The WID section repeats identically in every remaining super-frame, all of which
         // arrive before the data, so it and the downcount are soft-combined across them at no
@@ -411,7 +537,7 @@ void PreambleDetector::try_read_preamble() noexcept {
     }
 
     const int votes = votes_;
-    if (stream_->written() < need(votes)) return;  // wait for the vote span, still entirely pre-data
+    if (stream_->written() < need(votes)) return Read::NotReady;  // wait for the vote span, still entirely pre-data
 
     std::array<double, 5 * 4> wid_mags{};
     for (int v = 0; v < votes; ++v) {
@@ -442,8 +568,7 @@ void PreambleDetector::try_read_preamble() noexcept {
     const double vote_margin = margin_sum / 5;
     if (vote_margin < 0.20) {
         ++stats_.rejected_margin;
-        back_to_search();
-        return;
+        return Read::Rejected;
     }
 
     // Joint downcount vote over the same span: the field decrements per super-frame, so
@@ -479,8 +604,7 @@ void PreambleDetector::try_read_preamble() noexcept {
     const double count_margin = (best_score - second_score) / (best_score + 1e-9);
     if (count_margin < 0.10) {
         ++stats_.rejected_count_vote;
-        back_to_search();
-        return;
+        return Read::Rejected;
     }
     const int count = joint_count;
 
@@ -489,20 +613,39 @@ void PreambleDetector::try_read_preamble() noexcept {
     const bool supported = wid && ((wid->wn >= 0 && wid->wn <= 8) || wid->wn == 13) && has_interleaver_3k(wid->wn, wid->interleaver);
     if (!supported) {
         ++stats_.rejected_wid;
-        back_to_search();
-        return;
+        return Read::Rejected;
     }
+    read_count_ = count;
+    read_wn_ = wid->wn;
+    read_il_ = wid->interleaver;
+    read_k_ = wid->constraint_length;
+    return Read::Locked;
+}
+
+// The lock (the C# EnterTracking up to its carrier fit), then the tail fit.
+void PreambleDetector::enter_lock() noexcept {
+    const int count = read_count_;
+    if (track_from_earliest_) {
+        // C# issue 8: the strongest peak read the preamble; the equaliser starts on the earliest
+        // echo. Both lie inside one super-frame, so the count still holds, and the carrier fit
+        // below re-anchors the phase there.
+        track_from_earliest_ = false;
+        chip0_ = earliest_chip0_;
+        theta_base_ = 0;
+        timing_fraction_ = earliest_fraction_;
+    }
+    alt_available_ = false;
 
     // Known chips of the matched super-frame (downcount `count`), for the carrier fit.
     std::array<std::uint8_t, chips_superframe> known{};
-    superframe_chips(count, wid->wn, wid->interleaver, wid->constraint_length, known.data());
+    superframe_chips(count, read_wn_, read_il_, read_k_, known.data());
     refine_carrier(0, known.data(), chips_superframe);
 
     const std::int64_t data_start_chip = static_cast<std::int64_t>(chips_superframe) * (count + 1);
     PreambleDetection e;
-    e.waveform = wid->wn;
-    e.interleaver = wid->interleaver;
-    e.constraint_length = wid->constraint_length;
+    e.waveform = read_wn_;
+    e.interleaver = read_il_;
+    e.constraint_length = read_k_;
     e.superframes_after = count;
     e.chip0_t2 = chip0_;
     e.data_start_t2 = chip0_ + (2.0 * static_cast<double>(data_start_chip));
@@ -516,6 +659,13 @@ void PreambleDetector::try_read_preamble() noexcept {
     e.peak_metric = accepted_metric_;
     event_ = e;
     ++stats_.locks;
+
+    // C# issue 10: from the burst's data start the search runs on in the background.
+    shadow_from_ = static_cast<std::int64_t>(std::ceil(chip0_ + (2.0 * static_cast<double>(data_start_chip))));
+    cand_pending_ = false;
+    best_metric_ = 0;
+    best_start_ = -1;
+    metric_ring_.fill(0);
     tail_pending_ = true;
     finish_tail();
 }
@@ -564,11 +714,7 @@ void PreambleDetector::finish_tail() noexcept {
     // The input level, read with the first-fit carrier; the equaliser path then reads everything
     // through the gain it implies (the C# sets it before the re-fit).
     event_.input_level = estimate_input_level(data_start_chip);
-    const double level = event_.input_level;
-    float gain = 1.0f;
-    if (!(level <= 0 || level >= static_cast<double>(0.04f))) {
-        gain = static_cast<float>(std::min(static_cast<double>(0.12f) / level, static_cast<double>(32.0f)));
-    }
+    const float gain = level_gain(event_.waveform, event_.input_level);
     if (event_.waveform != 0) {
         event_.agc_gain = gain;
         agc_gain_ = gain;

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Thomas Fanning
 // SPDX-License-Identifier: AGPL-3.0-or-later
 // The preamble detector (issue 24) against the C# demodulator's own preamble search, whose
-// answers are committed in tests/data/csharp-detect-0.3.0.txt (tools/csharp-vectors, detect
+// answers are committed in tests/data/csharp-detect-0.4.1.txt (tools/csharp-vectors, detect
 // mode): every reference case, seeded impaired scenarios (carrier offset, fractional delay,
 // noise) and noise-only streams for false alarms. Plus the transmitted parameters, chunking,
 // state handling and that nothing allocates.
@@ -86,7 +86,8 @@ bool agrees(const DumpLine& l, const Run& r, Agreement& a, std::string& why) {
     bool ok = true;
     if ((r.stats.locks > 0) != (l.integer(l.result, "locked") != 0)) { why += " locked"; ok = false; }
     if (r.stats.peaks_accepted != l.integer(l.result, "peaks")) { why += " peaks"; ok = false; }
-    const std::int64_t rej = r.stats.rejected_count + r.stats.rejected_margin + r.stats.rejected_wid;
+    // The C# counts its reject@ diagnostics, which since 0.4.0 include the joint downcount vote.
+    const std::int64_t rej = r.stats.rejected_count + r.stats.rejected_margin + r.stats.rejected_count_vote + r.stats.rejected_wid;
     if (rej != l.integer(l.result, "rejects")) { why += " rejects"; ok = false; }
     if (std::abs(r.stats.peak_search_metric - l.real(l.result, "peakmetric")) > 1e-9) { why += " peakmetric"; ok = false; }
     if (cs_det) {
@@ -530,6 +531,7 @@ TEST_CASE("preamble detector: a default constructed detector detects at the defa
     REQUIRE(det.take_detection(e));
     CHECK(e.waveform == 3);
     CHECK(e.interleaver == InterleaverKind::Medium);
-    CHECK(e.agc_gain == 1.0f);
+    // The C# rule since 0.4.1 (its issue 17): WN 3 is scaled to a level of 0.5, up or down.
     CHECK(e.input_level > 0.04);
+    CHECK(e.agc_gain == static_cast<float>(std::min(0.5 / e.input_level, 256.0)));
 }

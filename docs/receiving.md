@@ -84,7 +84,7 @@ bool feed(Receiver& rx, std::span<const float> chunk) {
 }
 ```
 
-`BurstCompleted::reason` is why it ended: `Eom` (the normal way), `MaxInputDataBlocks`, `Terminated` (you called `terminate()`), `SignalLost`, or `SignalAbsent` (the mini-probes looked like noise for 16 s). `reset()` goes back to the start of a stream; `state()` is `Searching`, `ReadingPreamble` or `Tracking`; `carrier_detect()` is true from a preamble peak until the burst ends.
+`BurstCompleted::reason` is why it ended: `Eom` (the normal way), `MaxInputDataBlocks`, `Terminated` (you called `terminate()`), `SignalLost`, `SignalAbsent` (the mini-probes looked like noise for 16 s), or `NewPreamble` (a new transmission started while this one was still being received, so the receiver let go of it to receive the new one). `reset()` goes back to the start of a stream; `state()` is `Searching`, `ReadingPreamble` or `Tracking`; `carrier_detect()` is true from a preamble peak until the burst ends.
 
 ## Memory
 

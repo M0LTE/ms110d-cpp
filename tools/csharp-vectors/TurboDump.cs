@@ -4,7 +4,7 @@
 // Dumps what the shipped C# receiver (turbo on) does with whole bursts, for the C++ turbo stage,
 // MFB decoder and probe pattern tests (docs/dev/dfe-receiver.md):
 //   rx-turbo   <ref-dir>   every WN 1 to 8 and 13 reference case, every interleaver
-//                          -> tests/data/csharp-rx-turbo-0.3.0.txt
+//                          -> tests/data/csharp-rx-turbo-0.4.1.txt
 //   rx-corpus  <out-stem>  fresh bursts, never committed (scripts/generate-rx-corpus.sh): the
 //                          Poor channel (M0LTE.HfChannel) on every equaliser mode, and bursts
 //                          sent with the D.5.2.2 standard probe pattern through the C#
@@ -305,7 +305,7 @@ static class TurboDump
     public static string Clean(string refDir)
     {
         var sb = new StringBuilder();
-        sb.Append("# Dumped from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (rx-turbo mode): the shipped demodulator (turbo on) on every\n");
+        sb.Append("# Dumped from M0LTE.Ms110d 0.4.1 by tools/csharp-vectors (rx-turbo mode): the shipped demodulator (turbo on) on every\n");
         sb.Append("# WN 1 to 8 and 13 reference case, fed in chunks of 2400 with 9600 zero samples after. Format in TurboDump.cs.\n");
         foreach (string name in File.ReadAllLines(Path.Combine(refDir, "index.txt"))
                      .Where(l => l.StartsWith("case=wn", StringComparison.Ordinal) && !l.StartsWith("case=wn0_", StringComparison.Ordinal))
@@ -434,7 +434,7 @@ static class TurboDump
     public static void Corpus(string stem)
     {
         var text = new StringBuilder();
-        text.Append("# Generated from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (rx-corpus mode); see TurboDump.cs. Each burst: its audio in the\n");
+        text.Append("# Generated from M0LTE.Ms110d 0.4.1 by tools/csharp-vectors (rx-corpus mode); see TurboDump.cs. Each burst: its audio in the\n");
         text.Append("# .i16le file (1.0 = 8192, the C# ran on the same quantised audio), the payload sent, then the shipped receiver's results.\n");
         using var bin = new FileStream(stem + ".i16le", FileMode.Create);
         long offset = 0;

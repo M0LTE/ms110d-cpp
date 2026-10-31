@@ -108,6 +108,9 @@ struct PreambleSearchStats {
     std::int64_t rejected_wid = 0;       // waveform ID failed its checksum or names no defined mode
     std::int64_t locks = 0;              // waveform ID decoded (the C# lock), before the final carrier fit
     std::int64_t detections = 0;         // events: the lock plus the final carrier fit
+    std::int64_t retries = 0;            // rejected reads read again at the strongest peak (C# issue 8)
+    std::int64_t background_candidates = 0;  // peaks read while a burst was being received (C# issue 10)
+    std::int64_t new_preambles = 0;      // background reads that passed every gate
     double peak_search_metric = 0;       // highest metric seen
 };
 
@@ -160,6 +163,17 @@ public:
     // Looks for the next preamble from here (the C# BackToSearch: the front end carries on).
     void resume_search() noexcept;
 
+    // While a burst is received (after take_detection()) the search runs on in the background from
+    // the burst's data start, as the C# does since 0.4.0 (its issue 10). The driver calls
+    // background_step() once per T/2 sample after the burst's own stage, while the burst is still
+    // on; true means a new preamble passed every gate and the burst should be let go of
+    // (BurstEndReason::NewPreamble). When the burst ends, for that or any other reason,
+    // end_burst() sends the detector back to the search, or, unless the burst was terminated,
+    // straight into the live read of a candidate it was reading in the background, so its
+    // first super-frames are not missed.
+    bool background_step() noexcept;
+    void end_burst(bool terminated) noexcept;
+
     bool searching() const noexcept { return state_ == State::Searching; }
     // True between the lock (the waveform ID decoded, stats().locks counted) and the detection,
     // while the final carrier fit waits for the samples up to the data start; lock_info() then
@@ -179,14 +193,21 @@ public:
     }
 
 private:
-    enum class State { Searching, ReadingPreamble, Detected, Idle };
+    enum class State { Searching, ReadingPreamble, Detected, Background };
+    enum class Read { NotReady, Rejected, Locked };
 
     using ComplexF = dsp::ComplexF;
 
     void search_step() noexcept;
     double metric(std::int64_t s, int bin, double energy, ComplexF* segments) const noexcept;
     void accept_peak() noexcept;
+    void begin_candidate(std::int64_t s, int bin) noexcept;
+    void load_candidate() noexcept;
+    void start_live_read() noexcept;
+    void reject_candidate() noexcept;
     void try_read_preamble() noexcept;
+    Read read_preamble() noexcept;
+    void enter_lock() noexcept;
     void back_to_search() noexcept;
     void refine_carrier(int base_chip, const std::uint8_t* known_chips, int chip_count) noexcept;
     static void superframe_chips(int count, int wn, InterleaverKind il, int k, std::uint8_t* out) noexcept;
@@ -224,6 +245,33 @@ private:
     bool tail_pending_ = false;
     int votes_ = 0;
     float agc_gain_ = 1.0f;  // applied to reads in the equaliser path's re-fit
+    // What the last successful read announced.
+    int read_count_ = 0;
+    int read_wn_ = 0;
+    InterleaverKind read_il_ = InterleaverKind::Short;
+    int read_k_ = 7;
+
+    // The candidate under read: timing and carrier kept apart from the reading state, so one found
+    // in the background can be read again live when the burst is let go of.
+    double cand_chip0_ = 0;
+    double cand_omega_ = 0;
+    double cand_cfo_hz_ = 0;
+    double cand_coarse_bin_hz_ = 0;
+    double cand_fraction_ = 0;
+    // C# issue 8: the walkback moves a candidate to the earliest echo. When that read is rejected
+    // and the strongest peak was elsewhere, it is read once more there. If that read locks and the
+    // earliest candidate was a separate arrival (at least 4 T/2 samples, two chips, earlier), the
+    // burst is still tracked from the earliest one, where the equaliser wants its cursor.
+    bool alt_available_ = false;
+    std::int64_t alt_start_ = 0;
+    int alt_bin_ = 0;
+    bool track_from_earliest_ = false;
+    double earliest_chip0_ = 0;
+    double earliest_fraction_ = 0;
+    // C# issue 10: the background search starts at the locked burst's data start (a T/2
+    // position); cand_pending_ means a candidate it found is being read.
+    std::int64_t shadow_from_ = 0;
+    bool cand_pending_ = false;
 
     PreambleDetection event_{};
     PreambleSearchStats stats_{};

@@ -53,6 +53,7 @@ const char* reason_name(BurstEndReason r) {
         case BurstEndReason::Terminated: return "Terminated";
         case BurstEndReason::SignalLost: return "SignalLost";
         case BurstEndReason::SignalAbsent: return "SignalAbsent";
+        case BurstEndReason::NewPreamble: return "NewPreamble";
     }
     return "Unknown";
 }

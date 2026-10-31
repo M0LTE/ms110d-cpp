@@ -1,4 +1,4 @@
-# Dumped from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (wn0 mode): the real demodulator on each WN 0 reference case's audio.
+# Dumped from M0LTE.Ms110d 0.4.1 by tools/csharp-vectors (wn0 mode): the real demodulator on each WN 0 reference case's audio.
 # start: the burst's start as read from the demodulator at its first Walsh symbol. sym: global symbol number, winning di-bit,
 # the two soft values (first pass, wire order) and, for the first 12 symbols of a case, the 13 finger gain magnitudes (3 decimals).
 case wn0_short_k7_s1_p100 locked 1 blocks 4

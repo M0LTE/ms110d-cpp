@@ -142,7 +142,7 @@ static class MaskDump
         int threads = int.TryParse(Environment.GetEnvironmentVariable("MS110D_MASK_THREADS"), out int t) ? Math.Max(1, t) : 2;
 
         var text = new StringBuilder();
-        text.Append("# Generated from M0LTE.Ms110d 0.3.0 and M0LTE.HfChannel by tools/csharp-vectors (masks mode), see docs/dev/masks.md.\n");
+        text.Append("# Generated from M0LTE.Ms110d 0.4.1 and M0LTE.HfChannel by tools/csharp-vectors (masks mode), see docs/dev/masks.md.\n");
         text.Append($"point {p.Id} profile {profile} channel {p.Kind.ToString().ToLowerInvariant()} wn {p.Wn} snr_db {R(p.SnrDb)} " +
                     $"interleaver long payload_bits {payloadBits} bursts {bursts} burst_seconds {R(burstSeconds)} scale {R(Scale)}\n");
         using var audioFile = new FileStream(Path.Combine(dir, p.Id + ".i16le"), FileMode.Create);

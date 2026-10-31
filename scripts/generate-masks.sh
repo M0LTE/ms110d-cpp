@@ -1,7 +1,7 @@
 #!/bin/sh
 # Generates the performance mask audio the mask tests decode (docs/dev/masks.md): for each point of Table
 # D-LXIV (AWGN and Poor channel, 3 kHz) and the D-LXV three path static channel, bursts through M0LTE.HfChannel
-# and what the C# 0.3.0 demodulator does with them. Made by tools/csharp-vectors (masks mode), never committed.
+# and what the C# 0.4.1 demodulator does with them. Made by tools/csharp-vectors (masks mode), never committed.
 # Usage: scripts/generate-masks.sh [--force] [--profile ci|long] [cache-dir] [point-id ...]
 # The files land in <cache-dir>/masks-<profile>/<id>.{txt,i16le,bits}; the default cache-dir is build/_reference and
 # the default profile is ci (370,000 bits per point, 640 to 1300 s of audio, about 350 MiB in all). The long profile is the

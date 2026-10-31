@@ -1,6 +1,6 @@
 #!/bin/sh
 # Generates the Poor channel WN 0 corpus the receiver tests compare against: bursts through
-# M0LTE.HfChannel's Poor channel, their audio as 16 bit samples, and what the C# 0.3.0
+# M0LTE.HfChannel's Poor channel, their audio as 16 bit samples, and what the C# 0.4.1
 # demodulator does with them. Made by tools/csharp-vectors (wn0-poor mode), never committed
 # (about 3 MiB). Usage: scripts/generate-wn0-poor.sh [--force] [cache-dir]
 # The files land in <cache-dir>/wn0-poor.txt and wn0-poor.i16le; the default cache-dir is

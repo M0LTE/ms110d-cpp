@@ -4,7 +4,7 @@
 
 // The equaliser receive path for waveforms 1 to 8 and 13: everything the C# Ms110dDemodulator
 // does after the preamble detector has handed over a burst, up to the decoded blocks and the end
-// of the burst. Ported from M0LTE.Ms110d 0.3.0, step for step:
+// of the burst. Ported from M0LTE.Ms110d 0.4.1, step for step:
 //
 //   InitializeDfe   tap counts and ridges per probe length, the least-squares solve over the
 //                   last preamble super-frame and the first mini-probe, RLS seeding, the probe
@@ -127,7 +127,7 @@ struct DfeStart {
 DfeStart dfe_start_from_detection(const PreambleDetection& detection) noexcept;
 
 // Why a burst ended (the C# Ms110dBurstEndReason, the values that can arise here).
-enum class DfeEndReason { Eom, MaxInputDataBlocks, SignalLost, SignalAbsent, Terminated };
+enum class DfeEndReason { Eom, MaxInputDataBlocks, SignalLost, SignalAbsent, Terminated, NewPreamble };
 
 // What one frame did: the C# FrameDiagnostics point, for tests and diagnostics.
 struct DfeFrameTrace {
@@ -238,6 +238,9 @@ public:
     // The terminate command: ends an active burst now (BurstEnded, reason Terminated, with every
     // bit decoded so far as the payload), as the C# does on the next sample after Terminate().
     void terminate() noexcept;
+    // Lets go of an active burst now because a new preamble was found while it was locked (the C#
+    // CompleteBurst(NewPreamble), C# issue 10): reason NewPreamble, every bit so far the payload.
+    void release_for_new_preamble() noexcept;
 
     // For the stream's driver: a new T/2 sample has been pushed. Tracks the burst, if one is
     // active; an event may then be pending.

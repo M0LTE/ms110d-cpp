@@ -72,7 +72,7 @@ _Static_assert(MS110D_RX_EVENT_NONE == 0 && MS110D_RX_EVENT_BURST_STARTED == 1 &
                    MS110D_RX_EVENT_TURBO_SOFT == 5 && MS110D_RX_EVENT_BURST_REFUSED == 6,
                "event kinds");
 _Static_assert(MS110D_END_EOM == 0 && MS110D_END_MAX_INPUT_DATA_BLOCKS == 1 && MS110D_END_TERMINATED == 2 &&
-                   MS110D_END_SIGNAL_LOST == 3 && MS110D_END_SIGNAL_ABSENT == 4,
+                   MS110D_END_SIGNAL_LOST == 3 && MS110D_END_SIGNAL_ABSENT == 4 && MS110D_END_NEW_PREAMBLE == 5,
                "end reasons");
 _Static_assert(MS110D_RX_STATE_SEARCHING == 0 && MS110D_RX_STATE_READING_PREAMBLE == 1 && MS110D_RX_STATE_TRACKING == 2,
                "states");

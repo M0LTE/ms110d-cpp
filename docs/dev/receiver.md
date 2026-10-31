@@ -4,7 +4,7 @@
 
 ## What it composes
 
-One shared front end and ring (`src/rx_stream.hpp`, below) feeds the internal stages: the preamble detector (docs/dev/preamble-detector.md), the WN 0 receiver (docs/dev/wn0-receiver.md) and the equaliser path with its turbo, salvage and MFB stages (docs/dev/dfe-receiver.md). The receiver drives them a T/2 sample at a time in the order of the C# `PushT2`: the terminate command first, then the detector (its running energies always, the search while searching), then the burst's stage. Around them it does what the C# does around its stages: the lock (the C# `Lock` becomes set and the search stops), the hand-over at the detection, the WN 0 block end (decode, EOM scan over the burst's bits, block limit), the terminate command and the return to the search after every end.
+One shared front end and ring (`src/rx_stream.hpp`, below) feeds the internal stages: the preamble detector (docs/dev/preamble-detector.md), the WN 0 receiver (docs/dev/wn0-receiver.md) and the equaliser path with its turbo, salvage and MFB stages (docs/dev/dfe-receiver.md). The receiver drives them a T/2 sample at a time in the order of the C# `PushT2`: the terminate command first, then the detector (its running energies always, the search while searching), then the burst's stage. Around them it does what the C# does around its stages: the lock (the C# `Lock` becomes set), the hand-over at the detection, the WN 0 block end (decode, EOM scan over the burst's bits, block limit), the terminate command and the return to the search after every end. While a burst is received the detector searches on in the background after the burst's stage on every sample (the C# `ShadowStep`, C# issue 10); when it finds a preamble that passes every gate the burst ends with `NewPreamble` and the new one is read at once, so a burst that lost its EOM no longer deafens the receiver to the next transmission.
 
 ## Probe pattern (issue 68)
 
@@ -28,7 +28,7 @@ The detector and the equaliser path read the same single precision samples as be
 | `FirstPassSoft` | `FirstPassBlockLlrs` | block index, soft values (wire order, positive for 0); only with `soft_decisions` |
 | `TurboSoft` | `TurboBlockLlrs` | block index, the last turbo iterate's soft values; only with `soft_decisions`, only when the turbo loop ran and was not aborted |
 | `BlockDecoded` | `BlockDecoded` | block index, info bits |
-| `BurstCompleted` | `BurstCompleted` | reason (the C# `Ms110dBurstEndReason`, same values), blocks, payload length |
+| `BurstCompleted` | `BurstCompleted` | reason (the C# `Ms110dBurstEndReason`, same values, `NewPreamble` included), blocks, payload length |
 | `BurstRefused` | none (the C# accepts every interleaver) | waveform, interleaver, K, carrier offset of a burst whose interleaver is longer than `max_interleaver` |
 
 Every event has `sample`, the input samples taken when it was raised, and the burst's waveform, interleaver, K and carrier offset. The payload is the burst's block bits in order cut to `payload_bits` (the C# `PayloadBits`: bits before the EOM, or all of them without one); it is not repeated in the completed event. The spans point into the receiver and stay valid until the next `process()` or `reset()`.
@@ -62,10 +62,10 @@ Nothing is allocated, ever, and nothing throws: all memory is the block given to
 
 | `max_interleaver` | Ring | Equaliser path | Viterbi | SISO | Total |
 | --- | --- | --- | --- | --- | --- |
-| Ultra-short | 128 KiB | 289 KiB | 30 KiB | 771 KiB | 1430848 bytes (1.4 MiB) |
-| Short | 128 KiB | 668 KiB | 102 KiB | 3.0 MiB | 4251728 bytes (4.1 MiB) |
-| Medium | 128 KiB | 2.1 MiB | 390 KiB | 12.0 MiB | 15535232 bytes (14.8 MiB) |
-| Long | 512 KiB | 8.0 MiB | 1.5 MiB | 48.0 MiB | 61062464 bytes (58.2 MiB) |
+| Ultra-short | 128 KiB | 289 KiB | 30 KiB | 771 KiB | 1430976 bytes (1.4 MiB) |
+| Short | 128 KiB | 668 KiB | 102 KiB | 3.0 MiB | 4251856 bytes (4.1 MiB) |
+| Medium | 128 KiB | 2.1 MiB | 390 KiB | 12.0 MiB | 15535360 bytes (14.8 MiB) |
+| Long | 512 KiB | 8.0 MiB | 1.5 MiB | 48.0 MiB | 61062592 bytes (58.2 MiB) |
 
 (double build; the chain BCJR is 17 KiB in each.) The SISO decoder's forward metrics for a whole block dominate, as docs/dev/soft-decoders.md says; windowing it for a microcontroller is issue 44. The decoders now take caller storage (`storage_bytes()` and `configure()` on each, allocating nothing); the allocating constructors remain for the tests. Only one burst is decoded at a time, so there is one Viterbi and one SISO, set up for the burst's code at each detection in storage sized for K = 9, where the internal equaliser path had a pair for each code: that saves the K = 7 pair (about 0.8 MiB with the short interleaver).
 

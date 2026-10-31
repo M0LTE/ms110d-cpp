@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Thomas Fanning
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Dumps the soft decoders of the C# reference (M0LTE.Ms110d 0.3.0 and the M0LTE.Fec it pulls
-// in) for tests/data/csharp-soft-0.3.0.txt. Run from the repo root:
-//   dotnet run -c Release --project tools/csharp-vectors -- soft > tests/data/csharp-soft-0.3.0.txt
+// Dumps the soft decoders of the C# reference (M0LTE.Ms110d 0.4.1 and the M0LTE.Fec it pulls
+// in) for tests/data/csharp-soft-0.4.1.txt. Run from the repo root:
+//   dotnet run -c Release --project tools/csharp-vectors -- soft > tests/data/csharp-soft-0.4.1.txt
 // TailBitingViterbiDecoder, TailBitingSisoDecoder and TailBitingEncoder are public. Ms110dBcjr
 // and Ms110dChainBcjr are internal and take spans, which reflection cannot pass, so they are
 // called through a DynamicMethod that skips visibility checks and converts arrays to spans.
@@ -88,7 +88,7 @@ internal static class SoftDump
     {
         var sb = new StringBuilder();
         void Emit(string l) => sb.Append(l).Append('\n');
-        Emit("# Soft decoder vectors from M0LTE.Ms110d 0.3.0 (tools/csharp-vectors, soft mode). Generator: see tools/csharp-vectors/SoftDump.cs.");
+        Emit("# Soft decoder vectors from M0LTE.Ms110d 0.4.1 (tools/csharp-vectors, soft mode). Generator: see tools/csharp-vectors/SoftDump.cs.");
         var codes = new[] { ("K7", ConvolutionalCode.K7), ("K9", ConvolutionalCode.K9) };
 
         Emit("# DEC: code n variant sigma seed in-fnv viterbi-bits-hex siso-posteriors-hex-floats");

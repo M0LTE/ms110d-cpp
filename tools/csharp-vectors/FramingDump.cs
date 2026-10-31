@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Dumps the C# waveform ID and downcount di-bits for every input, for
-// tests/data/csharp-framing-0.3.0.txt. Run from the repo root:
-//   dotnet run -c Release --project tools/csharp-vectors -- framing > tests/data/csharp-framing-0.3.0.txt
+// tests/data/csharp-framing-0.4.1.txt. Run from the repo root:
+//   dotnet run -c Release --project tools/csharp-vectors -- framing > tests/data/csharp-framing-0.4.1.txt
 // PreambleGenerator.EncodeWid and EncodeCount are internal, so they are called through
 // reflection on the real methods; the dump holds what the C# computes.
 
@@ -16,7 +16,7 @@ static class FramingDump
     public static string Run()
     {
         var sb = new StringBuilder();
-        sb.Append("# Dumped from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (framing mode): PreambleGenerator.EncodeWid and EncodeCount.\n");
+        sb.Append("# Dumped from M0LTE.Ms110d 0.4.1 by tools/csharp-vectors (framing mode): PreambleGenerator.EncodeWid and EncodeCount.\n");
         BindingFlags flags = BindingFlags.NonPublic | BindingFlags.Static;
         MethodInfo wid = typeof(PreambleGenerator).GetMethod("EncodeWid", flags)!;
         MethodInfo count = typeof(PreambleGenerator).GetMethod("EncodeCount", flags)!;

@@ -13,7 +13,7 @@
 
 using namespace m0lte;
 
-// Exact vectors from the C# reference, M0LTE.Ms110d 0.3.0 (which pulls in M0LTE.Fec), made
+// Exact vectors from the C# reference, M0LTE.Ms110d 0.4.1 (which pulls in M0LTE.Fec), made
 // with: dotnet run -c Release --project tools/csharp-vectors -- fec > fec.txt, then
 // python3 tools/csharp-vectors/make_fec_inc.py fec.txt > tests/fec_vectors.inc. The program
 // calls TailBitingEncoder.Encode, Ms110dPuncture.Get and Ms110dPuncture.Apply. Payload bits

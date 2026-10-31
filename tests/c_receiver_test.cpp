@@ -89,6 +89,7 @@ const char* reason_name(int32_t r) {
         case MS110D_END_TERMINATED: return "Terminated";
         case MS110D_END_SIGNAL_LOST: return "SignalLost";
         case MS110D_END_SIGNAL_ABSENT: return "SignalAbsent";
+        case MS110D_END_NEW_PREAMBLE: return "NewPreamble";
         default: return "?";
     }
 }

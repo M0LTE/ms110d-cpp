@@ -14,7 +14,7 @@ namespace Ms110dInterop.Tests;
 // a failure). The C++ receiver (through the C interface) is then held to the layer 4 rule against
 // the pinned C# receiver's own decode of the same audio, on every burst. The audio is of
 // standard-pattern transmissions (corpus-v2) and the manifests' "expected" results were recorded
-// with the pinned C# 0.3.0, so on an unchanged pin the live C# decode equals them; the comparison
+// with the pinned C# 0.4.1, so on an unchanged pin the live C# decode equals them; the comparison
 // is still made against the live C# so that a pin move shows up as a reported difference (issue 68).
 public class CorpusTests(ITestOutputHelper output)
 {
@@ -45,19 +45,21 @@ public class CorpusTests(ITestOutputHelper output)
     public void CommittedSetMatchesItsManifest() => Check(CommittedDir(), minGoodFrames: 7);
 
     [Fact]
-    public void FetchedCorpusMatchesItsManifest() => Check(FetchedDir(), minGoodFrames: 234);
+    public void FetchedCorpusMatchesItsManifest() => Check(FetchedDir(), minGoodFrames: 248);
 
-    // The pinned C# receiver's decode of every burst, with the manifest's recorded result beside it.
-    static List<(JsonElement Burst, Expect Live)> LiveReference(string dir, JsonDocument doc)
+    // The pinned C# receiver's decode of every recording, with the manifest's recorded result beside it: every
+    // burst it finds, in order (the second and later get "#n" on the id). A recording can hold more bursts than
+    // the manifest records when a newer pin finds them: since 0.4.0 the C# lets go of a burst when a new preamble
+    // passes every gate while it is locked (its issue 10), so a dropout can split a recording in two.
+    static List<(JsonElement Burst, List<Expect> Live)> LiveReference(string dir, JsonDocument doc)
     {
-        var live = new List<(JsonElement, Expect)>();
+        var live = new List<(JsonElement, List<Expect>)>();
         foreach (JsonElement b in doc.RootElement.GetProperty("bursts").EnumerateArray())
         {
             string id = b.GetProperty("id").GetString()!;
             var got = CorpusDecode.Run(CorpusDecode.ReadWav(Path.Combine(dir, b.GetProperty("file").GetString()!)));
-            Assert.True(got.Count == b.GetProperty("expected").GetArrayLength(),
-                $"{id}: {got.Count} bursts decoded, manifest says {b.GetProperty("expected").GetArrayLength()}");
-            live.Add((b, Expect.From(id, got[0])));
+            Assert.True(got.Count > 0, $"{id}: the pinned C# receiver found no burst");
+            live.Add((b, got.Select((f, i) => Expect.From(i == 0 ? id : $"{id}#{i}", f)).ToList()));
         }
 
         return live;
@@ -80,8 +82,14 @@ public class CorpusTests(ITestOutputHelper output)
         // The rest of the recorded result was made with the C# pin current when the corpus was made; how far
         // the pinned C# is from it (nothing, on an unchanged pin) is reported, not asserted.
         int same = 0, goodRecorded = 0, goodNow = 0;
-        foreach (var (b, now) in LiveReference(dir, doc))
+        var countChanged = new List<string>();
+        foreach (var (b, all) in LiveReference(dir, doc))
         {
+            Expect now = all[0];
+            if (all.Count != b.GetProperty("expected").GetArrayLength())
+            {
+                countChanged.Add($"{now.Id} ({all.Count} bursts, {b.GetProperty("expected").GetArrayLength()} recorded)");
+            }
             JsonElement w = b.GetProperty("expected")[0];
             Assert.True(now.Wn == w.GetProperty("wn").GetInt32(), $"{now.Id}: waveform");
             Assert.True(now.Il == w.GetProperty("il").GetString(), $"{now.Id}: interleaver");
@@ -93,14 +101,15 @@ public class CorpusTests(ITestOutputHelper output)
         }
 
         string summary = $"layer 4, pinned C# receiver against the manifest: {bursts.GetArrayLength()} bursts, " +
-            $"good frames {goodNow} against {goodRecorded} recorded, same end reason, block count and good frames on {same}";
+            $"good frames {goodNow} against {goodRecorded} recorded, same end reason, block count and good frames on {same}, " +
+            $"burst count not as recorded on {countChanged.Count}{(countChanged.Count > 0 ? ": " + string.Join(", ", countChanged) : "")}";
         output.WriteLine(summary);
         Console.WriteLine(summary);
 
         // A floor on the reference itself: the C++ is held to the live C# decode, so a pin that decoded worse would
         // silently lower the bar for the C++. Raise the floor deliberately if a pin decodes better.
         Assert.True(goodNow >= minGoodFrames,
-            $"the pinned C# receiver decodes {goodNow} good frames on this corpus, below the floor of {minGoodFrames} (C# 0.3.0 on corpus-v2: 234; committed set: 7). " +
+            $"the pinned C# receiver decodes {goodNow} good frames on this corpus, below the floor of {minGoodFrames} (C# 0.4.1 on corpus-v2: 248, 0.3.0: 234; committed set: 7). " +
             "A pin that decodes worse lowers the bar the C++ is held to; investigate it. If a pin decodes better, raise the floor deliberately.");
     }
 
@@ -116,12 +125,22 @@ public class CorpusTests(ITestOutputHelper output)
     {
         using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(dir, "manifest.json")));
         var pairs = new List<(Expect Want, CorpusDecode.Found Got)>();
+        var extra = new List<string>();
         int wantFrames = 0, gotFrames = 0, sameEnd = 0, errorFree = 0, errorFreeSame = 0;
-        foreach (var (b, want) in LiveReference(dir, doc))
+        foreach (var (b, wants) in LiveReference(dir, doc))
         {
             var got = CppCorpusDecode.Run(CorpusDecode.ReadWav(Path.Combine(dir, b.GetProperty("file").GetString()!)));
-            CorpusDecode.Found first = got.Count > 0
-                ? got[0]
+            // Every burst the C# found against the C++'s burst at the same place in order; a missing one counts as
+            // no decode, and a C++ burst the C# did not find is a rule problem.
+            for (int i = wants.Count; i < got.Count; i++)
+            {
+                extra.Add($"{wants[0].Id}: C++ burst {i} ({got[i].Reason}, {got[i].Blocks} blocks) has no C# burst");
+            }
+            for (int i = 0; i < wants.Count; i++)
+            {
+            Expect want = wants[i];
+            CorpusDecode.Found first = i < got.Count
+                ? got[i]
                 : new CorpusDecode.Found(-1, -1, -1, "none", 0, 0, "None", 0, "", 0, "", 0, 0, 0);
             pairs.Add((want, first));
             wantFrames += want.GoodFrames;
@@ -135,9 +154,10 @@ public class CorpusTests(ITestOutputHelper output)
 
             output.WriteLine($"{want.Id}: C# wn={want.Wn} {want.Reason} blocks={want.Blocks} good={want.GoodFrames}; " +
                 $"C++ bursts={got.Count} wn={first.Wn} {first.Reason} blocks={first.Blocks} good={first.GoodFrames} crc_failures={first.CrcFailures}");
+            }
         }
 
-        List<string> problems = Layer4Rule.Evaluate(pairs);
+        List<string> problems = [.. Layer4Rule.Evaluate(pairs), .. extra];
         string summary = $"layer 4, C++ receiver against the pinned C# receiver: {pairs.Count} bursts, good frames {gotFrames} of the C#'s {wantFrames}, " +
             $"same end and block count on {sameEnd}, error-free payloads equal {errorFreeSame} of {errorFree}, rule problems {problems.Count}";
         output.WriteLine(summary);

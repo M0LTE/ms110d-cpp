@@ -185,6 +185,7 @@ const char* reason_name(DfeEndReason r) {
         case DfeEndReason::SignalLost: return "SignalLost";
         case DfeEndReason::SignalAbsent: return "SignalAbsent";
         case DfeEndReason::Terminated: return "Terminated";
+        case DfeEndReason::NewPreamble: return "NewPreamble";
     }
     return "?";
 }

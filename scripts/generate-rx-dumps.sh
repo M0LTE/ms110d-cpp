@@ -1,6 +1,6 @@
 #!/bin/sh
 # Generates the C# dumps the equaliser receive path's tests compare against, with tools/csharp-vectors,
-# never committed: what the C# 0.3.0 demodulator does with the WN 1 to 5 ultra-short and short
+# never committed: what the C# 0.4.1 demodulator does with the WN 1 to 5 ultra-short and short
 # reference cases (rx) and with seeded noisy and cut bursts (rx-awgn), both turbo off; the shipped
 # receiver on every WN 1 to 8 and 13 reference case (rx-turbo); and the corpus of Poor, Moderate and
 # shifted multipath bursts and standard probe pattern bursts with their audio (rx-corpus, about 8 MiB);

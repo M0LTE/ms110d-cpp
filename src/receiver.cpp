@@ -193,7 +193,7 @@ struct Receiver::Impl {
         e.payload_bits = payload_bits;
         push(e);
         phase = Phase::Searching;
-        detector.resume_search();
+        detector.end_burst(reason == BurstEndReason::Terminated);
     }
 
     // The terminate command, at the top of a T/2 sample as the C# PushT2. True if a burst ended,
@@ -309,6 +309,7 @@ struct Receiver::Impl {
                     case DfeEndReason::SignalLost: r = BurstEndReason::SignalLost; break;
                     case DfeEndReason::SignalAbsent: r = BurstEndReason::SignalAbsent; break;
                     case DfeEndReason::Terminated: r = BurstEndReason::Terminated; break;
+                    case DfeEndReason::NewPreamble: r = BurstEndReason::NewPreamble; break;
                 }
                 end_burst(r, end.blocks, end.payload_bits);
             }
@@ -405,10 +406,20 @@ struct Receiver::Impl {
             case Phase::Locked:
                 if (detector.has_detection()) on_detection();
                 break;
-            case Phase::Wn0: track_wn0(); break;
+            case Phase::Wn0:
+                track_wn0();
+                if (phase == Phase::Wn0 && detector.background_step()) {
+                    wn0.stop();
+                    end_burst(BurstEndReason::NewPreamble, block_index, burst_bits);
+                }
+                break;
             case Phase::Dfe:
                 dfe.on_t2();
                 collect_dfe();
+                if (phase == Phase::Dfe && detector.background_step()) {
+                    dfe.release_for_new_preamble();
+                    collect_dfe();
+                }
                 break;
         }
     }

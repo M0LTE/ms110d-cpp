@@ -5,7 +5,7 @@
 // The receive path: 9600 Hz audio in, decoded bursts out, for MIL-STD-188-110D Appendix D 3 kHz
 // bursts of every waveform (WN 0 to 8 and 13) and interleaver. It is the C# Ms110dDemodulator,
 // with the same options and the same defaults, and in the default (double) build it decodes the
-// same bits as the C# 0.3.0 receiver to the bit: preamble search and identification, the WN 0
+// same bits as the C# 0.4.1 receiver to the bit: preamble search and identification, the WN 0
 // Walsh receiver, the equaliser with its turbo, salvage and MFB stages, the soft decoders, the EOM
 // scan and every end of burst.
 //
@@ -66,6 +66,7 @@ enum class BurstEndReason : std::int32_t {
     Terminated = 2,          // terminate()
     SignalLost = 3,          // the signal disappeared mid-burst
     SignalAbsent = 4,        // the mini-probes were indistinguishable from noise for 16 s (not WN 0)
+    NewPreamble = 5,         // a new preamble was found while this burst was locked, so it was let go of
 };
 
 // The C# TurboNsegMode: how the turbo stage prices the noise per segment of a frame.
