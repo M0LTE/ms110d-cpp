@@ -27,6 +27,8 @@ CI runs the script on every PR and caches `build/_reference` keyed on `reference
 
 ## When the C# changes
 
+The weekly parity check (docs/dev/parity.md) notices a new C# release and reports how far the C++ is from it; these are the steps that follow.
+
 1. Release the C# change.
 2. Bump `reference/pin.txt`: `nuget_version`, `git_ref` and `git_sha` together (see above).
 3. Run `scripts/generate-reference.sh --force` and note the new tree hash.
