@@ -28,7 +28,7 @@ The two FEC decoders are in `m0lte::fec` and know nothing of MS110D. The BCJRs a
 
 ## Tests and tolerances
 
-`tests/soft_test.cpp` against `tests/data/csharp-soft-0.3.0.txt`, made by `dotnet run -c Release --project tools/csharp-vectors -- soft > tests/data/csharp-soft-0.3.0.txt`. The tool calls the public C# decoders; `Ms110dBcjr` and `Ms110dChainBcjr` are internal and take spans, so it reaches them through a `DynamicMethod` that skips visibility checks and converts arrays to spans.
+`tests/soft_test.cpp` against `tests/data/csharp-soft-0.4.1.txt`, made by `dotnet run -c Release --project tools/csharp-vectors -- soft > tests/data/csharp-soft-0.4.1.txt`. The tool calls the public C# decoders; `Ms110dBcjr` and `Ms110dChainBcjr` are internal and take spans, so it reaches them through a `DynamicMethod` that skips visibility checks and converts arrays to spans.
 
 Inputs are not stored. Both sides regenerate them from an integer xorshift32 generator (Gaussian noise as the sum of twelve 16 bit draws, exact in double, then only `+ - * /` on doubles), and each line carries an FNV-1a checksum of every input float's bits, so a generator that drifts fails as itself. The dump holds the outputs: decoded bits, SISO posteriors and BCJR LLRs as IEEE bits.
 

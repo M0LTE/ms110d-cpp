@@ -4,9 +4,9 @@
 // Dumps what the C# receiver does after the preamble for the equaliser waveforms (WN 1 and up),
 // for the C++ DfeReceiver's tests (docs/dev/dfe-receiver.md):
 //   rx       <ref-dir>   every WN 1 to 5 ultra-short and short reference case's audio through the
-//                        real demodulator -> tests/data/csharp-rx-0.3.0.txt
+//                        real demodulator -> tests/data/csharp-rx-0.4.1.txt
 //   rx-awgn  <ref-dir>   short-interleaver cases with seeded AWGN added (the generator the C++
-//                        test repeats) -> tests/data/csharp-rx-awgn-0.3.0.txt
+//                        test repeats) -> tests/data/csharp-rx-awgn-0.4.1.txt
 // Run from the repo root: dotnet run -c Release --project tools/csharp-vectors -- rx <ref-dir>
 //
 // Each burst is demodulated twice: with the turbo pass off (DisableTurbo, what the C++ port
@@ -243,7 +243,7 @@ static class RxDump
     public static string Clean(string refDir)
     {
         var sb = new StringBuilder();
-        sb.Append("# Dumped from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (rx mode): the real demodulator on each WN 1 to 5 ultra-short and short\n");
+        sb.Append("# Dumped from M0LTE.Ms110d 0.4.1 by tools/csharp-vectors (rx mode): the real demodulator on each WN 1 to 5 ultra-short and short\n");
         sb.Append("# reference case's audio (fed in chunks of 2400 samples), turbo off; see RxDump.cs. frame: index, first data chip, T/2 samples\n");
         sb.Append("# received, then the private tracking state after the frame (round-trip doubles), the presence statistic,\n");
         sb.Append("# three values from the diagnostic line (3 or 4 decimals) and an FNV-1a hash and the energy of the taps.\n");
@@ -291,7 +291,7 @@ static class RxDump
     public static string Awgn(string refDir)
     {
         var sb = new StringBuilder();
-        sb.Append("# Dumped from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (rx-awgn mode), turbo off unless stated; see RxDump.cs.\n");
+        sb.Append("# Dumped from M0LTE.Ms110d 0.4.1 by tools/csharp-vectors (rx-awgn mode), turbo off unless stated; see RxDump.cs.\n");
         sb.Append($"# Base signal: the reference case's audio with {LeadIn} zero samples before and {LeadOut} after, plus seeded Gaussian noise:\n");
         sb.Append("# sample = base + (float)(sigma * z), z from SplitMix64 + Box-Muller (Wn0Dump.SharedNoise), seed per trial.\n");
         sb.Append("# SNR is signal power over noise power in 3000 Hz: sigma^2 = P / 10^(snr/10) * 4800 / 3000, P = mean square of the base audio.\n");

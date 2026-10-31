@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Thomas Fanning
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Dumps what the C# demodulator's preamble search finds, for tests/data/csharp-detect-0.3.0.txt.
+// Dumps what the C# demodulator's preamble search finds, for tests/data/csharp-detect-0.4.1.txt.
 // Run from the repo root:
-//   dotnet run -c Release --project tools/csharp-vectors -- detect build/_reference/ref > tests/data/csharp-detect-0.3.0.txt
+//   dotnet run -c Release --project tools/csharp-vectors -- detect build/_reference/ref > tests/data/csharp-detect-0.4.1.txt
 //
 // The search is not a public type: it is the first stage of Ms110dDemodulator, which goes on to
 // demodulate the burst. The tool feeds one sample at a time and stops the moment the receiver
@@ -32,7 +32,7 @@ static class DetectDump
     public static string Run(string refDir)
     {
         var sb = new StringBuilder();
-        sb.Append("# Dumped from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (detect mode): the preamble search of Ms110dDemodulator.\n");
+        sb.Append("# Dumped from M0LTE.Ms110d 0.4.1 by tools/csharp-vectors (detect mode): the preamble search of Ms110dDemodulator.\n");
         sb.Append("# Doubles are round-trip text. 'at' is input samples used when the lock completed.\n");
 
         var cases = new List<string>();

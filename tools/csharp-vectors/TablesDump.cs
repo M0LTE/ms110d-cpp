@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Dumps the C# mode, interleaver, constant and constellation tables as text for
-// tests/data/csharp-tables-0.3.0.txt. Run from the repo root:
-//   dotnet run -c Release --project tools/csharp-vectors -- tables > tests/data/csharp-tables-0.3.0.txt
+// tests/data/csharp-tables-0.4.1.txt. Run from the repo root:
+//   dotnet run -c Release --project tools/csharp-vectors -- tables > tests/data/csharp-tables-0.4.1.txt
 // Everything comes from public types except the BPSK/QPSK/8PSK/16QAM bit-to-symbol
 // transcodes, which are private in Ms110dModulator; those are evaluated for every input
 // through reflection on the real method, so the dump holds what the C# computes.
@@ -23,7 +23,7 @@ static class TablesDump
         void Bytes(string n, ReadOnlySpan<byte> b) { sb.Append(n); foreach (var x in b) sb.Append(' ').Append(x); sb.Append('\n'); }
         void Cx(string n, Complex32[] c) { sb.Append(n); foreach (var x in c) sb.Append(' ').Append(F(x.Re)).Append(' ').Append(F(x.Im)); sb.Append('\n'); }
 
-        sb.Append("# Dumped from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (tables mode): Ms110dTables, Ms110dMode, Ms110dInterleaverParams, MiniProbe and the modulator's transcodes.\n");
+        sb.Append("# Dumped from M0LTE.Ms110d 0.4.1 by tools/csharp-vectors (tables mode): Ms110dTables, Ms110dMode, Ms110dInterleaverParams, MiniProbe and the modulator's transcodes.\n");
         sb.Append("eom ").Append(Ms110dTables.Eom).Append('\n');
         sb.Append("preamble_chips_per_symbol ").Append(Ms110dTables.PreambleChipsPerSymbol).Append('\n');
         sb.Append("symbol_rate ").Append(Ms110dTables.SymbolRate).Append('\n');

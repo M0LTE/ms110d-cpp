@@ -1,9 +1,9 @@
 // Copyright (C) 2026 Thomas Fanning
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Drives the C# Dfe (public in the 0.3.0 package) through scripted receive scenarios and dumps
-// its outputs as text, for tests/data/csharp-dfe-0.3.0.txt. Run from the repo root:
-//   dotnet run -c Release --project tools/csharp-vectors -- dfe [reference-dir] > tests/data/csharp-dfe-0.3.0.txt
+// Drives the C# Dfe (public in the 0.4.1 package) through scripted receive scenarios and dumps
+// its outputs as text, for tests/data/csharp-dfe-0.4.1.txt. Run from the repo root:
+//   dotnet run -c Release --project tools/csharp-vectors -- dfe [reference-dir] > tests/data/csharp-dfe-0.4.1.txt
 // The reference directory (default build/_reference/ref, made by scripts/generate-reference.sh)
 // supplies the real burst symbol streams of the "real" scenarios; the synthetic ones need nothing.
 //
@@ -830,7 +830,7 @@ static class DfeDump
     public static string Run(string refDir)
     {
         var sb = new StringBuilder();
-        sb.Append("# Dumped from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (dfe mode): the public Dfe driven through scripted receive scenarios. Floats are hex bits.\n");
+        sb.Append("# Dumped from M0LTE.Ms110d 0.4.1 by tools/csharp-vectors (dfe mode): the public Dfe driven through scripted receive scenarios. Floats are hex bits.\n");
 
         Scenario S(string name, int k, int u, int frames, int ff, int fb, int lead, float ir, float tr, float lambda,
                    double nv, ulong seed, int chan, string pass, bool extras = false) => new()

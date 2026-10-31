@@ -102,7 +102,7 @@ static class OptionsDump
     public static void Run(string refDir, string corpusStem, string outStem)
     {
         var sb = new StringBuilder();
-        sb.Append("# Dumped from M0LTE.Ms110d 0.3.0 by tools/csharp-vectors (rx-options mode); format in OptionsDump.cs.\n");
+        sb.Append("# Dumped from M0LTE.Ms110d 0.4.1 by tools/csharp-vectors (rx-options mode); format in OptionsDump.cs.\n");
         byte[] corpus = File.ReadAllBytes(corpusStem + ".i16le");
         int n = 0;
         foreach (string line in File.ReadLines(corpusStem + ".txt"))

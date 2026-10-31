@@ -402,6 +402,11 @@ void DfeReceiver::terminate() noexcept {
     end_burst(DfeEndReason::Terminated, burst_bits_);
 }
 
+void DfeReceiver::release_for_new_preamble() noexcept {
+    if (stream_ == nullptr || !active_) return;
+    end_burst(DfeEndReason::NewPreamble, burst_bits_);
+}
+
 DfeEvent DfeReceiver::event() const noexcept {
     if (pending_block_) return DfeEvent::BlockDecoded;
     if (pending_end_) return DfeEvent::BurstEnded;

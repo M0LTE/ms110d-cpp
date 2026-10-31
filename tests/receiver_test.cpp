@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // The public receiver (include/m0lte/ms110d/receiver.hpp), end to end: every reference case
-// through it against the C# 0.3.0 receiver (bit for bit in the default build) and against the
+// through it against the C# 0.4.1 receiver (bit for bit in the default build) and against the
 // internal path it is built on (bit for bit in both builds); chunk size independence; zero
 // allocation; several bursts in one stream; the options; and misuse. docs/dev/receiver.md.
 
@@ -184,6 +184,7 @@ const char* reason_name(BurstEndReason r) {
         case BurstEndReason::Terminated: return "Terminated";
         case BurstEndReason::SignalLost: return "SignalLost";
         case BurstEndReason::SignalAbsent: return "SignalAbsent";
+        case BurstEndReason::NewPreamble: return "NewPreamble";
     }
     return "?";
 }
@@ -584,6 +585,57 @@ TEST_CASE("receiver: bursts one after another in one stream, terminate, the bloc
         CHECK(first->blocks == 1);
         CHECK(payload_of(ev, 1) == p2);
         CHECK(payload_of(ev, 2) == p3);
+    }
+    SECTION("a new preamble ends a burst that lost its EOM, and the new burst decodes (C# issue 10)") {
+        // The first burst is cut half way, so its EOM never comes; the next starts a second later.
+        // The background search finds its preamble and the receiver lets go of the dead burst.
+        for (const int wn : {3, 0}) {
+            INFO("WN " << wn);
+            const auto [cut, pc] = burst(wn, InterleaverKind::Short, wn == 0 ? 600 : 4000, 6);
+            const auto [next, pn] = burst(wn, InterleaverKind::Short, wn == 0 ? 200 : 800, 7);
+            std::vector<float> s(3000, 0.0f);
+            s.insert(s.end(), cut.begin(), cut.begin() + static_cast<std::ptrdiff_t>(cut.size() / 2));
+            s.insert(s.end(), 9600, 0.0f);
+            s.insert(s.end(), next.begin(), next.end());
+            s.insert(s.end(), 9600, 0.0f);
+            Made m = make(RxOptions{});
+            const std::vector<Ev> ev = run(*m.rx, s);
+            REQUIRE(count(ev, RxEventKind::BurstCompleted) == 2);
+            CHECK(count(ev, RxEventKind::BurstStarted) == 2);
+            CHECK(find(ev, RxEventKind::BurstCompleted, 0)->reason == BurstEndReason::NewPreamble);
+            CHECK(find(ev, RxEventKind::BurstCompleted, 1)->reason == BurstEndReason::Eom);
+            CHECK(payload_of(ev, 1) == pn);
+            // Let go of in time to lock the new burst within 20 ms of the end of its three super-frame
+            // preamble, as a receiver that was searching would (the filter delay and the vote span).
+            CHECK(find(ev, RxEventKind::BurstCompleted, 0)->sample < find(ev, RxEventKind::BurstStarted, 1)->sample);
+            CHECK(find(ev, RxEventKind::BurstStarted, 1)->sample <
+                  static_cast<std::int64_t>(3000 + (cut.size() / 2) + 9600 + (3 * 576 * 4) + 192));
+        }
+    }
+    SECTION("a new preamble the receiver would refuse does not end the burst it is decoding") {
+        // The cut burst is followed by a long interleaver burst. Without a cap that preamble lets go
+        // of the dead burst; under a short cap it would only be refused, so the burst is kept.
+        const auto [cut, pc] = burst(3, InterleaverKind::Short, 4000, 8);
+        const auto [lng, pl] = burst(3, InterleaverKind::Long, 200, 9);
+        std::vector<float> s(3000, 0.0f);
+        s.insert(s.end(), cut.begin(), cut.begin() + static_cast<std::ptrdiff_t>(cut.size() / 2));
+        s.insert(s.end(), 9600, 0.0f);
+        s.insert(s.end(), lng.begin(), lng.end());
+        s.insert(s.end(), 9600, 0.0f);
+        Made all = make(RxOptions{});
+        const std::vector<Ev> ev_all = run(*all.rx, s);
+        REQUIRE(count(ev_all, RxEventKind::BurstCompleted) == 2);
+        CHECK(find(ev_all, RxEventKind::BurstCompleted, 0)->reason == BurstEndReason::NewPreamble);
+        CHECK(payload_of(ev_all, 1) == pl);
+        RxOptions o;
+        o.max_interleaver = InterleaverKind::Short;
+        Made capped = make(o);
+        const std::vector<Ev> ev = run(*capped.rx, s);
+        // The first burst is still held at the end of the audio: not let go of, and the long one not
+        // received (it is never locked live, so no refusal is raised either).
+        CHECK(count(ev, RxEventKind::BurstStarted) == 1);
+        CHECK(count(ev, RxEventKind::BurstCompleted) == 0);
+        CHECK(capped.rx->state() == RxState::Tracking);
     }
     SECTION("bursts with a longer interleaver than configured are refused with an event, the others decode") {
         const auto [l3, lp3] = burst(3, InterleaverKind::Long, 200, 4);

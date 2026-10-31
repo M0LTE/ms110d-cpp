@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Thomas Fanning
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// The turbo stage of the equaliser receive path (the C# Ms110dDemodulator, 0.3.0): the turbo
+// The turbo stage of the equaliser receive path (the C# Ms110dDemodulator, 0.4.1): the turbo
 // re-equalisation loop run at the end of each block (TurboReequalize, TurboReequalizeSoft and
 // TurboCore), the frozen-probe pass and the two salvage rungs for 8PSK (TurboFrozenProbePass,
 // TrySalvageRevert, TrySalvageRelock), and the block helpers they share. Only the shipped paths

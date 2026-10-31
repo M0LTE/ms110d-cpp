@@ -167,7 +167,8 @@ enum {
     MS110D_END_MAX_INPUT_DATA_BLOCKS = 1,
     MS110D_END_TERMINATED = 2,
     MS110D_END_SIGNAL_LOST = 3,
-    MS110D_END_SIGNAL_ABSENT = 4
+    MS110D_END_SIGNAL_ABSENT = 4,
+    MS110D_END_NEW_PREAMBLE = 5
 };
 enum {
     MS110D_RX_STATE_SEARCHING = 0,
@@ -240,6 +241,7 @@ enum class BurstEndReason : std::int32_t {
     Terminated = 2,
     SignalLost = 3,
     SignalAbsent = 4,
+    NewPreamble = 5,
 };
 enum class TurboNoisePricing : std::int32_t {
     SpikeUp = 0,

@@ -44,7 +44,7 @@ The receive tests are spread over several classes only so that xunit runs them i
 
 ## The C++ receiver
 
-`CppReceiver.cs` wraps `ms110d_rx_*` (declared in `Native.cs`) as audio in, bursts out, in the shape of the C# events. The layer 3 harness uses it as the C++ receiver endpoint and `CorpusTests` holds it to the layer 4 rule (docs/dev/corpus.md). It binds its entry points once in its static constructor, before any worker thread calls them.
+`CppReceiver.cs` wraps `ms110d_rx_*` (declared in `Native.cs`) as audio in, bursts out, in the shape of the C# events. The layer 3 harness uses it as the C++ receiver endpoint and `CorpusTests` holds it to the layer 4 rule (docs/dev/corpus.md). `AcquisitionTests` runs the C#'s acquisition scenarios (its issues 8, 9 and 10: the re-read at the strongest peak, a longer block after a shorter one, a wrong waveform ID, a new preamble during a burst that lost its EOM, long bursts that must not be let go of) through both receivers in 20 ms blocks, asserts what the C# tests assert on each and requires the same bursts from both. It binds its entry points once in its static constructor, before any worker thread calls them.
 
 ## Layer 3 cross-decoding
 

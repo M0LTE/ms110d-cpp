@@ -4,7 +4,7 @@ Issue 28, under epic 23. Code: `tests/interop/Layer3/`. It sends seeded bursts f
 
 Both transmitters send the D.5.2.2 standard pattern (the C# since 0.3.0, issue 68).
 
-The C++ receiver can beat the C# receiver here on a one-block ultra-short burst (the C# 0.3.0 receiver has the same standard-only pattern, but the two differ in detail). A pairing whose curve loses no more frames than the reference at any SNR is judged Pass in a cell (`Layer3Analysis.NeverWorse`), where a flat curve would otherwise read as a dead receiver; a curve that loses more frames still fails as before.
+The C++ receiver can beat the C# receiver here on a one-block ultra-short burst (the C# 0.4.1 receiver has the same standard-only pattern, but the two differ in detail). A pairing whose curve loses no more frames than the reference at any SNR is judged Pass in a cell (`Layer3Analysis.NeverWorse`), where a flat curve would otherwise read as a dead receiver; a curve that loses more frames still fails as before.
 
 ## What is measured
 
